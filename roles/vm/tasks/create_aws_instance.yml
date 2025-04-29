@@ -1,0 +1,108 @@
+---
+- name: Check AWS configuration
+  fail:
+    msg: |-
+      Did you remember to copy extra_vars.yml.example to extra_vars.yml
+          and configure it appropriately?
+  when:
+    - aws_secret_key is not defined
+
+- name: Create AWS EC2 instance/s
+  community.general.terraform:
+    project_path: "{{ (current_project_dir, 'roles/vm/terraform') | path_join }}"
+    state: present
+    force_init: true
+    complex_vars: true
+    variables:
+      aws:
+        access_key: "{{ aws_access_key }}"
+        secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        az1: "{{ aws_az1 }}"
+        az2: "{{ aws_az2 }}"
+        resource_owner: "{{ aws_resource_owner }}"
+        resource_prefix: "{{ aws_resource_prefix }}"
+        key_pair_name: "{{ aws_ssh_key_name }}"
+        key_pair_public_key: "{{ aws_ssh_public_key }}"
+        image_ami_account_number: "{{ aws_image_ami_account_number | default('amazon') }}"
+      cluster:
+        user: "{{ cluster.user }}"
+        user_home: "{{ cluster.user_home }}"
+        root_volume_size: "{{ cluster.root_volume_size }}"
+        image_arch: "{{ cluster.image_arch }}"
+        image_distro: "{{ cluster.image_distro }}"
+        image_distro_version: "{{ cluster.image_distro_version }}"
+        instance_type_cp: "{{ cluster.instance_type_cp }}"
+        instance_type_gpu: "{{ cluster.instance_type_gpu }}"
+        instance_type_nongpu: "{{ cluster.instance_type_nongpu }}"
+        num_cp_nodes: "{{ cluster.num_cp_nodes }}"
+        num_worker_nodes_gpu: "{{ cluster.num_worker_nodes_gpu }}"
+        num_worker_nodes_nongpu: "{{ cluster.num_worker_nodes_nongpu }}"
+        token: "{{ cluster.token }}"
+        version: "{{ cluster.version }}"
+  register: aws_ec2_create_result
+
+- name: Display resource creation output
+  debug:
+    msg: "{{ aws_ec2_create_result.outputs }}"
+
+- name: Setup vm_ip
+  set_fact:
+    vm_ip: "{{ aws_ec2_create_result.outputs.instance_public_ip.value }}"
+
+- name: Setup ami_id
+  set_fact:
+    ami_id: "{{ aws_ec2_create_result.outputs.ami_id.value }}"
+
+- name: Setup kubeapi_fqdn
+  set_fact:
+    kubeapi_fqdn: "{{ aws_ec2_create_result.outputs.kubeapi_fqdn.value }}"
+
+- name: Setup ingress_fqdn
+  set_fact:
+    ingress_fqdn: "{{ aws_ec2_create_result.outputs.ingress_fqdn.value }}"
+
+- name: Setup cluster control plane master node
+  set_fact:
+    cp_master:
+    - {"name": "private-ai", "hostname": "private-ai", "ip": "{{ aws_ec2_create_result.outputs.instance_public_ip.value }}" }
+
+- name: Setup cluster control plane other nodes
+  set_fact:
+    cp_others: "{{ cp_others | default([]) + [ {'name': name, 'hostname': name,  'ip': item } ] }}"
+  vars:
+    name: "private-ai-cp{{ ansible_loop.index }}"
+  loop: "{{ aws_ec2_create_result.outputs.instance_public_ip_cp_other.value }}"
+  loop_control:
+    extended: true
+
+- name: Setup cluster worker gpu nodes
+  set_fact:
+    worker_gpu: '{{ worker_gpu |default([]) +  [ {"name": name, "hostname": name, "ip": item } ] }}'
+  vars:
+    name: "private-ai-wkrgpu{{ ansible_loop.index }}"
+  loop: "{{ aws_ec2_create_result.outputs.instance_public_ip_worker_gpu.value }}"
+  loop_control:
+    extended: true
+
+- name: Setup cluster worker nongpu nodes
+  set_fact:
+    worker_nongpu: '{{ worker_nongpu |default([]) +  [ {"name": name, "hostname": name, "ip": item } ] }}'
+  vars:
+    name: "private-ai-wkr{{ ansible_loop.index }}"
+  loop: "{{ aws_ec2_create_result.outputs.instance_public_ip_worker_nongpu.value }}"
+  loop_control:
+    extended: true
+
+- name: Setup cluster nodes
+  set_fact:
+    cluster_nodes: "{{ cp_master + cp_others | default([]) + worker_gpu | default([]) + worker_nongpu | default([]) }}"
+
+- name: Display all cluster nodes
+  debug:
+    msg: "{{ cluster_nodes }}"
+
+- name: Display AMI id
+  debug:
+    msg: "{{ ami_id }}"
+

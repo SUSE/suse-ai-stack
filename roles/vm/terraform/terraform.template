@@ -1,0 +1,30 @@
+aws = {
+    access_key = "" # AWS access key used to create infrastructure
+    secret_key = "" # AWS secret key used to create infrastructure
+    region = "us-west-2" # AWS region used for all resources
+    az1 = "us-west-2a" # Availability zone 1 for subnet1
+    az2 = "us-west-2b" # Availability zone 2 for subnet2
+    resource_owner = "" # Resource owner identification - can be an email address 
+    resource_prefix = "" # Prefix of the resources that will be created under this module
+    key_pair_name = "" # Your AWS keypair name for the chosen AWS region. It must be created out-of-band.
+    key_pair_public_key = "" # The public portion of your AWS keypair
+    image_ami_account_number = "amazon"
+}
+
+
+cluster = {
+    user = "ec2-user"
+    user_home = "/home/ec2-user"
+    root_volume_size = 350
+    image_arch = "x86_64"
+    image_distro = "sle-micro"
+    image_distro_version = "6.0"
+    instance_type_cp = "g4dn.2xlarge" #g4dn instance type has GPU
+    instance_type_gpu = "g4dn.2xlarge" #g4dn instance type has GPU
+    instance_type_nongpu = "m5d.2xlarge"
+    num_cp_nodes = 1
+    num_worker_nodes_gpu = 0
+    num_worker_nodes_nongpu = 0
+    token = "ai-rke2token"
+    version = "v1.30.5+rke2r1"
+}

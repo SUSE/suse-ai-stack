@@ -1,0 +1,16 @@
+---
+
+_opensuse_distro: >-
+  {%- set _distro = (ansible_distribution | replace(' ', '_')) -%}
+  {%- set _dver = ansible_distribution_version -%}
+  {%- if _distro.endswith("Leap") -%}
+  {%-   set _distro = _distro ~ '_' ~ _dver -%}
+  {%- endif -%}
+  {{- _distro -}}
+
+suse_snap:
+  distro:
+    opensuse:
+      repo: "https://download.opensuse.org/repositories/system:/snappy/{{ _opensuse_distro }}/system:snappy.repo"
+      pkgs:
+        - snapd

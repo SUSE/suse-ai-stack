@@ -1,0 +1,34 @@
+---
+# tasks file for vm deletion
+- name: See if VM {{ vm_instance_name }} exist
+  become: true
+  community.libvirt.virt:
+    command: list_vms
+  register: list_vms_result
+
+- name: Print VMs
+  debug:
+    msg: "Current defined VMs: {{ list_vms_result.list_vms }}"
+
+- name: Shutdown VM {{ vm_instance_name }}
+  become: true
+  community.libvirt.virt:
+    name: "{{ vm_instance_name }}"
+    state: destroyed
+  when: vm_instance_name in list_vms_result.list_vms
+
+- name: Undefine VM {{ vm_instance_name }}
+  become: true
+  community.libvirt.virt:
+    name: "{{ vm_instance_name }}"
+    command: undefine
+  when: vm_instance_name in list_vms_result.list_vms
+
+- name: Wait till VM {{ vm_instance_name }} is deleted
+  become: true
+  community.libvirt.virt:
+    command: list_vms
+  register: list_vms_result
+  until: vm_instance_name not in list_vms_result.list_vms
+  retries: 10
+  delay: 10

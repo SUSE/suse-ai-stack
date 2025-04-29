@@ -1,0 +1,9 @@
+apiVersion: apps/v1
+kind: StatefulSet
+spec:
+  template:
+    spec:
+      hostAliases:
+      - ip: {{ ansible_default_ipv4.address }}
+        hostnames:
+        - {{ ollama_hostname }}

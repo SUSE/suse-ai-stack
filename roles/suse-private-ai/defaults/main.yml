@@ -1,0 +1,55 @@
+---
+
+ollama_hostname: suse-ollama
+
+# Default Open WebUI admin account
+open_webui_admin_name: admin
+open_webui_admin_email: admin@suse-private-ai.org
+open_webui_admin_password: WelcomeToAI
+
+enable_external_dns: false
+validate_certs: "{{ true if (tls_source is defined and tls_source == 'letsEncrypt' and letsencrypt_environment is defined and letsencrypt_environment == 'production') else false }}"
+
+# flag to enable deployment of milvus
+enable_milvus: true
+
+# flag to enable the milvus deployment type either cluster or standalone. When set to false, standalone milvus is deployed.
+enable_milvus_cluster_deployment: true
+
+# flag to enable the minio deployment type either distributed or standalone. When set to false, distributed minio is deployed.
+enable_minio_standalone_deployment: false
+
+# logging level for open-webui
+openwebui_global_log_level: INFO
+
+# namespace for suse private ai stack
+suse_private_ai_namespace: suse-private-ai
+
+# secret name for the application collection credentials
+appco_secret: application-collection
+
+# helm repo to use for milvus charts
+milvus_helm_repo: oci://dp.apps.rancher.io/charts/milvus
+#milvus_helm_repo: https://zilliztech.github.io/milvus-helm/
+milvus_helm_version: 4.2.2
+milvus_image_version: 2.4.6
+milvus_release_name: milvus
+
+#Flag to indicate whether ollama should be installed seperately or part of the open-webui
+ollama_deploy_separately: true
+
+openwebui_helm_repo: oci://dp.apps.rancher.io/charts/open-webui
+#openwebui_helm_repo: https://helm.openwebui.com/
+openwebui_helm_version: 5.16.0
+openwebui_image_version: 0.5.14
+openwebui_release_name: open-webui
+
+ollama_helm_repo: oci://dp.apps.rancher.io/charts/ollama
+#ollama_helm_repo: https://otwld.github.io/ollama-helm/
+ollama_helm_version: 1.4.0
+ollama_image_version: 0.5.7
+ollama_release_name: ollama
+
+pipelines_enabled: false
+
+storage_class: "{% if cloud_provider is defined and cloud_provider == 'aws' and enable_longhorn %}longhorn{% else %}local-path{% endif %}"

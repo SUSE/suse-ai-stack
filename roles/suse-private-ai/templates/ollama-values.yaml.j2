@@ -1,0 +1,26 @@
+global:
+  imagePullSecrets:
+  - {{ appco_secret }}
+ingress:
+  enabled: false
+defaultModel: "gemma:2b"
+ollama:
+  models:
+{% if ollama_helm_version.split('.') | map('int') | list >= [1, 0, 0]  %}
+    pull:
+      - "gemma:2b"
+    run:
+      - "gemma:2b"
+{% else %}
+    - "gemma:2b"
+{% endif %}
+{% if enable_gpu_operator %}
+  gpu:
+    enabled: true
+    type: 'nvidia'
+    number: 1
+{% endif %}
+persistentVolume:
+  enabled: true
+  storageClass: {{ storage_class }}
+  size: 20Gi

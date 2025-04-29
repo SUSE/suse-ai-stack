@@ -1,0 +1,104 @@
+---
+# tasks file for vm creation
+- name: Cleanup old VM
+  include_tasks: destroy_local_vm.yml
+
+- name: Check to see if {{ cloud_image_os_name }} cloud image exist
+  stat:
+    path: "{{ cloud_image_file }}"
+  register: check_cloud_image_result
+
+- name: Download latest {{ cloud_image_os_name }} cloud image
+  become: true
+  get_url:
+    url: "{{ cloud_image_download_url }}"
+    dest: "{{ cloud_image_file }}"
+    validate_certs: false
+  when: not check_cloud_image_result.stat.exists
+
+- name: Remove old disk image
+  become: true
+  file:
+    path: "{{ disk_image_file }}"
+    state: absent
+
+- name: Create a disk image from cloud image
+  become: true
+  shell: |
+    qemu-img create -f qcow2 -F qcow2 -o backing_file={{ cloud_image_file }} {{ disk_image_file }}
+    qemu-img resize {{ disk_image_file }} {{ disk_image_size }}
+
+- name: Remove old cloud config image file
+  become: true
+  file:
+    path: "{{ cloud_config_image_file }}"
+    state: absent
+
+- name: Create ignition-combustion image
+  block:
+    - name: Create ignition-combustion directory tree
+      file:
+        path: "{{ item }}"
+        state: directory
+      with_items:
+        - /tmp/ignition-combustion
+        - /tmp/ignition-combustion/ignition
+        - /tmp/ignition-combustion/combustion
+
+    - name: Create config.ign
+      template:
+        src: config.ign.j2
+        dest: /tmp/ignition-combustion/ignition/config.ign
+
+    - name: Create combustion-script
+      template:
+        src: combustion-script.j2
+        dest: /tmp/ignition-combustion/combustion/script
+        mode: 0755
+
+    - name: Create ignition-combustion image file
+      become: true
+      shell: >
+        mkisofs -output {{ cloud_config_image_file }} -volid cidata -joliet -rock -V ignition /tmp/ignition-combustion
+
+    - name: Remove ignition-combustion data
+      file:
+        path: /tmp/ignition-combustion
+        state: absent
+      when: remove_ignition_combustion_data | default(false)
+
+- name: Ensure virt-install is installed
+  shell:
+    which virt-install
+
+- name: Create VM
+  become: true
+  shell: >
+    virt-install --connect qemu:///system --virt-type kvm --os-variant {{ vm_os_variant }} --name {{ vm_instance_name }} --ram {{ vm_memory }} --vcpus={{ vm_vcpus }} --disk path={{ disk_image_file }},format=qcow2,cache=unsafe --disk {{ cloud_config_image_file }},device=cdrom --import {{ vm_libvirt_network_params }} --noautoconsole
+  register: shell_result
+
+- name: Print create VM result
+  debug:
+    msg: "{{ shell_result }}"
+
+- name: Set VM IP
+  set_fact:
+    vm_ip: "{{ private_ai_vm_ip | default('192.168.122.100') }}"
+
+- name: Setup kubeapi_fqdn
+  set_fact:
+    kubeapi_fqdn: "{{ vm_ip  }}"
+
+- name: Setup ingress_fqdn
+  set_fact:
+    ingress_fqdn: "{{ vm_ip  }}"
+
+- name: Setup cluster control plane master node
+  set_fact:
+    cp_master:
+    - {"name": "private-ai", "hostname": "private-ai", "ip": "{{ vm_ip }}" }
+
+- name: Setup cluster nodes
+  set_fact:
+    cluster_nodes: "{{ cp_master + cp_others | default([]) + worker_gpu | default([]) + worker_nongpu | default([]) }}"
+

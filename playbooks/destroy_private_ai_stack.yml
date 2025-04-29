@@ -1,0 +1,95 @@
+---
+- hosts: localhost
+  connection: local
+  tasks:
+
+    - name: fetch terraform
+      community.general.terraform:
+        project_path: "{{ (current_project_dir, 'roles/vm/terraform') | path_join }}"
+        state: present
+        force_init: true
+        complex_vars: true
+        variables:
+          aws:
+            access_key: "{{ aws_access_key }}"
+            secret_key: "{{ aws_secret_key }}"
+            region: "{{ aws_region }}"
+            az1: "{{ aws_az1 }}"
+            az2: "{{ aws_az2 }}"
+            resource_owner: "{{ aws_resource_owner }}"
+            resource_prefix: "{{ aws_resource_prefix }}"
+            key_pair_name: "{{ aws_ssh_key_name }}"
+            key_pair_public_key: "{{ aws_ssh_public_key }}"
+            image_ami_account_number: "{{ aws_image_ami_account_number | default('amazon') }}"
+      check_mode: true
+      register: tfstate
+      when: cloud_provider | default('local') != "local"
+
+    - name: set python_interpreter sle-micro
+      set_fact:
+        python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3') }}"
+      when: (cluster is defined and cluster.image_distro == "sle-micro") or cluster is not defined
+
+    - name: set python_interpreter sles
+      set_fact:
+        python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3.11') }}"
+      when: (cluster is defined and cluster.image_distro == "sles")   
+
+    - name: Define private-ai node (master node) local
+      ansible.builtin.add_host:
+        ansible_python_interpreter: "{{ python_interpreter }}"
+        name: private-ai
+        hostname: private-ai
+        ansible_user: "{{ vm_ansible_user | default('ai') }}"
+        ansible_host: "{{ private_ai_vm_ip | default('192.168.122.100') }}"
+        groups:
+          - cp_master
+      when: cloud_provider | default('local') == "local"
+
+    - name: Define private-ai node (master node) non-local
+      ansible.builtin.add_host:
+        ansible_python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3') }}"
+        name: private-ai
+        hostname: private-ai
+        ansible_user: "{{ vm_ansible_user | default('ai') }}"
+        ansible_host: "{{ tfstate.outputs.instance_public_ip.value | default('')}}"
+        groups:
+          - cp_master
+      when: cloud_provider | default('local') != "local"
+
+- hosts: cp_master
+  tasks:
+    # We want to cleanup the DNS records before deleting the stack.
+    # Just Uninstalling the external-dns does not cleanup the records.
+    # Deleting ingress resources first ensures that ExternalDNS has a chance to
+    # remove the associated DNS records before it's removed from the cluster.
+    - name: Remove Ingress
+      shell: |
+        #!/bin/bash
+        ingresses_json=$(kubectl get ingresses --all-namespaces -o json)
+        ingresses_array=$(echo "$ingresses_json" | jq -c '.items[]')
+        for ingress in $ingresses_array; do
+          name=$(echo "$ingress" | jq -r '.metadata.name')
+          namespace=$(echo "$ingress" | jq -r '.metadata.namespace')
+          kubectl delete ingress $name -n $namespace
+        done
+        sleep 60
+      when: enable_external_dns | default(false)
+
+    - name: Uninstall external-dns
+      import_role:
+        name: external-dns
+      vars:
+        uninstall: true
+      when: enable_external_dns | default(false)
+      ignore_errors: true
+
+- hosts: localhost
+  connection: local
+  tasks:
+    - name: Destroy Private AI Stack
+      include_role:
+        name: vm
+      vars:
+        vm_action: destroy
+        vm_instance_name: private-ai

@@ -1,0 +1,8 @@
+---
+- name: Add /opt/local/bin and ~/bin to PATH
+  lineinfile:
+    path: ~/.bashrc
+    line: export PATH="/opt/local/bin:~/bin:$PATH"
+
+- name: Install Kubernetes tools
+  include_tasks: install_kubernetes_toolchain.yml

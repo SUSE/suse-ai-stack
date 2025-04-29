@@ -1,0 +1,11 @@
+---
+- name: Copy SUSE_Trust_Root.crt
+  become: true
+  copy:
+    src: SUSE_Trust_Root.crt
+    dest: /etc/pki/trust/anchors/SUSE_Trust_Root.crt
+
+- name: Update CA certificates
+  become: true
+  command:
+    cmd: /usr/sbin/update-ca-certificates

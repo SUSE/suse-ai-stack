@@ -1,0 +1,67 @@
+---
+
+- name: set arch
+  set_fact:
+    image_arch: "{{ 'arm64' if ansible_facts.architecture == 'aarch64' else 'amd64' }}"
+
+- name: Install helm
+  become: true
+  unarchive:
+    src: "{{ helm_download_archive }}"
+    dest: /usr/local/bin/
+    include: ["linux-{{ image_arch }}/helm"]
+    owner: root
+    group: root
+    remote_src: true
+    extra_opts:
+     - --strip-components=1
+  retries: 5
+  delay: 5
+
+# per https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/#install-kubectl-binary-with-curl-on-linux
+- name: Install kubectl
+  become: true
+  shell: |
+    curl -LO https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/{{ image_arch }}/kubectl
+    curl -LO https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/{{ image_arch }}/kubectl.sha256
+    echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+  args:
+    chdir: /tmp
+
+- name: Install k9s
+  become: true
+  unarchive:
+    src: "{{ k9s_download_archive }}"
+    dest: /usr/local/bin/
+    include: [k9s]
+    owner: root
+    group: root
+    remote_src: true
+  retries: 5
+  delay: 5
+
+- name: Install kustomize
+  become: true
+  unarchive:
+    src: "{{ kustomize_download_archive }}"
+    dest: /usr/local/bin/
+    include: [kustomize]
+    owner: root
+    group: root
+    remote_src: true
+  retries: 5
+  delay: 5
+
+# per https://github.com/johanhaleby/kubetail#installation
+- name: Create ~/bin
+  file:
+    path: ~/bin
+    state: directory
+    mode: 0755
+
+- name: Install kubetail
+  get_url:
+    url: "{{ kubetail_download_url }}"
+    dest: ~/bin/kubetail
+    mode: 0755

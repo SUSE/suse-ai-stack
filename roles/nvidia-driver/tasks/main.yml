@@ -1,0 +1,29 @@
+---
+# Per https://documentation.suse.com/suse-edge/3.0/html/edge/id-nvidia-gpus-on-sle-micro.html
+- name: Get the latest support open driver version
+  become: true
+  shell: >
+    zypper se -s nvidia-open-driver | grep nvidia-open-driver- | sed "s/.* package \+| //g" | sed "s/\s.*//g" | sort -rV | awk NF | head -n 1 | sed "s/[-_].*//g"
+  register: search_open_driver_version_result
+
+- name: Check the search open driver version result
+  fail:
+    msg: "Unable to lookup the latest open driver version."
+  when: search_open_driver_version_result.stdout == ''
+
+- name: Set driver version
+  set_fact:
+    driver_version: "{{ search_open_driver_version_result.stdout }}"
+
+- name: Print driver version
+  debug:
+    msg: "Use driver version {{ driver_version }}"
+
+- name: Add NVIDIA graphics drivers for SLE repo
+  become: true
+  community.general.zypper_repository:
+    name: nvidia-sle15sp6-main
+    repo: 'https://download.nvidia.com/suse/sle15sp6/'
+    state: present
+    auto_import_keys: true
+    runrefresh: true

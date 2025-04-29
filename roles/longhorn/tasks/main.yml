@@ -1,0 +1,115 @@
+---
+
+- name: Enable and start iscsid
+  become: true
+  systemd:
+    name: iscsid
+    state: started
+    enabled: true
+  retries: 3
+  delay: 20
+
+- name: Add the iscsi_tcp module
+  become: true
+  modprobe:
+    name: iscsi_tcp
+    state: present
+
+- name: Add the dm_crypt module
+  become: true
+  modprobe:
+    name: dm_crypt
+    state: present
+
+- name: Mount NVMe SSD block device
+  include_tasks: add-disk.yml
+
+- name: Copy longhorn-values.yaml
+  template:
+    src: longhorn-values.yaml.j2
+    dest: ~/longhorn-values.yaml
+
+- name: Wait for Kubernetes API to be available after the reboot
+  wait_for:
+    port: 6443 #to access the Kubernetes API on the RKE2 server
+    timeout: 360
+
+- name: Create {{ longhorn_namespace }}
+  shell: |
+    if ! kubectl get namespaces -o json | jq -r ".items[].metadata.name" | grep {{ longhorn_namespace }};then
+      kubectl create namespace {{ longhorn_namespace }}
+    fi
+
+- name: Create auth file
+  shell: >
+    USER={{ longhorn_username }} PASSWORD={{ longhorn_password }}; echo "${USER}:$(openssl passwd -stdin -apr1 <<< ${PASSWORD})" > auth
+
+- name: Create longhorn secret for user
+  shell: |
+    SECRET_NAME='basic-auth'
+    if ! kubectl get secrets -n {{ longhorn_namespace }} -o json | jq -r ".items[].metadata.name" | grep $SECRET_NAME;then
+      kubectl -n {{ longhorn_namespace }} create secret generic $SECRET_NAME --from-file=auth
+    fi
+
+- name: Add longhorn helm repo
+  kubernetes.core.helm_repository:
+    repo_url: "{{ longhorn_helm_repo_url }}"
+    name: "{{ longhorn_helm_repo_name }}"
+
+- name: Get Longhorn Preinstall check script
+  shell: |
+    curl -sSfL -o longhornctl https://github.com/longhorn/cli/releases/download/v{{ longhorn_chart_version }}/longhornctl-linux-{{ image_arch }}
+    chmod +x longhornctl
+
+- name: Run Longhorn Preinstall check script
+  shell: |
+    /home/{{ vm_ansible_user }}/longhornctl --kube-config='/home/{{ vm_ansible_user }}/.kube/config' check preflight
+  register: preinstall_check_result
+  retries: 5
+  delay: 30
+  until: preinstall_check_result.rc == 0
+
+- name: Deploy longhorn helm chart
+  shell: |
+    # sometimes helm upgrade errors out with "Error: UPGRADE FAILED: \"longhorn\" has no deployed releases". Workaround is to delete this secret.
+    kubectl delete secret sh.helm.release.v1.longhorn.v1 -n {{ longhorn_namespace }} || echo "helm release longhorn secret does not exists"
+    helm upgrade --install {{ longhorn_release }} {{ longhorn_helm_chart_ref }} --atomic --create-namespace --namespace {{ longhorn_namespace }} \
+    --version {{ longhorn_chart_version }} -f longhorn-values.yaml
+  register: longhorn_install_result
+  retries: 5
+  delay: 30
+  until: longhorn_install_result.rc == 0
+
+- name: Wait for longhorn to be rolled out
+  shell: >
+    kubectl -n {{ longhorn_namespace }} rollout status deploy/{{ item }}
+  register: longhorn_rollout_result
+  retries: 10
+  delay: 10
+  with_items:
+  - "{{ longhorn_release }}-ui"
+  - "{{ longhorn_release }}-driver-deployer"
+  - "csi-attacher"
+  - "csi-provisioner"
+  - "csi-resizer"
+  - "csi-snapshotter"
+  until: "'successfully rolled out' in longhorn_rollout_result.stdout"
+
+- name: Get the default disk name
+  shell: >
+    kubectl -n longhorn-system get node.longhorn.io -o json | jq -r ".items[0].spec.disks" | grep default-disk- | awk -F: '{print $1}' | awk '{gsub(/ /,""); print}'
+  register: get_default_disk_name
+
+- name: Get default disk name
+  debug:
+    msg: "{{ get_default_disk_name.stdout }}"
+
+- name: Copy patch-longhorn.yaml
+  template:
+    src: patch-longhorn.yaml.j2
+    dest: ~/patch-longhorn.yaml
+
+#https://github.com/longhorn/longhorn/discussions/4392
+- name: Patch longhorn to add disks in the instance
+  shell: >
+    kubectl -n {{ longhorn_namespace }} patch node.longhorn.io private-ai --type merge --patch-file ~/patch-longhorn.yaml

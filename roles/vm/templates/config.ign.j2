@@ -1,0 +1,50 @@
+{
+  "ignition": {
+    "version": "3.2.0"
+  },
+  "passwd": {
+    "users": [
+      {
+        "name": "ai",
+        "passwordHash": "{{ vm_user_plain_text_password | password_hash }}",
+        "sshAuthorizedKeys": {{ vm_authorized_ssh_keys | to_json }}
+      },
+      {
+        "name": "root",
+        "passwordHash": "{{ vm_user_plain_text_password | password_hash }}",
+        "sshAuthorizedKeys": {{ vm_authorized_ssh_keys | to_json }}
+      }
+    ]
+  },
+  "storage": {
+    "filesystems": [
+      {
+        "device": "/dev/disk/by-label/ROOT",
+        "format": "btrfs",
+        "mountOptions": [
+          "subvol=/@/home"
+        ],
+        "path": "/home",
+        "wipeFilesystem": false
+      }
+    ],
+    "files": [
+      {
+        "path": "/etc/hostname",
+        "mode": 420,
+        "overwrite": true,
+        "contents": {
+          "source": "data:,{{ vm_hostname }}"
+        }
+      },
+      {
+        "path": "/etc/sudoers.d/ai",
+        "mode": 420,
+        "overwrite": true,
+        "contents": {
+          "source": "data:text/plain;charset=utf-8;base64,YWkgICAgICBBTEw9KEFMTCkgTk9QQVNTV0Q6IEFMTA=="
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+ingress:
+  enabled: true
+  ingressClassName: ""
+  host:  {{ longhorn_host }}
+  tls: false
+  annotations:
+    # type of authentication
+    nginx.ingress.kubernetes.io/auth-type: basic
+    # prevent the controller from redirecting (308) to HTTPS
+    nginx.ingress.kubernetes.io/ssl-redirect: 'false'
+    # name of the secret that contains the user/password definitions
+    nginx.ingress.kubernetes.io/auth-secret: basic-auth
+    # message to display with an appropriate context why the authentication is required
+    nginx.ingress.kubernetes.io/auth-realm: 'Authentication Required'
+    # custom max body size for file uploading like backing image uploading
+    nginx.ingress.kubernetes.io/proxy-body-size: 10000m
+
+{% if cloud_provider is defined and cloud_provider == "aws" and enable_external_dns %}
+    external-dns.alpha.kubernetes.io/target: {{ target }}
+    external-dns.alpha.kubernetes.io/ttl: "60"
+{% endif %}
+
+csi:
+  attacherReplicaCount: 1
+  provisionerReplicaCount: 1
+  resizerReplicaCount: 1
+  snapshotterReplicaCount: 1
+
+
+longhornUI:
+  replicas: 1
+
+defaultSettings:
+  # setting this to 1 since single node cluster which means data loss could happen.
+  defaultReplicaCount: 1
+
+persistence:
+  # -- Setting that allows you to specify the default Longhorn StorageClass.
+  defaultClass: true
+  # -- Filesystem type of the default Longhorn StorageClass.
+  defaultFsType: xfs
+

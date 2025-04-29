@@ -1,0 +1,61 @@
+---
+
+- name: Install SUSE packages "{{ suse_packages }}"
+  become: true
+  community.general.zypper:
+    name: "{{ suse_packages }}"
+    state: latest
+    update_cache: true
+  register: install_suse_packages_result
+  until: "'rc' not in install_suse_packages_result or install_suse_packages_result.rc == 0"
+  retries: 10
+  delay: 60
+  when: false
+
+- name: Install SUSE packages "{{ suse_packages }}" sle-micro
+  become: true
+  shell:
+    transactional-update -n pkg install --auto-agree-with-licenses {{ suse_packages | join(' ') }}
+  when: (suse_packages | length > 0 and cluster is defined and cluster.image_distro == "sle-micro") or cluster is not defined
+
+- name: Install SUSE packages "{{ suse_packages }}" sles
+  become: true
+  shell:
+    zypper --non-interactive install {{ suse_packages | join(' ') }}
+  when: suse_packages | length > 0 and cluster is defined and cluster.image_distro == "sles"
+
+- name: Install NVIDIA graphic drivers
+  become: true
+  community.general.zypper:
+    name: ["nvidia-open-driver-G06-signed-kmp={{ driver_version }}", "nvidia-compute-utils-G06={{ driver_version }}"]
+    state: latest
+    update_cache: true
+  register: install_suse_packages_result
+  until: "'rc' not in install_suse_packages_result or install_suse_packages_result.rc == 0"
+  retries: 10
+  delay: 60
+  when: enable_gpu_operator | default(false)
+
+- name: Install Longhorn dependency packages
+  become: true
+  community.general.zypper:
+    name: ["open-iscsi", "nfs-client", "nfs-utils", "cryptsetup", "device-mapper"]
+    state: latest
+    update_cache: true
+  register: install_suse_packages_result
+  until: "'rc' not in install_suse_packages_result or install_suse_packages_result.rc == 0"
+  retries: 10
+  delay: 60
+  when: cloud_provider == "aws" and enable_longhorn
+
+# NOTE: for SL Micro, package installation requires transactional update.
+# Therefore, we need to do reboot for the changes to take effect.
+- name: Reboot after transactional update
+  become: true
+  reboot:
+    msg: "Rebooting after transactional update for the chagnes take effect."
+
+- name: Wait for port 22
+  wait_for:
+    port: 22
+    timeout: "{{ reboot_wait_timeout }}"

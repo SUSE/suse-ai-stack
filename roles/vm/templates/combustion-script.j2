@@ -1,0 +1,47 @@
+#!/bin/bash
+# combustion: network prepare
+# script generated with https://opensuse.github.io/fuel-ignition/
+
+umask 077 # Required for NM config
+mkdir -p /etc/NetworkManager/system-connections/
+cat >/etc/NetworkManager/system-connections/eth0.nmconnection <<-EOF
+
+[connection]
+id=eth0
+type=ethernet
+interface-name=eth0
+
+[ipv4]
+dns-search=
+method=auto
+
+[ipv6]
+dns-search=
+method=auto
+
+[ethernet]
+cloned-mac-address={{ vm_mac_address }}
+EOF
+
+if [ "${1-}" = "--prepare" ]; then
+  exit 0
+fi
+
+# Redirect output to the console
+exec > >(exec tee -a /dev/tty0) 2>&1
+
+{% if registration_code is defined %}
+# Registration
+if ! which SUSEConnect > /dev/null 2>&1; then
+    zypper --non-interactive install suseconnect-ng
+fi
+#product="Base_Product"
+#SUSEConnect --email {{ registration_email }} --url {{ registration_server | default("https://scc.suse.com") }} --regcode "{{ registration_code }}"
+{% endif %}
+
+zypper --non-interactive install vim-small
+zypper --non-interactive install git
+zypper --non-interactive install iptables
+
+# Leave a marker
+echo "Configured with combustion" > /etc/issue.d/combustion

@@ -1,0 +1,36 @@
+---
+
+- name: Deploy external-dns
+  shell: >
+    helm upgrade --install {{ external_dns_release_name }} --set txtOwnerId={{ registration_email }}-ai-dev-dns \
+    --set log-level=debug \
+    --set provider=cloudflare \
+    --set cloudflare.apiToken={{ cloudflare_api_token }} \
+    --set cloudflare.proxied=false \
+    --set domainFilters[0]={{ external_dns_domain_filter | default("suseclouddev.com") }} \
+    --set policy=sync \
+    --set interval=1m \
+    --set sources[0]=ingress \
+    --set sources[1]=service \
+    oci://registry-1.docker.io/bitnamicharts/external-dns
+  register: external_dns_install_result
+  retries: 5
+  delay: 30
+  when: not uninstall
+
+- name: Wait for external-dns to be rolled out
+  shell: >
+    kubectl rollout status deploy/external-dns
+  register: external_dns_rollout_result
+  retries: 5
+  delay: 10
+  until: "'successfully rolled out' in external_dns_rollout_result.stdout"
+  when: not uninstall
+
+- name: Uninstall external-dns
+  shell: |
+      helm uninstall {{ external_dns_release_name }} --ignore-not-found
+  register: external_dns_uninstall_result
+  retries: 5
+  delay: 30
+  when: uninstall

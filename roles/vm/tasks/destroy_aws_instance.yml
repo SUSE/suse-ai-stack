@@ -1,0 +1,32 @@
+---
+- name: Check AWS configuration
+  fail:
+    msg: |-
+      Did you remember to copy extra_vars.yml.example to extra_vars.yml
+          and configure it appropriately?
+  when:
+    - aws_secret_key is not defined
+
+- name: Delete AWS EC2 instance/s
+  community.general.terraform:
+    project_path: "{{ (current_project_dir, 'roles/vm/terraform') | path_join }}"
+    state: absent
+    force_init: true
+    complex_vars: true
+    variables:
+      aws:
+        access_key: "{{ aws_access_key }}"
+        secret_key: "{{ aws_secret_key }}"
+        region: "{{ aws_region }}"
+        az1: "{{ aws_az1 }}"
+        az2: "{{ aws_az2 }}"
+        resource_owner: "{{ aws_resource_owner }}"
+        resource_prefix: "{{ aws_resource_prefix }}"
+        key_pair_name: "{{ aws_ssh_key_name }}"
+        key_pair_public_key: "{{ aws_ssh_public_key }}"
+        image_ami_account_number: "{{ aws_image_ami_account_number | default('amazon') }}"
+  register: aws_ec2_create_result
+
+- name: Display EC2 instance deletion output
+  debug:
+    msg: "{{ aws_ec2_create_result.stdout }}"

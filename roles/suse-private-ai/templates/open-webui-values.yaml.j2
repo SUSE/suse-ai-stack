@@ -1,0 +1,102 @@
+global:
+  imagePullSecrets:
+  - {{ appco_secret }}
+{% if "dp.apps.rancher.io" in openwebui_helm_repo %}
+image:
+  registry: dp.apps.rancher.io
+  repository: containers/open-webui
+  tag: {{ openwebui_image_version }}
+  pullPolicy: IfNotPresent
+{% else %}
+image:
+  repository: ghcr.io/open-webui/open-webui
+  tag:  {{ openwebui_image_version }}
+  pullPolicy: "IfNotPresent"
+{% endif %}
+{% if ollama_deploy_separately %}
+ollamaUrls:
+- http://ollama.{{suse_private_ai_namespace}}.svc.cluster.local:11434
+{% endif %}
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: {{ storage_class }}
+{% if ollama_deploy_separately %}
+ollama:
+  enabled: false
+{% else %}
+ollama:
+  enabled: true
+{% endif %}
+{% if "dp.apps.rancher.io" in ollama_helm_repo %}
+  image:
+    registry: dp.apps.rancher.io
+    repository: containers/ollama
+    tag: {{ ollama_image_version }}
+    pullPolicy: IfNotPresent
+{% else %}
+  image:
+    repository: ollama/ollama
+    pullPolicy: IfNotPresent
+    tag: {{ ollama_image_version }}
+{% endif %}
+  ingress:
+    enabled: false
+  defaultModel: "gemma:2b"
+  persistentVolume:
+    enabled: true
+    storageClass: {{ storage_class }}
+    size: 20Gi
+  ollama:
+    models:
+{% if openwebui_helm_version.split('.') | map('int') | list >= [5, 0, 0]  %}
+      pull:
+        - "gemma:2b"
+      run:
+        - "gemma:2b"
+{% else %}
+      - "gemma:2b"
+{% endif %}
+{% if enable_gpu_operator %}
+    gpu:
+      enabled: true
+      type: 'nvidia'
+      number: 1
+{% endif %}
+pipelines:
+  enabled: {{ pipelines_enabled }}
+  persistence:
+    storageClass: {{ storage_class }}
+ingress:
+  enabled: true
+  class: ""
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+{% if cloud_provider is defined and cloud_provider == "aws" and enable_external_dns %}
+    external-dns.alpha.kubernetes.io/target: {{ target }}
+    external-dns.alpha.kubernetes.io/ttl: "60"
+{% endif %}
+  host:  {{ open_webui_host }}
+  tls: true
+  existingSecret: suse-private-ai-tls
+extraEnvVars:
+- name: DEFAULT_MODELS
+  value: "gemma:2b"
+- name: DEFAULT_USER_ROLE
+  value: "pending"
+- name: ENABLE_SIGNUP
+  value: "true"
+- name: WEBUI_NAME
+  value: "SUSE AI"
+- name: GLOBAL_LOG_LEVEL
+  value: {{ openwebui_global_log_level | default("INFO") }}
+- name: RAG_EMBEDDING_MODEL
+  value: "sentence-transformers/all-MiniLM-L6-v2"
+- name: INSTALL_NLTK_DATASETS
+  value: "true"
+{% if enable_milvus %}
+- name: VECTOR_DB
+  value: "milvus"
+- name: MILVUS_URI
+  value: http://milvus.{{ suse_private_ai_namespace}}.svc.cluster.local:19530
+{% endif %}

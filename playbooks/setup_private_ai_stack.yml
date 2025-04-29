@@ -1,0 +1,242 @@
+---
+- hosts: localhost
+  connection: local
+  tasks:
+
+    - name: Create Private AI Stack VM
+      include_role:
+        name: vm
+      when:
+        - (not do_not_install_vm | default(False)) | bool
+      vars:
+        vm_hostname: private-ai
+        vm_instance_name: private-ai
+        vm_mac_address: "{{ private_ai_vm_mac_address | default('52:54:00:6C:3C:88') }}"
+        vm_libvirt_network_params: "{{ private_ai_vm_libvirt_network_params | default('') }}"
+
+    - name: Show Private AI Stack VM IP
+      debug:
+        msg: "Login to the private-ai vm with 'ssh {{ vm_ansible_user | default('ai') }}@{{ vm_ip }}'"
+
+    - name: set python_interpreter sle-micro
+      set_fact:
+        python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3') }}"
+      when: (cluster is defined and cluster.image_distro == "sle-micro") or cluster is not defined
+
+    - name: set python_interpreter sles
+      set_fact:
+        python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3.11') }}"
+      when: (cluster is defined and cluster.image_distro == "sles")   
+
+    - name: Define private-ai node (master node)
+      ansible.builtin.add_host:
+        ansible_python_interpreter: "{{ python_interpreter }}"
+        name: private-ai
+        hostname: private-ai
+        ansible_user: "{{ vm_ansible_user | default('ai') }}"
+        ansible_host: "{{ vm_ip }}"
+        groups:
+          - cp_master
+          - cluster
+
+    - name: Define other control plane nodes
+      ansible.builtin.add_host:
+        ansible_python_interpreter: "{{ python_interpreter }}"
+        name: "{{ item.name }}"
+        hostname: "{{ item.hostname }}"
+        ansible_user: "{{ vm_ansible_user | default('ai') }}"
+        ansible_host: "{{ item.ip }}"
+        groups:
+          - cp_others
+          - cluster
+      loop: "{{ cp_others | default([]) }}"
+
+    - name: Define worker nodes with GPU
+      ansible.builtin.add_host:
+        ansible_python_interpreter: "{{ python_interpreter }}"
+        name: "{{ item.name }}"
+        hostname: "{{ item.hostname }}"
+        ansible_user: "{{ vm_ansible_user | default('ai') }}"
+        ansible_host: "{{ item.ip }}"
+        groups:
+          - agents
+          - cluster
+      loop: "{{ worker_gpu | default([]) }}"
+
+    - name: Define worker nodes with no GPU
+      ansible.builtin.add_host:
+        ansible_python_interpreter: "{{ python_interpreter }}"
+        name: "{{ item.name }}"
+        hostname: "{{ item.hostname }}"
+        ansible_user: "{{ vm_ansible_user | default('ai') }}"
+        ansible_host: "{{ item.ip }}"
+        groups:
+          - agents
+          - cluster
+      loop: "{{ worker_nongpu | default([]) }}"
+
+    - name: Generate a random string
+      set_fact:
+        unique_id: "{{ lookup('community.general.random_string', length=5, upper=false, numbers=false, special=false) }}"
+      run_once: true
+
+- hosts: cluster
+  tasks:
+    - name: Registration sle-micro
+      become: true
+      shell: |
+        transactional-update register --url {{ registration_server | default("https://scc.suse.com") }} --email {{ registration_email }} --regcode "{{ registration_code }}"
+      when: (cluster is defined and cluster.image_distro == "sle-micro") or cluster is not defined
+
+    - name: print ansible host name
+      debug:
+        msg: "ansible host name is {{ inventory_hostname }}"
+    
+    - name: Set the hostname
+      become: true
+      shell: >
+        hostnamectl set-hostname "{{ inventory_hostname }}"
+
+    - name: Add SUSE internal CA certificate
+      import_role:
+        name: suse-ca-certificate
+
+    - name: Install Kubernetes tools and utilities
+      import_role:
+        name: kubernetes-tools
+
+    - name: Install NVIDIA driver
+      import_role:
+        name: nvidia-driver
+      when: enable_gpu_operator | default(false)
+
+    - name: Install Packages
+      include_role:
+        name: vm
+        tasks_from: install_suse_package
+
+    - name: Add VM host to /etc/hosts
+      become: true
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ ansible_default_ipv4.address }}  private-ai private-ai.suse.demo longhorn-private-ai suse-ollama suse-ollama-webui"
+
+- hosts: cp_master
+  tasks:
+    - name: Deploy RKE2
+      import_role:
+        name: rke2
+      vars:
+        rke2endpoint: "{{ hostvars['localhost']['kubeapi_fqdn'] }}"
+        service_name: "rke2-server"
+
+- hosts: cp_others
+  tasks:
+    - name: Deploy RKE2
+      import_role:
+        name: rke2
+      vars:
+        rke2endpoint: "{{ hostvars['localhost']['kubeapi_fqdn'] }}"
+        service_name: "rke2-server"
+
+- hosts: agents
+  tasks:
+    - name: Deploy RKE2
+      import_role:
+        name: rke2
+      vars:
+        rke2endpoint: "{{ hostvars['localhost']['kubeapi_fqdn'] }}"
+        service_name: "rke2-agent"
+
+- hosts: cp_master
+  tasks:
+    - name: set ingress host when external-dns
+      set_fact:
+        longhorn_host: longhorn-{{ github_username }}-ai-{{hostvars['localhost']['unique_id']}}.{{ external_dns_domain_filter | default('suseclouddev.com') }}
+        rancher_host: rancher-{{ github_username }}-ai-{{hostvars['localhost']['unique_id']}}.{{ external_dns_domain_filter | default('suseclouddev.com') }}
+        open_webui_host: open-webui-{{ github_username }}-ai-{{hostvars['localhost']['unique_id']}}.{{ external_dns_domain_filter | default('suseclouddev.com') }}
+      when: enable_external_dns
+
+    - name: set ingress host when no external-dns
+      set_fact:
+        longhorn_host: "{{ longhorn_hostname | default('longhorn-private-ai') }}"
+        rancher_host: "{{ rancher_hostname | default('private-ai.suse.demo') }}"
+        open_webui_host: "{{ open_webui_hostname | default('suse-ollama-webui') }}"
+      when: not enable_external_dns
+
+    - name: Deploy Cert-Manager
+      import_role:
+        name: cert-manager
+
+    - name: Deploy external-dns
+      import_role:
+        name: external-dns
+      when: enable_external_dns | default(false)
+
+    - name: set target when no external-dns
+      set_fact:
+        target: "{{ ansible_host }}"
+      when: not enable_external_dns
+
+    - name: set target when external-dns
+      set_fact:
+        target: "{{ hostvars['localhost']['ingress_fqdn'] }}"
+      when: enable_external_dns
+
+    - name: Deploy Rancher
+      import_role:
+        name: rancher
+
+    #longhorn storage supported for the EC2 deployment
+    - name: Install Longhorn
+      import_role:
+        name: longhorn
+      when: (cloud_provider | default('local')) == "aws" and enable_longhorn
+
+    - name: Install NVIDIA GPU Operator
+      import_role:
+        name: nvidia-gpu-operator
+      when: enable_gpu_operator | default(false)
+
+    - name: Deploy SUSE Private AI
+      import_role:
+        name: suse-private-ai
+
+    - name: Show kubeapi_fqdn
+      debug:
+        msg: "{{ hostvars['localhost']['kubeapi_fqdn'] }}"
+
+    - name: Show ingress_fqdn
+      debug:
+        msg: "{{ hostvars['localhost']['ingress_fqdn'] }}"
+
+    - name: Show ansible_host
+      debug:
+        msg: "{{ ansible_host }}"
+
+    - name: Show Private AI Stack VM IP
+      debug:
+        msg: "Login to the private-ai vm with 'ssh {{ hostvars['localhost']['vm_ansible_user'] | default('ai') }}@{{ hostvars['localhost']['vm_ip'] }}'"
+
+    - name: Set Access URL and credentials
+      set_fact:
+        access_msg: "{{ access_msg | default([]) + [ item.msg | string ] }}"
+      when: item.eval
+      with_items:
+        - msg: "Make sure to update the /etc/hosts file: {{ hostvars['localhost']['vm_ip'] }} private-ai suse-ollama-webui private-ai.suse.demo longhorn-private-ai"
+          eval: "{{ not enable_external_dns | bool }}"
+        - msg: "To access longhorn UI, point your browser to http://{{ longhorn_host }} and login with user={{ longhorn_username }} and password={{ longhorn_password }}"
+          eval: "{{ enable_longhorn | default(False) | bool }}"
+        - msg: "To access rancher UI, point your browser to https://{{ rancher_host }} and login with user=admin and password={{ rancher_bootstrap_password }}"
+          eval: true
+        - msg: "To access open-webui, point your browser to https://{{ open_webui_host }} and login with user={{ open_webui_admin_email }} and password={{ open_webui_admin_password }}"
+          eval: "{{ not deploy_rancher_only | default(False) | bool }}"
+
+    - name: Show Access URL and credentials
+      debug:
+        msg: "{{ access_msg }}"
+
+    - name: Output access msg to a file
+      copy:
+        dest: "/tmp/access"
+        content: "{{ access_msg }}"

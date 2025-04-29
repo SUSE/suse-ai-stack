@@ -1,0 +1,253 @@
+#######################
+# These are required. #
+#######################
+
+#
+# SUSE Product Registrion Information. Make sure the registration is activated
+# in https://scc.suse.com
+#
+#registration_email: <your SCC registration email here>
+
+#
+# SLE Micro product registration code
+#
+#registration_code: INTERNAL-USE-ONLY-blah-blah
+
+#
+# Your github username
+#
+github_username: <your github username>
+
+#
+# Your github personal access token or password, needed to authenticate
+# to github in order to access the SUSE private AI helm charts.
+#
+# NOTE: for security reasons, we don't recommend using your github password.
+# Instead, you should create a personal access token for that. See
+# https://docs.github.com/en/authentication/
+# keeping-your-account-and-data-secure/managing-your-personal-access-tokens
+# on how to create a personal access token.
+#
+github_token: <your github personal access token or password>
+
+#
+# SUSE Okta B2C -> Application Collection
+# Okta Email
+#
+application_collection_user_email: <your okta email>
+
+#
+# SUSE Okta B2C -> Application Collection
+# Application Collection Access Token - https://apps.rancher.io/settings/access-tokens
+#
+application_collection_user_token: <your application collection access token>
+
+#
+# AWS region to deploy the AI stack. (i.e. "us-west-2")
+#
+aws_region: "us-west-2"
+
+#
+# AWS access key
+#
+aws_access_key: <Your AWS access key here>
+
+#
+# AWS secret key
+#
+aws_secret_key: <You AWS secret key here>
+
+#
+# AWS availability zone 1, for the primary subnet. (i.e. "us-west-2a")
+#
+aws_az1: "us-west-2a"
+
+#
+# AWS availability zone 1, for the primary subnet. (i.e. "us-west-2a")
+#
+aws_az2: "us-west-2b"
+
+#
+# AWS resource owner email. Used to identity the resources created by you.
+# This should be your SUSE email address.
+#
+aws_resource_owner: "<My SUSE username>@suse.com"
+
+#
+# AWS SSH key name. The SSH key will be used to access the EC2 instance.
+# Also, this key will be used to run Ansible playbook to setup the AI
+# stack.
+#
+# NOTE: make sure this key doesn't already exist in AWS for the given
+# region.
+#
+aws_ssh_key_name: <Unique name for your SSH key>
+
+#
+# AWS SSH public key. This is for SSH into the EC2 instance.
+#
+aws_ssh_public_key: <The public portion of your SSH keypair> 
+
+#
+# AWS resource prefix, for easy identification of the AWS resources created by
+# you. This should be your SUSE username.
+#
+aws_resource_prefix: <AWS resource prefix>
+
+#
+# Account owner of the AMIs
+#
+aws_image_ami_account_number: amazon
+
+
+#######################
+# These are optional. #
+#######################
+
+#
+# SUSE Open WebUI host name.
+#
+# NOTE: when using letsEncrypt TLS source. The host name must be a
+# fully-qualified domain name, and it must be resolveable via a public DNS.
+#
+#open_webui_hostname: suse-ollama-webui
+
+#
+# Open WebUI admin user display name
+#
+# Default to "admin"
+#
+#open_webui_admin_name: admin
+
+#
+# Open WebUI admin user email
+#
+# Default to "admin@suse-private-ai"
+#
+#open_webui_admin_email: admin@suse-private-ai
+
+#
+#Open WebUI admin password
+#
+# Default to "WelcomeToAI"
+#
+#open_webui_admin_password: WelcomeToAI
+
+#
+# Whether to enable external-dns.
+#
+# NOTE: only CloudFlare provider is supported.
+#
+#enable_external_dns: false
+
+#
+# CloudFlare API Token
+# 
+# NOTE: it is require if enable_external_dns is set to true
+#
+# cloudflare_api_token: <CloudFlare API Token>
+
+#
+# TLS source. Supported values are (case-sensitive) "suse-private-ai",
+# "letsEncrypt", and "secret".
+#
+# NOTE: when using letsEncrypt as source. The DNS record for the WebUI
+# endpoint public be public and it must be reacheable from the internet.
+#
+# By default, the TLS source is "suse-private-ai", which is self-signed
+# certificate.
+#
+#tls_source: suse-private-ai
+
+#
+# Indicate whether to use Rancher Prime
+#
+# Default to true
+#
+#use_rancher_prime: true
+
+#
+# Rancher version to use
+#
+# Default to 2.9.2
+#
+#rancher_version: 2.9.2
+
+#
+# RKE2 channel to install a specific version of RKE2 server.
+# See see https://update.rke2.io/v1-release/channels for a complete list
+#
+# By default, the "v1.30.5+rke2r1" version will be used.
+#
+#rke2_channel_version: v1.30.5+rke2r1
+
+#####################################################
+# DO NOT modify there, period! These are immutable. #
+#####################################################
+
+#
+# VM Ansible user. This is AMI specific.
+#
+vm_ansible_user: ec2-user
+
+#
+# Cloud provider.
+#
+cloud_provider: aws
+
+#
+# Whether to enable the GPU Operator
+#
+enable_gpu_operator: true
+
+#
+# Whether to enable time slicing so that multiple pods can share GPU resource
+# See https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html#time-slicing-gpus-in-kubernetes
+enable_time_slicing: true
+time_slicing_replicas: 4
+
+#
+# set the NVIDIA GPU Operator chart version defaults to 24.6.0
+#
+#  gpu_operator_chart_version: 24.6.0
+
+#
+# Flag to control milvus deployment. When false, it won't be deployed. Default is true
+#
+enable_milvus: true
+
+#
+# Flag to control milvus deployment mode. When false, standalone deployment. When true, cluster deployment
+#
+enable_milvus_cluster_deployment: true
+
+
+#
+# Flag to control minio deployment mode. When false, distributed deployment. When true, standalone deployment
+#
+enable_minio_standalone_deployment: false
+
+
+#
+# Flag to control enabling longhorn storage backend. Supported only for aws cloud_provider.
+#
+enable_longhorn: false
+
+#
+# RKE2 cluster
+#
+cluster:
+  user: "ec2-user"
+  user_home: "/home/ec2-user"
+  root_volume_size: 350
+  image_arch: "x86_64" # options supported "x86_64" and "arm64". Please update the instance type based on the chosen image_arch.
+  image_distro: "sles" # options supported are "sles" and "sle-micro"
+  image_distro_version: "15-sp6" # "15-sp6" for sles and "6.0" for sle-micro as example
+  instance_type_cp: "g4dn.2xlarge"
+  instance_type_gpu: "g4dn.2xlarge" #g4dn instance type has GPU
+  instance_type_nongpu: "m5d.2xlarge"
+  num_cp_nodes: 1
+  num_worker_nodes_gpu: 0
+  num_worker_nodes_nongpu: 0
+  token: "ai-rke2token"
+  version: "v1.30.5+rke2r1" #RKE2 channel version. see https://update.rke2.io/v1-release/channels for a complete list

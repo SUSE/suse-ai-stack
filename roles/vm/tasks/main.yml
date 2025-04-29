@@ -1,0 +1,47 @@
+---
+# tasks file for vm
+
+- name: Make sure cloud_provider is supported
+  fail:
+    msg: |-
+      Cloud provider {{ cloud_provider }} is invalid. The supported
+      cloud providers are "local" and "aws".
+  when:
+    - cloud_provider != "local"
+    - cloud_provider != "aws"
+
+- name: Create VM
+  block:
+    - name: Create VM on local host, destroying existing one, if requested
+      include_tasks: create_local_vm.yml
+      when:
+        - (do_create_vm | default('true')) | bool
+        - cloud_provider == "local"
+
+    - name: Create EC2 instance/s in Amazon AWS
+      include_tasks: create_aws_instance.yml
+      when:
+        - (do_create_vm | default('true')) | bool
+        - cloud_provider == "aws"
+
+    - name: Wait for VM/s to be up and running SSH
+      wait_for:
+        host: "{{ item.ip }}"
+        port: 22
+        delay: 10
+        timeout: 180
+      loop: "{{ cluster_nodes }}"
+  when: vm_action is not defined or vm_action == "create"
+
+- name: Destroy VM
+  block:
+    - name: Destroy VM on local host
+      include_tasks: destroy_local_vm.yml
+      when:
+        - cloud_provider == "local"
+
+    - name: Destroy EC2 instance in Amazon AWS
+      include_tasks: destroy_aws_instance.yml
+      when:
+        - cloud_provider == "aws"
+  when: vm_action is defined and vm_action == "destroy"

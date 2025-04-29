@@ -1,0 +1,4 @@
+---
+# see https://docs.rke2.io/install/quickstart/
+rke2_installer_url: https://get.rke2.io
+

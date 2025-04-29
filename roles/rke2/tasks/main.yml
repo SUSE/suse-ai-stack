@@ -1,0 +1,143 @@
+---
+- name: Populate service facts
+  ansible.builtin.service_facts: {}
+
+- name: Create directory
+  become: true
+  ansible.builtin.command:
+    cmd: "mkdir -p /opt/rke2-artifacts/ /etc/rancher/rke2/ /var/lib/rancher/rke2/server/manifests/"
+
+# https://docs.rke2.io/known_issues#firewalld-conflicts-with-default-networking
+- name: Disable firewalld
+  ansible.builtin.systemd:
+    name: firewalld
+    state: stopped
+    enabled: false
+  when:
+    - ansible_facts.services["firewalld.service"] is defined
+
+- name: Add the iscsi_tcp module
+  become: true
+  community.general.modprobe:
+    name: iscsi_tcp
+    state: present
+
+- name: Add the dm_crypt module
+  become: true
+  community.general.modprobe:
+    name: dm_crypt
+    state: present
+
+# https://docs.rke2.io/known_issues#networkmanager
+- name: Update rke2-canal configuration
+  become: true
+  ansible.builtin.blockinfile:
+    path: /etc/NetworkManager/conf.d/rke2-canal.conf
+    block: |
+      [keyfile]
+      unmanaged-devices=interface-name:cali*;interface-name:flannel*
+    create: true
+    mode: 0600
+  when: ansible_facts.services["NetworkManager.service"] is defined
+
+- name: Create config.yaml cp_master
+  become: true
+  ansible.builtin.blockinfile:
+    path: /etc/rancher/rke2/config.yaml
+    block: |
+      use-service-account-credentials: true
+      token: "{{ cluster.token | default('ai-rke2token') }}"
+      tls-san:
+        - "{{ rke2endpoint }}"
+    create: true
+    mode: "0640"
+  when:
+    - inventory_hostname in groups['cp_master']
+
+- name: Create config.yaml cp_others
+  become: true
+  ansible.builtin.blockinfile:
+    path: /etc/rancher/rke2/config.yaml
+    block: |
+      use-service-account-credentials: true
+      token: "{{ cluster.token | default('ai-rke2token')}}"
+      tls-san:
+        - "{{ rke2endpoint }}"
+      server: "https://{{ rke2endpoint }}:9345"
+    create: true
+    mode: "0640"
+  when:
+    - inventory_hostname in groups.get('cp_others', [])
+
+- name: Create config.yaml agents
+  become: true
+  ansible.builtin.blockinfile:
+    path: /etc/rancher/rke2/config.yaml
+    block: |
+      server: "https://{{ rke2endpoint }}:9345"
+      token: "{{ cluster.token | default('ai-rke2token')}}"
+      insecure-skip-tls-verify: true
+    create: true
+    mode: "0640"
+  when:
+    - inventory_hostname in groups.get('agents', [])
+
+- name: Download RKE2 installer
+  get_url:
+    url: "{{ rke2_installer_url }}"
+    dest: /tmp/rke2_installer.sh
+    mode: 0755
+
+- name: Install RKE2
+  shell: >
+    sudo INSTALL_RKE2_CHANNEL={{ cluster.version | default('v1.30.5+rke2r1') }} /tmp/rke2_installer.sh
+
+- name: Enable and start service
+  become: true
+  systemd:
+    name: "{{ service_name }}"
+    state: started
+    enabled: true
+  retries: 3
+  delay: 20
+
+- name: Create .kube
+  file:
+    path: ~/.kube
+    state: directory
+  when:
+    - inventory_hostname in groups['cp_master']
+
+- name: Create kube config
+  become: true
+  copy:
+    src: /etc/rancher/rke2/rke2.yaml
+    dest: "/home/{{ vm_ansible_user | default('ai') }}/.kube/config"
+    owner: "{{ vm_ansible_user | default('ai') }}"
+    group: users
+    mode: 0600
+    remote_src: true
+  when:
+    - inventory_hostname in groups['cp_master']
+
+- name: Update with kubeapi fqdn
+  ansible.builtin.replace:
+    path: "/home/{{ vm_ansible_user | default('ai') }}/.kube/config"
+    regexp: '127.0.0.1'
+    replace:  "{{ rke2endpoint }}"
+  when:
+    - inventory_hostname in groups['cp_master']
+
+- name: Create .kube for root user
+  become: true
+  shell: |
+    cp -r /home/{{ vm_ansible_user | default('ai') }}/.kube /root/
+  when:
+    - inventory_hostname in groups['cp_master']
+
+- name: Wait for pods to be ready
+  shell: |
+    sleep 90
+    kubectl wait pod -l tier=control-plane --for=condition=Ready --namespace=kube-system --timeout=120s
+  when:
+    - inventory_hostname in groups['cp_master']
