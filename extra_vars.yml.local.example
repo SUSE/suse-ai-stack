@@ -19,19 +19,6 @@
 github_username: <your github username>
 
 #
-# Your github personal access token or password, needed to authenticate
-# to github in order to access the SUSE private AI helm charts.
-#
-# NOTE: for security reasons, we don't recommend using your github password.
-# Instead, you should create a personal access token for that. See
-# https://docs.github.com/en/authentication/
-# keeping-your-account-and-data-secure/managing-your-personal-access-tokens
-# on how to create a personal access token.
-#
-github_token: <your github personal access token or password>
-
-
-#
 # SUSE Okta B2C -> Application Collection
 # Okta Email
 #
@@ -58,6 +45,19 @@ time_slicing_replicas: 4
 #######################
 # These are optional. #
 #######################
+
+# Your github personal access token or password, needed to authenticate
+# to github in order to access the repo with fleet, if your repo is not public
+# and therefore required authentication. This token may be restricted to 
+# read-only access to the repository.
+#
+# NOTE: for security reasons, we don't recommend using your github password.
+# Instead, you should create a personal access token for that. See
+# https://docs.github.com/en/authentication/
+# keeping-your-account-and-data-secure/managing-your-personal-access-tokens
+# on how to create a personal access token.
+#
+#github_token: <your github personal access token or password>
 
 #
 # SUSE Open WebUI host name.

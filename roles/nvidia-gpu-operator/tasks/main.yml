@@ -46,8 +46,8 @@
   kubernetes.core.helm:
     name: gpu-operator
     chart_ref: nvidia/gpu-operator
-    chart_version: "{{ gpu_operator_chart_version | default('24.6.0') }}"
-    release_namespace: gpu-operator
+    chart_version: "{{ gpu_operator_chart_version | default('25.3.0') }}"
+    release_namespace: "{{ gpu_operator_release }}"
     create_namespace: true
     values:
       driver:
@@ -72,7 +72,7 @@
     name: gpu-operator
     chart_ref: nvidia/gpu-operator
     chart_version: "{{ gpu_operator_chart_version | default('25.3.0') }}"
-    release_namespace: gpu-operator
+    release_namespace: "{{ gpu_operator_release }}"
     create_namespace: true
     values:
       driver:
