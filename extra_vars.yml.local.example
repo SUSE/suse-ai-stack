@@ -204,3 +204,13 @@ enable_milvus_cluster_deployment: true
 # Flag to control minio deployment mode. When false, distributed deployment. When true, standalone deployment
 #
 enable_minio_standalone_deployment: false
+
+#
+# Install SUSE Observability
+#
+enable_suse_observability: false
+
+#
+# SUSE Observability License
+#
+suse_observability_license: <your SUSE Observability license>
