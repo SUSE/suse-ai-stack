@@ -1,0 +1,98 @@
+- name: Add SUSE Observability Helm repo
+  kubernetes.core.helm_repository:
+    repo_url: "{{ suse_observability_helm_repo_url }}"
+    name: "{{ suse_observability_helm_repo_name }}"
+
+- name: Render SUSE Observability Helm template with custom values
+  kubernetes.core.helm_template:
+    chart_ref: "{{ suse_observability_helm_repo_name }}/{{ suse_observability_release_name }}"
+    release_name: "{{ suse_observability_release_name }}"
+    release_namespace: "{{ suse_observability_namespace }}"
+    values:
+      license: "{{ suse_observability_license }}"
+      baseUrl: "{{ suse_observability_base_url }}"
+      sizing:
+        profile: "{{ suse_observability_sizing_profile }}"
+    output_dir: "."
+
+- name: Remove extra documents from base config yaml
+  shell: |
+      sed -i '/^---$/d' {{ suse_observability_release_name }}/templates/baseConfig_values.yaml
+
+# TODO: Setup ingress
+- name: Copy ingress_values.yaml
+  template:
+    src: ingress_values.yaml.j2
+    dest: "{{ suse_observability_release_name }}/templates/ingress_values.yaml"
+
+- name: Install SUSE Observability Chart
+  kubernetes.core.helm:
+    name: "{{ suse_observability_helm_chart_name }}"
+    chart_ref: "{{ suse_observability_helm_chart_ref }}"
+    release_namespace: "{{ suse_observability_namespace }}"
+    create_namespace: true
+    chart_version: "{{ suse_observability_helm_chart_version }}"
+    values:
+      global:
+        storageClass: "{{ suse_observability_storage_class }}"
+    values_files:
+      - "{{ suse_observability_release_name }}/templates/baseConfig_values.yaml"
+      - "{{ suse_observability_release_name }}/templates/sizing_values.yaml"
+
+- name: Retrieve admin password from baseConfig_values file
+  shell: |
+    tail -n 1 {{ suse_observability_release_name }}/templates/baseConfig_values.yaml | awk '{print $NF}'
+  register: suse_observability_admin_password
+
+- name: Print SUSE Observability admin password
+  debug:
+    msg: "The admin password for SUSE Observability is: {{ suse_observability_admin_password.stdout }}"
+
+- name: Retrieve API Key from baseConfig_values file
+  shell: |
+    grep -A2 "apiKey:" {{ suse_observability_release_name }}/templates/baseConfig_values.yaml | awk '/key:/ {print $2}' | tr -d '"'
+  register: suse_observability_api_key
+
+- name: Create secret for OpenTelemetry
+  shell: |
+    SECRET_NAME={{ otel_secret }}
+    kubectl create namespace {{ otel_namespace }}
+    if ! kubectl get secrets -n {{ otel_namespace }} -o json | jq -r ".items[].metadata.name" | grep $SECRET_NAME;then
+      kubectl create secret generic {{ otel_secret }} --from-literal=API_KEY='{{ suse_observability_api_key.stdout }}' -n {{ otel_namespace }}
+    fi
+
+- name: Add OpenTelemetry Helm repo
+  kubernetes.core.helm_repository:
+    repo_url: "{{ otel_helm_repo_url }}"
+    name: "{{ otel_helm_repo_name }}"
+
+- name: Copy otel-values.yaml
+  template:
+    src: otel-values.yaml.j2
+    dest: ~/otel-values.yaml
+
+- name: Install OpenTelemetry Collector
+  kubernetes.core.helm:
+    name: "{{ otel_helm_chart_name }}"
+    chart_ref: "{{ otel_helm_chart_ref }}"
+    release_namespace: "{{ otel_namespace }}"
+    create_namespace: true
+    chart_version: "{{ otel_helm_chart_version }}"
+    values_files:
+      - otel-values.yaml
+
+- name: Install SUSE Observability Agent
+  kubernetes.core.helm:
+    name: "{{ suse_observability_agent_helm_chart_name }}"
+    chart_ref: "{{ suse_observability_agent_helm_chart_ref }}"
+    namespace: "{{ suse_observability_namespace }}"
+    create_namespace: true
+    release_values:
+      stackstate:
+        apiKey: "{{ suse_observability_api_key.stdout }}"
+        cluster:
+          name: "local"
+        url: "http://suse-observability-router.{{ suse_observability_namespace }}.svc.cluster.local:8080/receiver/stsAgent"
+      nodeAgent:
+        skipKubeletTLSVerify: true
+    state: present
