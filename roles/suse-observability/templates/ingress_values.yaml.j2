@@ -1,0 +1,10 @@
+ingress:
+  enabled: true
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+  hosts:
+    - host: {{ suse_observability_hostname }}
+  tls:
+    - hosts:
+        - {{ suse_observability_hostname }}
+      secretName: tls-secret
