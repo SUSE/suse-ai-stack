@@ -178,3 +178,12 @@ pulsar:
   #      nvidia.com/gpu: "1"
 #{% endif %}
 
+{% if enable_suse_observability %}
+extraConfigFiles:
+  user.yaml: |+
+    trace:
+      exporter: jaeger
+      sampleFraction: 1
+      jaeger:
+        url: "http://opentelemetry-collector.{{ suse_observability_namespace }}.svc.cluster.local:14268/api/traces"
+{% endif %}

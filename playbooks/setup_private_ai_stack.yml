@@ -224,6 +224,11 @@
         name: nvidia-gpu-operator
       when: enable_gpu_operator | default(false)
 
+    - name: Deploy SUSE Observability
+      import_role:
+        name: suse-observability
+      when: enable_suse_observability | default(false)
+
     - name: Deploy SUSE Private AI
       import_role:
         name: suse-private-ai
@@ -249,7 +254,7 @@
         access_msg: "{{ access_msg | default([]) + [ item.msg | string ] }}"
       when: item.eval
       with_items:
-        - msg: "Make sure to update the /etc/hosts file: {{ hostvars['localhost']['vm_ip'] }} private-ai suse-ollama-webui private-ai.suse.demo longhorn-private-ai"
+        - msg: "Make sure to update the /etc/hosts file: {{ hostvars['localhost']['vm_ip'] }} private-ai suse-ollama-webui private-ai.suse.demo longhorn-private-ai suse-observability"
           eval: "{{ not enable_external_dns | bool }}"
         - msg: "To access longhorn UI, point your browser to http://{{ longhorn_host }} and login with user={{ longhorn_username }} and password={{ longhorn_password }}"
           eval: "{{ enable_longhorn | default(False) | bool }}"
