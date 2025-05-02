@@ -24,12 +24,12 @@ output "instance_public_ip_worker_nongpu" {
 }
 
 output "kubeapi_fqdn" {
-  value = data.aws_elb.rke2.dns_name
+  value = data.aws_lb.rke2.dns_name
   description = "RKE2 endpoint"
 }
 
 output "ingress_fqdn" {
-  value = data.aws_elb.ingress.dns_name
+  value = data.aws_lb.ingress.dns_name
   description = "Ingress LB endpoint"
 }
 

@@ -30,6 +30,17 @@ if [ ! -f "${EXTRA_VARS_FILE}" ] ; then
 	echo "ERROR: ${EXTRA_VARS_FILE} not found. Did you remember to copy extra_vars.yml.example to extra_vars.yml and configure it appropriately?"
 	exit 1
 fi
+
+if ! command -v ansible-playbook &> /dev/null; then
+    echo "ERROR: ansible-playbook command not found. Please install ansible."
+    exit 1
+fi
+
+if ! command -v tofu &> /dev/null; then
+    echo "ERROR: tofu command not found. Please install opentofu."
+    exit 1
+fi
+
 playbook_args+=( -e "@extra_vars.yml" )
 
 inv_file=${PROJECT_DIR}/inventories/${inv_name}_inventory.yml

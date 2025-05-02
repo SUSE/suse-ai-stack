@@ -41,8 +41,7 @@ resource "aws_instance" "cp_master" {
 # Launch the additional server nodes
 resource "aws_instance" "cp_other" {
   count = try(var.cluster["num_cp_nodes"] - 1, 0)
-  #depends_on = [aws_instance.cp_master, aws_elb_attachment.rke2_attachment1, aws_route53_record.rke2 ]
-  depends_on = [aws_instance.cp_master, aws_elb_attachment.rke2_attachment1 ]
+  depends_on = [aws_instance.cp_master ]
   ami           		= local.ami_id
   instance_type 		= var.cluster["instance_type_cp"]
   key_name 			= var.aws["key_pair_name"]
@@ -62,8 +61,7 @@ resource "aws_instance" "cp_other" {
 # Launch the agent nodes with nongpu
 resource "aws_instance" "worker_nongpu" {
   count = try(var.cluster["num_worker_nodes_nongpu"], 0)
-  #depends_on = [aws_instance.cp_other, aws_elb_attachment.rke2_attachment1, aws_route53_record.rke2 ]
-  depends_on = [aws_instance.cp_other, aws_elb_attachment.rke2_attachment1 ]
+  depends_on = [aws_instance.cp_other ]
   ami           		= local.ami_id
   instance_type 		= var.cluster["instance_type_nongpu"]
   key_name 			= var.aws["key_pair_name"]
@@ -82,8 +80,7 @@ resource "aws_instance" "worker_nongpu" {
 # Launch the agent nodes with gpu
 resource "aws_instance" "worker_gpu" {
   count    = try(var.cluster["num_worker_nodes_gpu"], 0)
-  #depends_on = [aws_instance.cp_other, aws_elb_attachment.rke2_attachment1, aws_route53_record.rke2 ]
-  depends_on = [aws_instance.cp_other, aws_elb_attachment.rke2_attachment1 ]
+  depends_on = [aws_instance.cp_other ]
   ami           		= local.ami_id
   instance_type 		= var.cluster["instance_type_gpu"]
   key_name 			= var.aws["key_pair_name"]

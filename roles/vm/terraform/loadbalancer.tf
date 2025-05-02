@@ -1,135 +1,179 @@
 #https://docs.rke2.io/install/ha#1-configure-the-fixed-registration-address
 #A layer 4 (TCP) load balancer
 
-# AWS Classic Loadbalancer
-resource "aws_elb" "rke2" {
-  connection_draining         = false
-  connection_draining_timeout = 300
-  cross_zone_load_balancing   = true
-  desync_mitigation_mode      = "defensive"
-  idle_timeout                = 60
-  internal                    = false
-  name                        = "${var.aws["resource_prefix"]}-ai-k8s-lb"
-  security_groups             = [aws_security_group.sg.id]
-  subnets                     = [aws_subnet.subnet1.id, aws_subnet.subnet2.id]
+#creating nlb - rke2
+resource "aws_lb" "rke2" {
+  name                             = "${var.aws["resource_prefix"]}-dev-ai-k8s-lb"
+  internal                         = false
+  load_balancer_type               = "network"
+  enable_deletion_protection       = false
+  enable_cross_zone_load_balancing = false
+  subnets                          = [aws_subnet.subnet1.id, aws_subnet.subnet2.id]
+  security_groups                  = [aws_security_group.sg.id]
+}
 
-  health_check {
-    healthy_threshold   = 3
-    interval            = 30
-    target              = "TCP:6443"
-    timeout             = 5
-    unhealthy_threshold = 5
-  }
+#create target group - rke2
+resource "aws_lb_target_group" "rke2_targetgroup1" {
+  name        = "${aws_lb.rke2.name}-tg1"
+  port        = 9345
+  protocol    = "TCP"
+  target_type = "instance"
+  vpc_id      = aws_vpc.main.id
+}
 
-  listener {
-    instance_port     = 6443
-    instance_protocol = "tcp"
-    lb_port           = 6443
-    lb_protocol       = "tcp"
-  }
-  listener {
-    instance_port     = 9345
-    instance_protocol = "tcp"
-    lb_port           = 9345
-    lb_protocol       = "tcp"
-  }
-  listener {
-    instance_port     = 80
-    instance_protocol = "tcp"
-    lb_port           = 80
-    lb_protocol       = "tcp"
-  }
-  listener {
-    instance_port     = 443
-    instance_protocol = "tcp"
-    lb_port           = 443
-    lb_protocol       = "tcp"
+resource "aws_lb_target_group" "rke2_targetgroup2" {
+  name        = "${aws_lb.rke2.name}-tg2"
+  port        = 6443
+  protocol    = "TCP"
+  target_type = "instance"
+  vpc_id      = aws_vpc.main.id
+}
+
+resource "aws_lb_listener" "rke2_listener1" {
+  load_balancer_arn = aws_lb.rke2.arn
+  protocol          = "TCP"
+  port              = 9345
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.rke2_targetgroup1.arn
   }
 }
 
-# Attach master cp node to rke2
-resource "aws_elb_attachment" "rke2_attachment1" {
-  elb        = aws_elb.rke2.id
-  instance   = aws_instance.cp_master.id
-  depends_on = [aws_elb.rke2]
+resource "aws_lb_listener" "rke2_listener2" {
+  load_balancer_arn = aws_lb.rke2.arn
+  protocol          = "TCP"
+  port              = 6443
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.rke2_targetgroup2.arn
+  }
 }
 
-# Attach all other cp nodes to rke2
-resource "aws_elb_attachment" "rke2_attachment2" {
-  elb        = aws_elb.rke2.id
+resource "aws_lb_target_group_attachment" "rke2_tg_attachment1_cp_master" {
+  target_group_arn = aws_lb_target_group.rke2_targetgroup1.arn
+  target_id        = aws_instance.cp_master.id
+}
+
+resource "aws_lb_target_group_attachment" "rke2_tg_attachment1_cp_others" {
+  target_group_arn = aws_lb_target_group.rke2_targetgroup1.arn
   count      = var.cluster["num_cp_nodes"] - 1
-  instance   = aws_instance.cp_other[count.index].id
-  depends_on = [aws_elb.rke2]
+  target_id  = aws_instance.cp_other[count.index].id
 }
 
-
-
-resource "aws_elb" "ingress" {
-  connection_draining         = false
-  connection_draining_timeout = 300
-  cross_zone_load_balancing   = true
-  desync_mitigation_mode      = "defensive"
-  idle_timeout                = 60
-  internal                    = false
-  name                        = "${var.aws["resource_prefix"]}-ai-ingress-lb"
-  security_groups             = [aws_security_group.sg.id]
-  subnets                     = [aws_subnet.subnet1.id, aws_subnet.subnet2.id]
-
-  health_check {
-    healthy_threshold   = 3
-    interval            = 30
-    target              = "TCP:80"
-    timeout             = 5
-    unhealthy_threshold = 5
-  }
-
-  listener {
-    instance_port     = 80
-    instance_protocol = "tcp"
-    lb_port           = 80
-    lb_protocol       = "tcp"
-  }
-  listener {
-    instance_port     = 443
-    instance_protocol = "tcp"
-    lb_port           = 443
-    lb_protocol       = "tcp"
-  }
+resource "aws_lb_target_group_attachment" "rke2_tg_attachment2_cp_master" {
+  target_group_arn = aws_lb_target_group.rke2_targetgroup2.arn
+  target_id        = aws_instance.cp_master.id
 }
 
-
-# Attach all controle plane nodes and worker nodes to ingress
-resource "aws_elb_attachment" "ingress_attachment1" {
-  elb        = aws_elb.ingress.id
-  instance   = aws_instance.cp_master.id
-  depends_on = [aws_elb.ingress]
-}
-
-resource "aws_elb_attachment" "ingress_attachment2" {
-  elb        = aws_elb.ingress.id
+resource "aws_lb_target_group_attachment" "rke2_tg_attachment2_cp_others" {
+  target_group_arn = aws_lb_target_group.rke2_targetgroup2.arn
   count      = var.cluster["num_cp_nodes"] - 1
-  instance   = aws_instance.cp_other[count.index].id
-  depends_on = [aws_elb.ingress]
+  target_id  = aws_instance.cp_other[count.index].id
 }
 
-resource "aws_elb_attachment" "ingress_attachment3" {
-  elb        = aws_elb.ingress.id
+
+#creating nlb - ingress
+resource "aws_lb" "ingress" {
+  name                             = "${var.aws["resource_prefix"]}-dev-ai-ingress-lb"
+  internal                         = false
+  load_balancer_type               = "network"
+  enable_deletion_protection       = false
+  enable_cross_zone_load_balancing = false
+  subnets                          = [aws_subnet.subnet1.id, aws_subnet.subnet2.id]
+  security_groups                  = [aws_security_group.sg.id]
+}
+
+#create target group - ingress
+resource "aws_lb_target_group" "ingress_targetgroup1" {
+  name        = "${aws_lb.ingress.name}-tg1"
+
+  port        = 443
+  protocol    = "TCP"
+  target_type = "instance"
+  vpc_id      = aws_vpc.main.id
+}
+
+resource "aws_lb_target_group" "ingress_targetgroup2" {
+  name        = "${aws_lb.ingress.name}-tg2"
+
+  port        = 80
+  protocol    = "TCP"
+  target_type = "instance"
+  vpc_id      = aws_vpc.main.id
+}
+
+
+resource "aws_lb_listener" "ingress_listener1" {
+  load_balancer_arn = aws_lb.ingress.arn
+  protocol          = "TCP"
+  port              = 443
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.ingress_targetgroup1.arn
+  }
+}
+
+resource "aws_lb_listener" "ingress_listener2" {
+  load_balancer_arn = aws_lb.ingress.arn
+  protocol          = "TCP"
+  port              = 80
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.ingress_targetgroup2.arn
+  }
+}
+
+# Attach all control plane nodes and worker nodes to ingress target groups
+resource "aws_lb_target_group_attachment" "ingress_tg_attachment1_cp_master" {
+  target_group_arn = aws_lb_target_group.ingress_targetgroup1.arn
+  target_id        = aws_instance.cp_master.id
+}
+
+resource "aws_lb_target_group_attachment" "ingress_tg_attachment1_cp_others" {
+  target_group_arn = aws_lb_target_group.ingress_targetgroup1.arn
+  count      = var.cluster["num_cp_nodes"] - 1
+  target_id   = aws_instance.cp_other[count.index].id
+}
+
+resource "aws_lb_target_group_attachment" "ingress_tg_attachment2_cp_master" {
+  target_group_arn = aws_lb_target_group.ingress_targetgroup2.arn
+  target_id        = aws_instance.cp_master.id
+}
+
+resource "aws_lb_target_group_attachment" "ingress_tg_attachment2_cp_others" {
+  target_group_arn = aws_lb_target_group.ingress_targetgroup2.arn
+  count      = var.cluster["num_cp_nodes"] - 1
+  target_id   = aws_instance.cp_other[count.index].id
+}
+
+resource "aws_lb_target_group_attachment" "ingress_tg_attachment1_worker_gpu" {
+  target_group_arn = aws_lb_target_group.ingress_targetgroup1.arn
   count      = var.cluster["num_worker_nodes_gpu"]
-  instance   = aws_instance.worker_gpu[count.index].id
-  depends_on = [aws_elb.ingress]
+  target_id   = aws_instance.worker_gpu[count.index].id
 }
 
-resource "aws_elb_attachment" "ingress_attachment4" {
-  elb        = aws_elb.ingress.id
+resource "aws_lb_target_group_attachment" "ingress_tg_attachment2_worker_gpu" {
+  target_group_arn = aws_lb_target_group.ingress_targetgroup2.arn
+  count      = var.cluster["num_worker_nodes_gpu"]
+  target_id   = aws_instance.worker_gpu[count.index].id
+}
+
+resource "aws_lb_target_group_attachment" "ingress_tg_attachment1_worker_nongpu" {
+  target_group_arn = aws_lb_target_group.ingress_targetgroup1.arn
   count      = var.cluster["num_worker_nodes_nongpu"]
-  instance   = aws_instance.worker_nongpu[count.index].id
-  depends_on = [aws_elb.ingress]
+  target_id   = aws_instance.worker_nongpu[count.index].id
 }
 
-data "aws_elb" "rke2" {
-  name = aws_elb.rke2.name
+resource "aws_lb_target_group_attachment" "ingress_tg_attachment2_worker_nongpu" {
+  target_group_arn = aws_lb_target_group.ingress_targetgroup2.arn
+  count      = var.cluster["num_worker_nodes_nongpu"]
+  target_id   = aws_instance.worker_nongpu[count.index].id
 }
 
-data "aws_elb" "ingress" {
-  name = aws_elb.ingress.name
+data "aws_lb" "rke2" {
+  name = aws_lb.rke2.name
+}
+
+data "aws_lb" "ingress" {
+  name = aws_lb.ingress.name
 }

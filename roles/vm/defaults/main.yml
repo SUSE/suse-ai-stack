@@ -58,4 +58,4 @@ vm_root_user_plain_text_passwd: linux
 
 suse_packages: ["jq", "python3-PyYAML", "curl", "git", "selinux-tools"]
 
-reboot_wait_timeout: 480
+reboot_wait_timeout: 540

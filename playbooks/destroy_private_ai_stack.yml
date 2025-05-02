@@ -3,26 +3,21 @@
   connection: local
   tasks:
 
-    - name: fetch terraform
-      community.general.terraform:
-        project_path: "{{ (current_project_dir, 'roles/vm/terraform') | path_join }}"
-        state: present
-        force_init: true
-        complex_vars: true
-        variables:
-          aws:
-            access_key: "{{ aws_access_key }}"
-            secret_key: "{{ aws_secret_key }}"
-            region: "{{ aws_region }}"
-            az1: "{{ aws_az1 }}"
-            az2: "{{ aws_az2 }}"
-            resource_owner: "{{ aws_resource_owner }}"
-            resource_prefix: "{{ aws_resource_prefix }}"
-            key_pair_name: "{{ aws_ssh_key_name }}"
-            key_pair_public_key: "{{ aws_ssh_public_key }}"
-            image_ami_account_number: "{{ aws_image_ami_account_number | default('amazon') }}"
-      check_mode: true
+    - name: Fetch tofu output
+      shell: tofu output --json -var-file="ansible.tfvars"
+      args:
+        chdir: "{{ (current_project_dir, 'roles/vm/terraform') | path_join }}"
       register: tfstate
+      when: cloud_provider | default('local') != "local"
+
+    - name: Set tofu output
+      set_fact:
+        tofuoutput: "{{ tfstate.stdout | from_json }}"
+      when: cloud_provider | default('local') != "local"
+
+    - name: Display tofu output
+      debug:
+        msg: "{{ tofuoutput }}"
       when: cloud_provider | default('local') != "local"
 
     - name: set python_interpreter sle-micro
@@ -52,10 +47,10 @@
         name: private-ai
         hostname: private-ai
         ansible_user: "{{ vm_ansible_user | default('ai') }}"
-        ansible_host: "{{ tfstate.outputs.instance_public_ip.value | default('')}}"
+        ansible_host: "{{ tofuoutput.instance_public_ip.value }}"
         groups:
           - cp_master
-      when: cloud_provider | default('local') != "local"
+      when: cloud_provider | default('local') != "local" and tofuoutput.instance_public_ip is defined
 
 - hosts: cp_master
   tasks:
