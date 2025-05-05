@@ -10,7 +10,7 @@
     release_namespace: "{{ suse_observability_namespace }}"
     values:
       license: "{{ suse_observability_license }}"
-      baseUrl: "{{ suse_observability_base_url }}"
+      baseUrl: "{{ suse_observability_host }}"
       sizing:
         profile: "{{ suse_observability_sizing_profile }}"
     output_dir: "."
