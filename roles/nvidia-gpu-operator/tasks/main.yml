@@ -56,14 +56,8 @@
         enabled: "{{ enable_nfd }}"
       toolkit:
         env:
-          - name: CONTAINERD_CONFIG
-            value: /var/lib/rancher/rke2/agent/etc/containerd/config.toml.tmpl
           - name: CONTAINERD_SOCKET
             value: /run/k3s/containerd/containerd.sock
-          - name: CONTAINERD_RUNTIME_CLASS
-            value: nvidia
-          - name: CONTAINERD_SET_AS_DEFAULT
-            value: "true"
   when: not enable_time_slicing
 
 # see https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html#time-slicing-gpus-in-kubernetes
@@ -81,16 +75,59 @@
         enabled: "{{ enable_nfd }}"
       toolkit:
         env:
-          - name: CONTAINERD_CONFIG
-            value: /var/lib/rancher/rke2/agent/etc/containerd/config.toml.tmpl
           - name: CONTAINERD_SOCKET
             value: /run/k3s/containerd/containerd.sock
-          - name: CONTAINERD_RUNTIME_CLASS
-            value: nvidia
-          - name: CONTAINERD_SET_AS_DEFAULT
-            value: "true"
       devicePlugin:
         config:
           name: time-slicing-config-all
           default: any
   when: enable_time_slicing
+
+- name: Wait for NVIDIA GPU Operator Deploy to be rolled out
+  shell: >
+    kubectl -n {{ gpu_operator_namespace }} rollout status deploy/{{ item }}
+  register: gpu_operator_deploy_rollout_result
+  retries: 10
+  delay: 30
+  with_items:
+  - "{{ gpu_operator_release }}"
+  until: "'successfully rolled out' in gpu_operator_deploy_rollout_result.stdout"
+
+- name: Wait for NVIDIA GPU Operator NFD Deploy to be rolled out
+  shell: >
+    kubectl -n {{ gpu_operator_namespace }} rollout status deploy/{{ item }}
+  register: gpu_operator_deploy_rollout_result
+  retries: 10
+  delay: 30
+  with_items:
+  - "{{ gpu_operator_release }}-node-feature-discovery-gc"
+  - "{{ gpu_operator_release }}-node-feature-discovery-master"
+  until: "'successfully rolled out' in gpu_operator_deploy_rollout_result.stdout"
+  when: enable_nfd
+
+# https://docs.rke2.io/advanced#deploy-nvidia-operator
+# WARNING: The NVIDIA operator restarts containerd with a hangup call which restarts RKE2
+- name: Pause for cluster to stabilize
+  ansible.builtin.pause:
+    minutes: 4
+
+- name: Wait for port 9345
+  wait_for:
+    port: 9345
+    delay: 10
+    timeout: 120
+
+- name: Wait for NVIDIA GPU Operator NFD DaemonSet to be rolled out
+  shell: >
+    kubectl -n {{ gpu_operator_namespace }} rollout status daemonset/{{ item }}
+  register: gpu_operator_ds_rollout_result
+  retries: 10
+  delay: 60
+  with_items:
+  - "{{ gpu_operator_release }}-node-feature-discovery-worker"
+  - "gpu-feature-discovery"
+  - "nvidia-container-toolkit-daemonset"
+  - "nvidia-device-plugin-daemonset"
+  until: "'successfully rolled out' in gpu_operator_ds_rollout_result.stdout"
+  when: enable_nfd
+

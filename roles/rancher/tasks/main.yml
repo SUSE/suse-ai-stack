@@ -25,10 +25,13 @@
 
 - name: Wait for Rancher to be rolled out
   shell: >
-    kubectl -n {{ rancher_namespace }} rollout status deploy/{{ rancher_release }}
+    kubectl -n {{ rancher_namespace }} rollout status deploy/{{ item }}
   register: rancher_rollout_result
-  retries: 5
-  delay: 10
+  retries: 10
+  delay: 30
+  with_items:
+    - "{{ rancher_release }}"
+    - "{{ rancher_release }}-webhook"
   until: "'successfully rolled out' in rancher_rollout_result.stdout"
 
 # per https://github.com/rancher/local-path-provisioner

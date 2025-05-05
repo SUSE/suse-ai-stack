@@ -90,7 +90,7 @@
 
 - name: Install RKE2
   shell: >
-    sudo INSTALL_RKE2_CHANNEL={{ cluster.version | default('v1.30.5+rke2r1') }} /tmp/rke2_installer.sh
+    sudo INSTALL_RKE2_CHANNEL={{ cluster.version | default('v1.32.4+rke2r1') }} /tmp/rke2_installer.sh
 
 - name: Enable and start service
   become: true

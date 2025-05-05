@@ -124,17 +124,9 @@ time_slicing_replicas: 4
 #
 # Rancher version to use
 #
-# Default to 2.9.2
+# Default to 2.11.1
 #
-#rancher_version: 2.9.2
-
-#
-# RKE2 channel to install a specific version of RKE2 server.
-# See see https://update.rke2.io/v1-release/channels for a complete list
-#
-# By default, the "v1.30.5+rke2r1" version will be used.
-#
-#rke2_channel_version: v1.30.5+rke2r1
+#rancher_version: 2.11.1
 
 #
 # VM user plain text password (not hash)
