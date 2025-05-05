@@ -27,7 +27,7 @@ config:
                     - gpu-operator
   exporters:
     otlp:
-      endpoint: http://suse-observability-otel-collector.suse-observability.svc.cluster.local:4317
+      endpoint: http://suse-observability-otel-collector.{{ suse_observability_namespace }}.svc.cluster.local:4317
       headers:
         Authorization: "SUSEObservability ${env:API_KEY}"
       tls:
