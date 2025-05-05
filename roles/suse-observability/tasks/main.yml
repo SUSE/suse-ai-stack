@@ -19,7 +19,6 @@
   shell: |
       sed -i '/^---$/d' {{ suse_observability_release_name }}/templates/baseConfig_values.yaml
 
-# TODO: Setup ingress
 - name: Copy ingress_values.yaml
   template:
     src: ingress_values.yaml.j2
@@ -38,6 +37,7 @@
     values_files:
       - "{{ suse_observability_release_name }}/templates/baseConfig_values.yaml"
       - "{{ suse_observability_release_name }}/templates/sizing_values.yaml"
+      - "{{ suse_observability_release_name }}/templates/ingress_values.yaml"
 
 - name: Retrieve admin password from baseConfig_values file
   shell: |

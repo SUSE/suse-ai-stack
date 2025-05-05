@@ -181,6 +181,7 @@
         longhorn_host: longhorn-{{ github_username }}-ai-{{hostvars['localhost']['unique_id']}}.{{ external_dns_domain_filter | default('suseclouddev.com') }}
         rancher_host: rancher-{{ github_username }}-ai-{{hostvars['localhost']['unique_id']}}.{{ external_dns_domain_filter | default('suseclouddev.com') }}
         open_webui_host: open-webui-{{ github_username }}-ai-{{hostvars['localhost']['unique_id']}}.{{ external_dns_domain_filter | default('suseclouddev.com') }}
+        suse_observability_host: suse-observability-{{ github_username }}-ai-{{hostvars['localhost']['unique_id']}}.{{ external_dns_domain_filter | default('suseclouddev.com') }}
       when: enable_external_dns
 
     - name: set ingress host when no external-dns
@@ -188,6 +189,7 @@
         longhorn_host: "{{ longhorn_hostname | default('longhorn-private-ai') }}"
         rancher_host: "{{ rancher_hostname | default('private-ai.suse.demo') }}"
         open_webui_host: "{{ open_webui_hostname | default('suse-ollama-webui') }}"
+        suse_observability_host: "{{ suse_observability_hostname | default('suse-observability') }}"
       when: not enable_external_dns
 
     - name: Deploy Cert-Manager
@@ -262,6 +264,8 @@
           eval: true
         - msg: "To access open-webui, point your browser to https://{{ open_webui_host }} and login with user={{ open_webui_admin_email }} and password={{ open_webui_admin_password }}"
           eval: "{{ not deploy_rancher_only | default(False) | bool }}"
+        - msg: "To access suse-observability, point your browser to https://{{ suse_observability_host }} and login with user=admin and password={{ suse_observability_admin_password.stdout }}"
+          eval: "{{ enable_suse_observability | bool }}"
 
     - name: Show Access URL and credentials
       debug:
