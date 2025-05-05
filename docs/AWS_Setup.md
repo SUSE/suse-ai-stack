@@ -129,10 +129,3 @@ The above command will delete the Private AI stack, including the VM itself.
 [rke2]: https://www.rancher.com/products/secure-kubernetes-distribution
 [sle-micro]: https://www.suse.com/products/micro/
 
-# Known Issues
-1. Known issue with newer version of gpu-operator and rke2 1.31:
-
-After the gpu-operator deployed, you will see some pods stuck. This issue is reported in https://github.com/NVIDIA/gpu-operator/issues/991
-The gpu-operator modifies the containerd configuration and restarts containerd while other pods are created.
-When the containerd goes down, while interacting with the kubeapi server, you will see an error like this net/http: TLS handshake timeout - error from a previous attempt: http2: server sent GOAWAY and closed the connection; LastStreamID=1, ErrCode=NO_ERROR, debug=""
-The workaround is to delete the stuck gpu-operator pods to force a restart.
