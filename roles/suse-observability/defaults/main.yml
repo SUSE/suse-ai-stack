@@ -4,7 +4,6 @@ suse_observability_helm_chart_name: suse-observability
 suse_observability_helm_chart_ref: "{{ suse_observability_helm_repo_name }}/{{ suse_observability_helm_chart_name }}"
 suse_observability_helm_chart_version: 2.3.0
 suse_observability_namespace: suse-observability
-suse_observability_base_url: http://suse-observability
 suse_observability_sizing_profile: trial
 suse_observability_storage_class: "{% if cloud_provider is defined and cloud_provider == 'aws' and enable_longhorn %}longhorn{% else %}local-path{% endif %}"
 suse_observability_release_name: suse-observability-values
