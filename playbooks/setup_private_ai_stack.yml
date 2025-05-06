@@ -127,7 +127,7 @@
       become: true
       lineinfile:
         path: /etc/hosts
-        line: "{{ ansible_default_ipv4.address }}  private-ai private-ai.suse.demo longhorn-private-ai suse-ollama suse-ollama-webui"
+        line: "{{ ansible_default_ipv4.address }}  private-ai private-ai.suse.demo longhorn-private-ai suse-ollama suse-ollama-webui suse-observability"
 
 - hosts: cp_master
   tasks:
