@@ -1,0 +1,7 @@
+global:
+  imagePullSecrets:
+  - application-collection
+serverUrl: http://suse-observability
+apiKey: {{ suse_observability_api_key.stdout }}
+apiToken: {{ suse_observability_api_token }}
+clusterName: local
