@@ -24,3 +24,6 @@ persistentVolume:
   enabled: true
   storageClass: {{ storage_class }}
   size: 20Gi
+extraEnv:
+  - name: OLLAMA_DEBUG
+    value: "1"
