@@ -1,0 +1,8 @@
+stackstate:
+  authentication:
+    serviceToken:
+      bootstrap:
+        token: {{ suse_observability_api_token }}
+        roles:
+          - stackstate-power-user
+        ttl: {{ suse_observability_api_token_ttl }}
