@@ -24,6 +24,11 @@
     src: ingress_values.yaml.j2
     dest: "{{ suse_observability_release_name }}/templates/ingress_values.yaml"
 
+- name: Copy authentication.yaml
+  template:
+    src: authentication.yaml.j2
+    dest: "{{ suse_observability_release_name }}/templates/authentication.yaml"
+
 - name: Install SUSE Observability Chart
   kubernetes.core.helm:
     name: "{{ suse_observability_helm_chart_name }}"
@@ -38,6 +43,7 @@
       - "{{ suse_observability_release_name }}/templates/baseConfig_values.yaml"
       - "{{ suse_observability_release_name }}/templates/sizing_values.yaml"
       - "{{ suse_observability_release_name }}/templates/ingress_values.yaml"
+      - "{{ suse_observability_release_name }}/templates/authentication.yaml"
 
 - name: Retrieve admin password from baseConfig_values file
   shell: |
@@ -96,3 +102,8 @@
       nodeAgent:
         skipKubeletTLSVerify: true
     state: present
+
+- name: Copy genai-values.yaml
+  template:
+    src: genai-values.yaml.j2
+    dest: ~/genai-values.yaml
