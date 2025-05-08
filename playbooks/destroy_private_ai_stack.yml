@@ -4,7 +4,8 @@
   tasks:
 
     - name: Fetch tofu output
-      shell: tofu output --json -var-file="ansible.tfvars"
+      shell: |
+        tofu output --json
       args:
         chdir: "{{ (current_project_dir, 'roles/vm/terraform') | path_join }}"
       register: tfstate

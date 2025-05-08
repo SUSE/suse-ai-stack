@@ -169,6 +169,11 @@ aws_image_ami_account_number: amazon
 #use_rancher_prime: true
 
 #
+# Rancher Prime Helm Chart Repo URL when use_rancher_prime is set to true
+#
+#rancher_prime_helm_repo_url: ""
+
+#
 # Rancher version to use
 #
 # Default to 2.11.1
