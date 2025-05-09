@@ -27,3 +27,6 @@ persistentVolume:
 extraEnv:
   - name: OLLAMA_DEBUG
     value: "1"
+{% if enable_gpu_operator %}
+runtimeClassName: "nvidia"
+{% endif %}
