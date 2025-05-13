@@ -87,6 +87,15 @@
     values_files:
       - otel-values.yaml
 
+- name: Copy otel-rbac.yaml
+  template:
+    src: otel-rbac.yaml.j2
+    dest: ~/otel-rbac.yaml
+
+- name: Add custom RBAC rules for metrics
+  shell: >
+    kubectl apply -n gpu-operator -f otel-rbac.yaml
+
 - name: Install SUSE Observability Agent
   kubernetes.core.helm:
     name: "{{ suse_observability_agent_helm_chart_name }}"
