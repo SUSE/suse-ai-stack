@@ -24,6 +24,6 @@ roleRef:
   name: suse-observability-otel-scraper
 subjects:
   - kind: ServiceAccount
-    name: {{ otel_helm_chart_name }}
+    name: {{ otel_collector_release_name }}
     namespace: {{ otel_namespace }}
 ---

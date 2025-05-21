@@ -67,10 +67,19 @@
       kubectl create secret generic {{ otel_secret }} --from-literal=API_KEY='{{ suse_observability_api_key.stdout }}' -n {{ otel_namespace }}
     fi
 
-- name: Add OpenTelemetry Helm repo
-  kubernetes.core.helm_repository:
-    repo_url: "{{ otel_helm_repo_url }}"
-    name: "{{ otel_helm_repo_name }}"
+- name: Check if AppCo secret exists
+  command: kubectl get secret "{{ appco_secret }}" -n "{{ otel_namespace }}" --ignore-not-found
+  register: secret_check_otel
+  changed_when: false
+
+- name: Create AppCo registry secret
+  command: >
+    kubectl create secret docker-registry "{{ appco_secret }}"
+    --docker-server=dp.apps.rancher.io
+    --docker-username="{{ application_collection_user_email }}"
+    --docker-password="{{ application_collection_user_token }}"
+    -n "{{ otel_namespace }}"
+  when: "'secret/' + appco_secret not in secret_check_otel.stdout"
 
 - name: Copy otel-values.yaml
   template:
@@ -78,14 +87,17 @@
     dest: ~/otel-values.yaml
 
 - name: Install OpenTelemetry Collector
-  kubernetes.core.helm:
-    name: "{{ otel_helm_chart_name }}"
-    chart_ref: "{{ otel_helm_chart_ref }}"
-    release_namespace: "{{ otel_namespace }}"
-    create_namespace: true
-    chart_version: "{{ otel_helm_chart_version }}"
-    values_files:
-      - otel-values.yaml
+  shell: |
+    if [[ {{ otel_collector_helm_repo }} == *"dp.apps.rancher.io"* ]]; then
+        helm registry login dp.apps.rancher.io/charts -u {{ application_collection_user_email }} -p {{ application_collection_user_token }}
+        helm upgrade --install {{ otel_collector_release_name }} {{ otel_collector_helm_repo }} -n {{ otel_namespace }} --create-namespace  --version {{ otel_collector_helm_version }} -f otel-values.yaml
+    else
+        helm upgrade --install {{ otel_collector_release_name }} --repo {{ otel_collector_helm_repo }} -n {{ otel_namespace }} --create-namespace --version {{ otel_collector_helm_version }} -f otel-values.yaml
+    fi
+  register: otel_collector_deploy_result
+  until: otel_collector_deploy_result.rc == 0
+  retries: 3
+  delay: 20
 
 - name: Copy otel-rbac.yaml
   template:

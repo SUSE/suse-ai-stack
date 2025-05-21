@@ -9,15 +9,12 @@ suse_observability_storage_class: "{% if cloud_provider is defined and cloud_pro
 suse_observability_release_name: suse-observability-values
 otel_secret: open-telemetry-collector
 otel_namespace: observability
-otel_helm_repo_url: https://open-telemetry.github.io/opentelemetry-helm-charts
-otel_helm_repo_name: open-telemetry
-otel_helm_chart_name: opentelemetry-collector
-otel_helm_chart_ref: "{{ otel_helm_repo_name }}/{{ otel_helm_chart_name }}"
-otel_helm_chart_version: 0.113.0
+otel_collector_helm_repo: oci://dp.apps.rancher.io/charts/opentelemetry-collector
+otel_collector_release_name: opentelemetry-collector
+otel_collector_helm_version: 0.125.0
 suse_observability_agent_helm_chart_name: suse-observability-agent
 suse_observability_agent_helm_chart_ref: "{{ suse_observability_helm_repo_name }}/{{ suse_observability_agent_helm_chart_name }}"
 suse_observability_api_token: suseobservability
-suse_observability_api_token_ttl: 6h
 suse_ai_observability_extension_helm_repo: oci://dp.apps.rancher.io/charts/suse-ai-observability-extension
 suse_ai_observability_extension_helm_version: 1.0.1
 suse_ai_observability_extension_release_name: suse-ai-observability-extension
