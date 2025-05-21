@@ -1,10 +1,10 @@
+global:
+  imagePullSecrets:
+  - application-collection
 extraEnvsFrom:
   - secretRef:
       name: {{ otel_secret }}
 mode: deployment
-image:
-  repository: "otel/opentelemetry-collector-k8s"
-  tag: "0.123.0"
 ports:
   metrics:
     enabled: true
