@@ -44,7 +44,7 @@
 
     - name: Define private-ai node (master node) non-local
       ansible.builtin.add_host:
-        ansible_python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3') }}"
+        ansible_python_interpreter: "{{ python_interpreter }}"
         name: private-ai
         hostname: private-ai
         ansible_user: "{{ vm_ansible_user | default('ai') }}"
