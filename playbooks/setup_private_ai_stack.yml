@@ -82,6 +82,12 @@
 
 - hosts: cluster
   tasks:
+    - name: upload additional SSH pubkeys
+      authorized_key:
+        user: "{{ vm_ansible_user | default('ai') }}"
+        key: "{{ item }}"
+      loop: "{{ additional_public_keys | default([]) }}"
+
     - name: Registration sle-micro
       become: true
       shell: |
