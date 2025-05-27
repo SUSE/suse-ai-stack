@@ -19,7 +19,7 @@ cloud_image_download_url: https://download.opensuse.org/distribution/leap-micro/
 #cloud_image_checksum_url: "sha256:{{ cloud_image_download_url }}.sha256"
 
 # Image name for identification purposes
-cloud_image_os_name: SL-Micro-6.0.0
+cloud_image_os_name: SL-Micro-6.1
 
 # OS variant for libvirt optimization. See virt-install --os-variant
 vm_os_variant: sle15
