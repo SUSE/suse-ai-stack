@@ -2,11 +2,11 @@ global:
   imagePullSecrets:
   - {{ appco_secret }}
 {% if "dp.apps.rancher.io" in openwebui_helm_repo %}
-image:
-  registry: dp.apps.rancher.io
-  repository: containers/open-webui
-  tag: {{ openwebui_image_version }}
-  pullPolicy: IfNotPresent
+#image:
+#  registry: dp.apps.rancher.io
+#  repository: containers/open-webui
+#  tag: {{ openwebui_image_version }}
+#  pullPolicy: IfNotPresent
 {% else %}
 image:
   repository: ghcr.io/open-webui/open-webui
@@ -29,11 +29,11 @@ ollama:
   enabled: true
 {% endif %}
 {% if "dp.apps.rancher.io" in ollama_helm_repo %}
-  image:
-    registry: dp.apps.rancher.io
-    repository: containers/ollama
-    tag: {{ ollama_image_version }}
-    pullPolicy: IfNotPresent
+  #image:
+  #  registry: dp.apps.rancher.io
+  #  repository: containers/ollama
+  #  tag: {{ ollama_image_version }}
+  #  pullPolicy: IfNotPresent
 {% else %}
   image:
     repository: ollama/ollama

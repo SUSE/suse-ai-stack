@@ -92,7 +92,7 @@
       become: true
       shell: |
         transactional-update register --url {{ registration_server | default("https://scc.suse.com") }} --email {{ registration_email }} --regcode "{{ registration_code }}"
-      when: (cluster is defined and cluster.image_distro == "sle-micro") or cluster is not defined
+      when: (cluster is defined and cluster.image_distro == "sle-micro") or (cluster is not defined and '"openSUSE" not in cloud_image_download_url')
       register: register_result
       failed_when: "'Error' in register_result.stdout"
 
