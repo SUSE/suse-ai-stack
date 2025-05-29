@@ -67,19 +67,19 @@
       kubectl create secret generic {{ otel_secret }} --from-literal=API_KEY='{{ suse_observability_api_key.stdout }}' -n {{ otel_namespace }}
     fi
 
-- name: Check if AppCo secret exists
+- name: Check if AppCo secret exists in OTEL Namespace
   command: kubectl get secret "{{ appco_secret }}" -n "{{ otel_namespace }}" --ignore-not-found
   register: secret_check_otel
   changed_when: false
 
-- name: Create AppCo registry secret
+- name: Create AppCo registry secret for OTEL Namespace
   command: >
     kubectl create secret docker-registry "{{ appco_secret }}"
     --docker-server=dp.apps.rancher.io
     --docker-username="{{ application_collection_user_email }}"
     --docker-password="{{ application_collection_user_token }}"
     -n "{{ otel_namespace }}"
-  when: "'secret/' + appco_secret not in secret_check_otel.stdout"
+  when: "appco_secret not in secret_check_otel.stdout"
 
 - name: Copy otel-values.yaml
   template:
@@ -141,17 +141,35 @@
     --docker-username="{{ application_collection_user_email }}"
     --docker-password="{{ application_collection_user_token }}"
     -n "{{ suse_observability_namespace }}"
-  when: "'secret/' + appco_secret not in secret_check.stdout"
+  when: "appco_secret not in secret_check.stdout"
+
+- name: Wait for SUSE Observability to be successfully rolled out
+  shell: >
+    kubectl -n {{ suse_observability_namespace }} rollout status deploy/{{ suse_observability_helm_chart_name }}-{{ item }}
+  register: rollout_result
+  retries: 8
+  delay: 40
+  until: "'successfully rolled out' in rollout_result.stdout"
+  with_items:
+  - "correlate"
+  - "e2es"
+  - "hbase-console"
+  - "kafkaup-operator-kafkaup"
+  - "prometheus-elasticsearch-exporter"
+  - "receiver"
+  - "router"
+  - "server"
+  - "ui"
 
 - name: Deploy SUSE AI Observability Extension
   shell: |
     if [[ {{ suse_ai_observability_extension_helm_repo }} == *"dp.apps.rancher.io"* ]]; then
         helm registry login dp.apps.rancher.io/charts -u {{ application_collection_user_email }} -p {{ application_collection_user_token }}
-        helm upgrade --install {{ suse_ai_observability_extension_release_name }} {{ suse_ai_observability_extension_helm_repo }} -n {{ suse_observability_namespace }} --create-namespace  --version {{ suse_ai_observability_extension_helm_version }} -f genai-values.yaml
+        helm upgrade --install {{ suse_ai_observability_extension_release_name }} {{ suse_ai_observability_extension_helm_repo }} -n {{ suse_observability_namespace }} --create-namespace --version {{ suse_ai_observability_extension_helm_version }} -f genai-values.yaml
     else
         helm upgrade --install {{ suse_ai_observability_extension_release_name }} --repo {{ suse_ai_observability_extension_helm_repo }} -n {{ suse_observability_namespace }} --create-namespace --version {{ suse_ai_observability_extension_helm_version }} -f genai-values.yaml
     fi
   register: suse_ai_observability_extension_deploy_result
   until: suse_ai_observability_extension_deploy_result.rc == 0
   retries: 3
-  delay: 20
+  delay: 40
