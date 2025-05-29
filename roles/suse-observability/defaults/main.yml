@@ -1,0 +1,20 @@
+suse_observability_helm_repo_url: https://charts.rancher.com/server-charts/prime/suse-observability
+suse_observability_helm_repo_name: suse-observability
+suse_observability_helm_chart_name: suse-observability
+suse_observability_helm_chart_ref: "{{ suse_observability_helm_repo_name }}/{{ suse_observability_helm_chart_name }}"
+suse_observability_helm_chart_version: 2.3.0
+suse_observability_namespace: suse-observability
+suse_observability_sizing_profile: trial
+suse_observability_storage_class: "{% if cloud_provider is defined and cloud_provider == 'aws' and enable_longhorn %}longhorn{% else %}local-path{% endif %}"
+suse_observability_release_name: suse-observability-values
+otel_secret: open-telemetry-collector
+otel_namespace: observability
+otel_collector_helm_repo: oci://dp.apps.rancher.io/charts/opentelemetry-collector
+otel_collector_release_name: opentelemetry-collector
+otel_collector_helm_version: 0.125.0
+suse_observability_agent_helm_chart_name: suse-observability-agent
+suse_observability_agent_helm_chart_ref: "{{ suse_observability_helm_repo_name }}/{{ suse_observability_agent_helm_chart_name }}"
+suse_observability_api_token: suseobservability
+suse_ai_observability_extension_helm_repo: oci://dp.apps.rancher.io/charts/suse-ai-observability-extension
+suse_ai_observability_extension_helm_version: 1.0.1
+suse_ai_observability_extension_release_name: suse-ai-observability-extension
