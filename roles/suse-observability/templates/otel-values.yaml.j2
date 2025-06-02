@@ -1,0 +1,106 @@
+global:
+  imagePullSecrets:
+  - application-collection
+extraEnvsFrom:
+  - secretRef:
+      name: {{ otel_secret }}
+mode: deployment
+ports:
+  metrics:
+    enabled: true
+presets:
+  kubernetesAttributes:
+    enabled: true
+    extractAllPodLabels: true
+config:
+  receivers:
+    prometheus:
+      config:
+        scrape_configs:
+          - job_name: 'gpu-metrics'
+            scrape_interval: 10s
+            scheme: http
+            kubernetes_sd_configs:
+              - role: endpoints
+                namespaces:
+                  names:
+                    - gpu-operator
+  exporters:
+    otlp:
+      endpoint: http://suse-observability-otel-collector.{{ suse_observability_namespace }}.svc.cluster.local:4317
+      headers:
+        Authorization: "SUSEObservability ${env:API_KEY}"
+      tls:
+        insecure: true
+  processors:
+    tail_sampling:
+      decision_wait: 10s
+      policies:
+      - name: rate-limited-composite
+        type: composite
+        composite:
+          max_total_spans_per_second: 500
+          policy_order: [errors, slow-traces, rest]
+          composite_sub_policy:
+          - name: errors
+            type: status_code
+            status_code:
+              status_codes: [ ERROR ]
+          - name: slow-traces
+            type: latency
+            latency:
+              threshold_ms: 1000
+          - name: rest
+            type: always_sample
+          rate_allocation:
+          - policy: errors
+            percent: 33
+          - policy: slow-traces
+            percent: 33
+          - policy: rest
+            percent: 34
+    resource:
+      attributes:
+      - key: k8s.cluster.name
+        action: upsert
+        value: local
+      - key: service.instance.id
+        from_attribute: k8s.pod.uid
+        action: insert
+    filter/dropMissingK8sAttributes:
+      error_mode: ignore
+      traces:
+        span:
+          - resource.attributes["k8s.node.name"] == nil
+          - resource.attributes["k8s.pod.uid"] == nil
+          - resource.attributes["k8s.namespace.name"] == nil
+          - resource.attributes["k8s.pod.name"] == nil
+  connectors:
+    spanmetrics:
+      metrics_expiration: 5m
+      namespace: otel_span
+    routing/traces:
+      error_mode: ignore
+      table:
+      - statement: route()
+        pipelines: [traces/sampling, traces/spanmetrics]
+  service:
+    extensions:
+      - health_check
+    pipelines:
+      traces:
+        receivers: [otlp, jaeger]
+        processors: [filter/dropMissingK8sAttributes, memory_limiter, resource]
+        exporters: [routing/traces]
+      traces/spanmetrics:
+        receivers: [routing/traces]
+        processors: []
+        exporters: [spanmetrics]
+      traces/sampling:
+        receivers: [routing/traces]
+        processors: [tail_sampling, batch]
+        exporters: [debug, otlp]
+      metrics:
+        receivers: [otlp, spanmetrics, prometheus]
+        processors: [memory_limiter, resource, batch]
+        exporters: [debug, otlp]

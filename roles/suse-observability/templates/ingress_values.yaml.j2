@@ -1,0 +1,16 @@
+ingress:
+  enabled: true
+  class: ""
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+{% if cloud_provider is defined and cloud_provider == "aws" and enable_external_dns %}
+    external-dns.alpha.kubernetes.io/target: {{ target }}
+    external-dns.alpha.kubernetes.io/ttl: "60"
+{% endif %}
+  host:  {{ suse_observability_host }}
+  tls:
+  - hosts:
+    - {{ suse_observability_host }}
+    secretName: suse-private-ai-tls
+  existingSecret: suse-private-ai-tls

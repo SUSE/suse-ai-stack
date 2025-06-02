@@ -127,7 +127,7 @@
       become: true
       lineinfile:
         path: /etc/hosts
-        line: "{{ ansible_default_ipv4.address }}  private-ai private-ai.suse.demo longhorn-private-ai suse-ollama suse-ollama-webui"
+        line: "{{ ansible_default_ipv4.address }}  private-ai private-ai.suse.demo longhorn-private-ai suse-ollama suse-ollama-webui suse-observability"
 
 - hosts: cp_master
   tasks:
@@ -181,6 +181,7 @@
         longhorn_host: longhorn-{{ github_username }}-ai-{{hostvars['localhost']['unique_id']}}.{{ external_dns_domain_filter | default('suseclouddev.com') }}
         rancher_host: rancher-{{ github_username }}-ai-{{hostvars['localhost']['unique_id']}}.{{ external_dns_domain_filter | default('suseclouddev.com') }}
         open_webui_host: open-webui-{{ github_username }}-ai-{{hostvars['localhost']['unique_id']}}.{{ external_dns_domain_filter | default('suseclouddev.com') }}
+        suse_observability_host: suse-observability-{{ github_username }}-ai-{{hostvars['localhost']['unique_id']}}.{{ external_dns_domain_filter | default('suseclouddev.com') }}
       when: enable_external_dns
 
     - name: set ingress host when no external-dns
@@ -188,6 +189,7 @@
         longhorn_host: "{{ longhorn_hostname | default('longhorn-private-ai') }}"
         rancher_host: "{{ rancher_hostname | default('private-ai.suse.demo') }}"
         open_webui_host: "{{ open_webui_hostname | default('suse-ollama-webui') }}"
+        suse_observability_host: "{{ suse_observability_hostname | default('suse-observability') }}"
       when: not enable_external_dns
 
     - name: Deploy Cert-Manager
@@ -224,6 +226,11 @@
         name: nvidia-gpu-operator
       when: enable_gpu_operator | default(false)
 
+    - name: Deploy SUSE Observability
+      import_role:
+        name: suse-observability
+      when: enable_suse_observability | default(false)
+
     - name: Deploy SUSE Private AI
       import_role:
         name: suse-private-ai
@@ -249,7 +256,7 @@
         access_msg: "{{ access_msg | default([]) + [ item.msg | string ] }}"
       when: item.eval
       with_items:
-        - msg: "Make sure to update the /etc/hosts file: {{ hostvars['localhost']['vm_ip'] }} private-ai suse-ollama-webui private-ai.suse.demo longhorn-private-ai"
+        - msg: "Make sure to update the /etc/hosts file: {{ hostvars['localhost']['vm_ip'] }} private-ai suse-ollama-webui private-ai.suse.demo longhorn-private-ai suse-observability"
           eval: "{{ not enable_external_dns | bool }}"
         - msg: "To access longhorn UI, point your browser to http://{{ longhorn_host }} and login with user={{ longhorn_username }} and password={{ longhorn_password }}"
           eval: "{{ enable_longhorn | default(False) | bool }}"
@@ -257,6 +264,8 @@
           eval: true
         - msg: "To access open-webui, point your browser to https://{{ open_webui_host }} and login with user={{ open_webui_admin_email }} and password={{ open_webui_admin_password }}"
           eval: "{{ not deploy_rancher_only | default(False) | bool }}"
+        - msg: "To access suse-observability, point your browser to https://{{ suse_observability_host }} and login with user=admin and password={{ suse_observability_admin_password.stdout }}"
+          eval: "{{ enable_suse_observability | bool }}"
 
     - name: Show Access URL and credentials
       debug:

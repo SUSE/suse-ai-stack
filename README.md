@@ -14,6 +14,8 @@ At it's core, the stack is consist of the following:
 * [Ollama][ollama] [LLM][llm] platform
 * [Open WebUI][open-webui], front-end for [Ollama][ollama]
 * [Milvus][milvus], Vector DB for AI stack
+* [OpenTelemetry Collector][otel], tracing, metrics and log collector
+* [SUSE Observability][suse-obs], full observability platform
 
 The stack is self-contained, designed to run on a local environment. However,
 it can also be running in AWS if the local environment lacks the required
@@ -33,3 +35,6 @@ please see [AWS Setup](./docs/AWS_Setup.md).
 [rancher-prime]: https://www.rancher.com/products/rancher-platform
 [rke2]: https://www.rancher.com/products/secure-kubernetes-distribution
 [sles]: https://www.suse.com/products/server/
+[milvus]: https://milvus.io
+[otel]: https://opentelemetry.io
+[suse-obs]: https://docs.stackstate.com

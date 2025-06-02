@@ -1,0 +1,175 @@
+- name: Add SUSE Observability Helm repo
+  kubernetes.core.helm_repository:
+    repo_url: "{{ suse_observability_helm_repo_url }}"
+    name: "{{ suse_observability_helm_repo_name }}"
+
+- name: Render SUSE Observability Helm template with custom values
+  kubernetes.core.helm_template:
+    chart_ref: "{{ suse_observability_helm_repo_name }}/{{ suse_observability_release_name }}"
+    release_name: "{{ suse_observability_release_name }}"
+    release_namespace: "{{ suse_observability_namespace }}"
+    values:
+      license: "{{ suse_observability_license }}"
+      baseUrl: "{{ suse_observability_host }}"
+      sizing:
+        profile: "{{ suse_observability_sizing_profile }}"
+    output_dir: "."
+
+- name: Remove extra documents from base config yaml
+  shell: |
+      sed -i '/^---$/d' {{ suse_observability_release_name }}/templates/baseConfig_values.yaml
+
+- name: Copy ingress_values.yaml
+  template:
+    src: ingress_values.yaml.j2
+    dest: "{{ suse_observability_release_name }}/templates/ingress_values.yaml"
+
+- name: Copy authentication.yaml
+  template:
+    src: authentication.yaml.j2
+    dest: "{{ suse_observability_release_name }}/templates/authentication.yaml"
+
+- name: Install SUSE Observability Chart
+  kubernetes.core.helm:
+    name: "{{ suse_observability_helm_chart_name }}"
+    chart_ref: "{{ suse_observability_helm_chart_ref }}"
+    release_namespace: "{{ suse_observability_namespace }}"
+    create_namespace: true
+    chart_version: "{{ suse_observability_helm_chart_version }}"
+    values:
+      global:
+        storageClass: "{{ suse_observability_storage_class }}"
+    values_files:
+      - "{{ suse_observability_release_name }}/templates/baseConfig_values.yaml"
+      - "{{ suse_observability_release_name }}/templates/sizing_values.yaml"
+      - "{{ suse_observability_release_name }}/templates/ingress_values.yaml"
+      - "{{ suse_observability_release_name }}/templates/authentication.yaml"
+
+- name: Retrieve admin password from baseConfig_values file
+  shell: |
+    tail -n 1 {{ suse_observability_release_name }}/templates/baseConfig_values.yaml | awk '{print $NF}'
+  register: suse_observability_admin_password
+
+- name: Print SUSE Observability admin password
+  debug:
+    msg: "The admin password for SUSE Observability is: {{ suse_observability_admin_password.stdout }}"
+
+- name: Retrieve API Key from baseConfig_values file
+  shell: |
+    grep -A2 "apiKey:" {{ suse_observability_release_name }}/templates/baseConfig_values.yaml | awk '/key:/ {print $2}' | tr -d '"'
+  register: suse_observability_api_key
+
+- name: Create secret for OpenTelemetry
+  shell: |
+    SECRET_NAME={{ otel_secret }}
+    kubectl create namespace {{ otel_namespace }}
+    if ! kubectl get secrets -n {{ otel_namespace }} -o json | jq -r ".items[].metadata.name" | grep $SECRET_NAME;then
+      kubectl create secret generic {{ otel_secret }} --from-literal=API_KEY='{{ suse_observability_api_key.stdout }}' -n {{ otel_namespace }}
+    fi
+
+- name: Check if AppCo secret exists in OTEL Namespace
+  command: kubectl get secret "{{ appco_secret }}" -n "{{ otel_namespace }}" --ignore-not-found
+  register: secret_check_otel
+  changed_when: false
+
+- name: Create AppCo registry secret for OTEL Namespace
+  command: >
+    kubectl create secret docker-registry "{{ appco_secret }}"
+    --docker-server=dp.apps.rancher.io
+    --docker-username="{{ application_collection_user_email }}"
+    --docker-password="{{ application_collection_user_token }}"
+    -n "{{ otel_namespace }}"
+  when: "appco_secret not in secret_check_otel.stdout"
+
+- name: Copy otel-values.yaml
+  template:
+    src: otel-values.yaml.j2
+    dest: ~/otel-values.yaml
+
+- name: Install OpenTelemetry Collector
+  shell: |
+    if [[ {{ otel_collector_helm_repo }} == *"dp.apps.rancher.io"* ]]; then
+        helm registry login dp.apps.rancher.io/charts -u {{ application_collection_user_email }} -p {{ application_collection_user_token }}
+        helm upgrade --install {{ otel_collector_release_name }} {{ otel_collector_helm_repo }} -n {{ otel_namespace }} --create-namespace  --version {{ otel_collector_helm_version }} -f otel-values.yaml
+    else
+        helm upgrade --install {{ otel_collector_release_name }} --repo {{ otel_collector_helm_repo }} -n {{ otel_namespace }} --create-namespace --version {{ otel_collector_helm_version }} -f otel-values.yaml
+    fi
+  register: otel_collector_deploy_result
+  until: otel_collector_deploy_result.rc == 0
+  retries: 3
+  delay: 20
+
+- name: Copy otel-rbac.yaml
+  template:
+    src: otel-rbac.yaml.j2
+    dest: ~/otel-rbac.yaml
+
+- name: Add custom RBAC rules for metrics
+  shell: >
+    kubectl apply -n gpu-operator -f otel-rbac.yaml
+
+- name: Install SUSE Observability Agent
+  kubernetes.core.helm:
+    name: "{{ suse_observability_agent_helm_chart_name }}"
+    chart_ref: "{{ suse_observability_agent_helm_chart_ref }}"
+    namespace: "{{ suse_observability_namespace }}"
+    create_namespace: true
+    release_values:
+      stackstate:
+        apiKey: "{{ suse_observability_api_key.stdout }}"
+        cluster:
+          name: "local"
+        url: "http://suse-observability-router.{{ suse_observability_namespace }}.svc.cluster.local:8080/receiver/stsAgent"
+      nodeAgent:
+        skipKubeletTLSVerify: true
+    state: present
+
+- name: Copy genai-values.yaml
+  template:
+    src: genai-values.yaml.j2
+    dest: ~/genai-values.yaml
+
+- name: Check if AppCo secret exists
+  command: kubectl get secret "{{ appco_secret }}" -n "{{ suse_observability_namespace }}" --ignore-not-found
+  register: secret_check
+  changed_when: false
+
+- name: Create AppCo registry secret
+  command: >
+    kubectl create secret docker-registry "{{ appco_secret }}"
+    --docker-server=dp.apps.rancher.io
+    --docker-username="{{ application_collection_user_email }}"
+    --docker-password="{{ application_collection_user_token }}"
+    -n "{{ suse_observability_namespace }}"
+  when: "appco_secret not in secret_check.stdout"
+
+- name: Wait for SUSE Observability to be successfully rolled out
+  shell: >
+    kubectl -n {{ suse_observability_namespace }} rollout status deploy/{{ suse_observability_helm_chart_name }}-{{ item }}
+  register: rollout_result
+  retries: 8
+  delay: 40
+  until: "'successfully rolled out' in rollout_result.stdout"
+  with_items:
+  - "correlate"
+  - "e2es"
+  - "hbase-console"
+  - "kafkaup-operator-kafkaup"
+  - "prometheus-elasticsearch-exporter"
+  - "receiver"
+  - "router"
+  - "server"
+  - "ui"
+
+- name: Deploy SUSE AI Observability Extension
+  shell: |
+    if [[ {{ suse_ai_observability_extension_helm_repo }} == *"dp.apps.rancher.io"* ]]; then
+        helm registry login dp.apps.rancher.io/charts -u {{ application_collection_user_email }} -p {{ application_collection_user_token }}
+        helm upgrade --install {{ suse_ai_observability_extension_release_name }} {{ suse_ai_observability_extension_helm_repo }} -n {{ suse_observability_namespace }} --create-namespace --version {{ suse_ai_observability_extension_helm_version }} -f genai-values.yaml
+    else
+        helm upgrade --install {{ suse_ai_observability_extension_release_name }} --repo {{ suse_ai_observability_extension_helm_repo }} -n {{ suse_observability_namespace }} --create-namespace --version {{ suse_ai_observability_extension_helm_version }} -f genai-values.yaml
+    fi
+  register: suse_ai_observability_extension_deploy_result
+  until: suse_ai_observability_extension_deploy_result.rc == 0
+  retries: 3
+  delay: 40

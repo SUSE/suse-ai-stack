@@ -91,7 +91,7 @@ arm based deployments are not supported when enable_suse_observability is true.
 6. Update your local `/etc/hosts` file with the public IP of your instance.
    For example:
    ```console
-   34.214.10.56 private-ai suse-ollama-webui private-ai.suse.demo longhorn-private-ai
+   34.214.10.56 private-ai suse-ollama-webui private-ai.suse.demo longhorn-private-ai suse-observability
    ```
    Since we are not using public DNS for the instance (to reduce cost), we'll
    need to manually create the DNS entry every time we create the Private AI
@@ -102,8 +102,9 @@ arm based deployments are not supported when enable_suse_observability is true.
    Rancher is accessible by pointing your browser to https://private-ai.suse.demo, using
    the admin user and bootstrap password "rancher".
    Longhorn UI is accessible at https://longhorn-private-ai and the credentials to login is admin/longhorn.
+   SUSE Observvability is accessible at `https://<suse_observability_hostname>` and the credentials are available in your EC2 instance (baseConfig_values.yaml).
 7. Start asking AI interesting questions at the bottom text box.
-8. You may also ssh into the VM via `ssh ec2-user@private-ai`, assuming you've
+8. You may also ssh into the VM via `ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=3 ec2-user@private-ai`, assuming you've
    provided your SSH key in `extra-vars.yml` at the beginning.
 
 Happy AI'ing!
