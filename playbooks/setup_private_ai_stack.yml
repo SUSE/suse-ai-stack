@@ -265,7 +265,7 @@
         - msg: "To access open-webui, point your browser to https://{{ open_webui_host }} and login with user={{ open_webui_admin_email }} and password={{ open_webui_admin_password }}"
           eval: "{{ not deploy_rancher_only | default(False) | bool }}"
         - msg: "To access suse-observability, point your browser to https://{{ suse_observability_host }} and login with user=admin and password={{ suse_observability_admin_password.stdout }}"
-          eval: "{{ enable_suse_observability | bool }}"
+          eval: "{{ enable_suse_observability | default(False) | bool }}"
 
     - name: Show Access URL and credentials
       debug:

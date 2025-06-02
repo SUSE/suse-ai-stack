@@ -178,7 +178,7 @@ pulsar:
   #      nvidia.com/gpu: "1"
 #{% endif %}
 
-{% if enable_suse_observability %}
+{% if enable_suse_observability | default(False) %}
 extraConfigFiles:
   user.yaml: |+
     trace:
