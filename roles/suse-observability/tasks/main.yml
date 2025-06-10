@@ -57,56 +57,11 @@
 - name: Retrieve API Key from baseConfig_values file
   shell: |
     grep -A2 "apiKey:" {{ suse_observability_release_name }}/templates/baseConfig_values.yaml | awk '/key:/ {print $2}' | tr -d '"'
-  register: suse_observability_api_key
+  register: suse_observability_api_key_result
 
-- name: Create secret for OpenTelemetry
-  shell: |
-    SECRET_NAME={{ otel_secret }}
-    kubectl create namespace {{ otel_namespace }}
-    if ! kubectl get secrets -n {{ otel_namespace }} -o json | jq -r ".items[].metadata.name" | grep $SECRET_NAME;then
-      kubectl create secret generic {{ otel_secret }} --from-literal=API_KEY='{{ suse_observability_api_key.stdout }}' -n {{ otel_namespace }}
-    fi
-
-- name: Check if AppCo secret exists in OTEL Namespace
-  command: kubectl get secret "{{ appco_secret }}" -n "{{ otel_namespace }}" --ignore-not-found
-  register: secret_check_otel
-  changed_when: false
-
-- name: Create AppCo registry secret for OTEL Namespace
-  command: >
-    kubectl create secret docker-registry "{{ appco_secret }}"
-    --docker-server=dp.apps.rancher.io
-    --docker-username="{{ application_collection_user_email }}"
-    --docker-password="{{ application_collection_user_token }}"
-    -n "{{ otel_namespace }}"
-  when: "appco_secret not in secret_check_otel.stdout"
-
-- name: Copy otel-values.yaml
-  template:
-    src: otel-values.yaml.j2
-    dest: ~/otel-values.yaml
-
-- name: Install OpenTelemetry Collector
-  shell: |
-    if [[ {{ otel_collector_helm_repo }} == *"dp.apps.rancher.io"* ]]; then
-        helm registry login dp.apps.rancher.io/charts -u {{ application_collection_user_email }} -p {{ application_collection_user_token }}
-        helm upgrade --install {{ otel_collector_release_name }} {{ otel_collector_helm_repo }} -n {{ otel_namespace }} --create-namespace  --version {{ otel_collector_helm_version }} -f otel-values.yaml
-    else
-        helm upgrade --install {{ otel_collector_release_name }} --repo {{ otel_collector_helm_repo }} -n {{ otel_namespace }} --create-namespace --version {{ otel_collector_helm_version }} -f otel-values.yaml
-    fi
-  register: otel_collector_deploy_result
-  until: otel_collector_deploy_result.rc == 0
-  retries: 3
-  delay: 20
-
-- name: Copy otel-rbac.yaml
-  template:
-    src: otel-rbac.yaml.j2
-    dest: ~/otel-rbac.yaml
-
-- name: Add custom RBAC rules for metrics
-  shell: >
-    kubectl apply -n gpu-operator -f otel-rbac.yaml
+- name: Set API key as host fact
+  set_fact:
+    suse_observability_api_key: "{{ suse_observability_api_key_result.stdout }}"
 
 - name: Install SUSE Observability Agent
   kubernetes.core.helm:
@@ -116,7 +71,7 @@
     create_namespace: true
     release_values:
       stackstate:
-        apiKey: "{{ suse_observability_api_key.stdout }}"
+        apiKey: "{{ suse_observability_api_key }}"
         cluster:
           name: "local"
         url: "http://suse-observability-router.{{ suse_observability_namespace }}.svc.cluster.local:8080/receiver/stsAgent"

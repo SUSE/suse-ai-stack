@@ -1,0 +1,6 @@
+otel_secret: open-telemetry-collector
+otel_namespace: observability
+otel_collector_helm_repo: oci://dp.apps.rancher.io/charts/opentelemetry-collector
+otel_collector_release_name: opentelemetry-collector
+otel_collector_helm_version: 0.125.0
+appco_secret: application-collection

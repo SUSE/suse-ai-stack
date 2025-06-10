@@ -231,6 +231,11 @@
         name: suse-observability
       when: enable_suse_observability | default(false)
 
+    - name: Deploy OTEL Collector
+      import_role:
+        name: opentelemetry-collector
+      when: enable_suse_observability | default(false)
+
     - name: Deploy SUSE Private AI
       import_role:
         name: suse-private-ai
