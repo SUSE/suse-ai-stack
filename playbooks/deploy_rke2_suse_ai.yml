@@ -1,0 +1,71 @@
+- name: Deploy RKE2 on SUSE AI cluster - CP Master
+  hosts: suse_ai_cp_master
+  tasks:
+    - name: Deploy RKE2 master
+      import_role:
+        name: rke2
+      vars:
+        rke2endpoint: "{{ hostvars['localhost']['suse_ai_kubeapi_fqdn'] }}"
+        service_name: "rke2-server"
+        token: "{{ suse_ai_cluster.token | default('suse-ai-rke2token') }}"
+        version: "{{ suse_ai_cluster.version | default('v1.30.5+rke2r1') }}"
+        role: control-plane-master
+
+    #https://github.com/NVIDIA/gpu-operator/issues/992#issuecomment-2796578769
+    - name: Update PATH
+      become: true
+      shell: |
+        echo PATH=$PATH:/usr/local/nvidia/toolkit >> /etc/default/rke2-server
+
+    - name: Deploy local-path provisioner
+      import_role:
+        name: local-path
+
+- name: Deploy RKE2 on SUSE AI cluster - CP Others
+  hosts: suse_ai_cp_others
+  tasks:
+    - name: Deploy RKE2 cp others
+      import_role:
+        name: rke2
+      vars:
+        rke2endpoint: "{{ hostvars['localhost']['suse_ai_kubeapi_fqdn'] }}"
+        service_name: "rke2-server"
+        token: "{{ suse_ai_cluster.token | default('suse-ai-rke2token') }}"
+        version: "{{ suse_ai_cluster.version | default('v1.30.5+rke2r1') }}"
+        role: control-plane-others
+
+    #https://github.com/NVIDIA/gpu-operator/issues/992#issuecomment-2796578769
+    - name: Update PATH
+      become: true
+      shell: |
+        echo PATH=$PATH:/usr/local/nvidia/toolkit >> /etc/default/rke2-server
+
+- name: Deploy RKE2 on SUSE AI cluster - Agents
+  hosts: suse_ai_agents
+  tasks:
+    - name: Deploy RKE2 agents
+      import_role:
+        name: rke2
+      vars:
+        rke2endpoint: "{{ hostvars['localhost']['suse_ai_kubeapi_fqdn'] }}"
+        service_name: "rke2-agent"
+        token: "{{ suse_ai_cluster.token | default('suse-ai-rke2token') }}"
+        version: "{{ suse_ai_cluster.version | default('v1.30.5+rke2r1') }}"
+        role: agent
+
+      #https://github.com/NVIDIA/gpu-operator/issues/992#issuecomment-2796578769
+    - name: Update PATH
+      become: true
+      shell: |
+        echo PATH=$PATH:/usr/local/nvidia/toolkit >> /etc/default/rke2-agent
+
+- name: Workaround for cattle-agent to reach rancher URl
+  hosts: suse_ai_cp_master
+  tasks:
+    # this workaround is needed so that the cattle-agent can reach rancher url
+    - name: Workaround for unresolvable rancher url when no enable_external_dns for cattle-agent to reach rancher
+      shell: |
+        kubectl get cm rke2-coredns-rke2-coredns -n kube-system -o yaml  | sed 's/loadbalance/loadbalance\n        hosts {{ rancher_host }} {\n          {{ hostvars['localhost']['vm_ip'] }} {{ rancher_host }}\n          fallthrough\n        }/' | kubectl replace -f -
+      when: not enable_external_dns
+
+

@@ -1,0 +1,8 @@
+---
+- name: Import SUSE AI cluster
+  hosts: suse_ai_cp_master
+  tasks:
+
+  - name: Import suse_ai_cluster
+    import_role:
+      name: import-cluster

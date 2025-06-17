@@ -1,0 +1,7 @@
+- name: Deploy OTEL Collector
+  hosts: "{{ allowed_hosts }}"
+  tasks:
+    - name: Deploy OTEL Collector
+      import_role:
+        name: opentelemetry-collector
+      when: enable_suse_observability | default(false)

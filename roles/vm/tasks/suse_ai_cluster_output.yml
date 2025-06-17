@@ -1,0 +1,43 @@
+- name: Setup facts suse ai cluster
+  set_fact:
+    suse_ai_vm_ip: "{{ tofu_outputs.suse_ai_instance_public_ip.value }}"
+    suse_ai_kubeapi_fqdn: "{{ tofu_outputs.suse_ai_kubeapi_fqdn.value }}"
+    suse_ai_ingress_fqdn: "{{ tofu_outputs.suse_ai_ingress_fqdn.value }}"
+    suse_ai_cp_master:
+    - {"name": "suse-ai", "hostname": "suse-ai", "ip": "{{ tofu_outputs.suse_ai_instance_public_ip.value }}" }
+
+- name: Setup cluster control plane other nodes suse ai cluster
+  set_fact:
+    suse_ai_cp_others: "{{ suse_ai_cp_others | default([]) + [ {'name': name, 'hostname': name,  'ip': item } ] }}"
+  vars:
+    name: "suse-ai-cp{{ ansible_loop.index }}"
+  loop: "{{ tofu_outputs.suse_ai_instance_public_ip_cp_other.value }}"
+  loop_control:
+    extended: true
+
+- name: Setup cluster worker gpu nodes suse ai cluster
+  set_fact:
+    suse_ai_worker_gpu: '{{ suse_ai_worker_gpu |default([]) +  [ {"name": name, "hostname": name, "ip": item } ] }}'
+  vars:
+    name: "suse-ai-wkrgpu{{ ansible_loop.index }}"
+  loop: "{{ tofu_outputs.suse_ai_instance_public_ip_worker_gpu.value }}"
+  loop_control:
+    extended: true
+
+- name: Setup cluster worker nongpu nodes suse ai cluster
+  set_fact:
+    suse_ai_worker_nongpu: '{{ suse_ai_worker_nongpu |default([]) +  [ {"name": name, "hostname": name, "ip": item } ] }}'
+  vars:
+    name: "suse-ai-wkr{{ ansible_loop.index }}"
+  loop: "{{ tofu_outputs.suse_ai_instance_public_ip_worker_nongpu.value }}"
+  loop_control:
+    extended: true
+
+- name: Setup cluster nodes suse ai cluster
+  set_fact:
+    suse_ai_cluster_nodes: "{{ suse_ai_cp_master + suse_ai_cp_others | default([]) + suse_ai_worker_gpu | default([]) + suse_ai_worker_nongpu | default([]) }}"
+
+- name: Display all cluster nodes suse ai cluster
+  debug:
+    msg: "{{ suse_ai_cluster_nodes }}"
+

@@ -39,6 +39,40 @@
           token = "{{ cluster.token }}"
           version = "{{ cluster.version }}"
       }
+      {% if suse_ai_cluster is defined %}
+      suse_ai_cluster = {
+          user = "{{ suse_ai_cluster.user }}"
+          user_home = "{{ suse_ai_cluster.user_home }}"
+          root_volume_size = "{{ suse_ai_cluster.root_volume_size }}"
+          image_arch = "{{ suse_ai_cluster.image_arch }}"
+          image_distro = "{{ suse_ai_cluster.image_distro }}"
+          image_distro_version = "{{ suse_ai_cluster.image_distro_version }}"
+          instance_type_cp = "{{ suse_ai_cluster.instance_type_cp }}"
+          instance_type_gpu = "{{ suse_ai_cluster.instance_type_gpu }}"
+          instance_type_nongpu = "{{ suse_ai_cluster.instance_type_nongpu }}"
+          num_cp_nodes = "{{ suse_ai_cluster.num_cp_nodes }}"
+          num_worker_nodes_gpu = "{{ suse_ai_cluster.num_worker_nodes_gpu }}"
+          num_worker_nodes_nongpu = "{{ suse_ai_cluster.num_worker_nodes_nongpu }}"
+          token = "{{ suse_ai_cluster.token }}"
+          version = "{{ suse_ai_cluster.version }}"
+      }
+      {% endif %}
+      {% if suse_observability_cluster is defined and enable_suse_observability | default('False') | bool %}
+      suse_observability_cluster = {
+          user = "{{ suse_observability_cluster.user }}"
+          user_home = "{{ suse_observability_cluster.user_home }}"
+          root_volume_size = "{{ suse_observability_cluster.root_volume_size }}"
+          image_arch = "{{ suse_observability_cluster.image_arch }}"
+          image_distro = "{{ suse_observability_cluster.image_distro }}"
+          image_distro_version = "{{ suse_observability_cluster.image_distro_version }}"
+          instance_type_cp = "{{ suse_observability_cluster.instance_type_cp }}"
+          instance_type_worker = "{{ suse_observability_cluster.instance_type_worker }}"
+          num_cp_nodes = "{{ suse_observability_cluster.num_cp_nodes }}"
+          num_worker_nodes = "{{ suse_observability_cluster.num_worker_nodes }}"
+          token = "{{ suse_observability_cluster.token }}"
+          version = "{{ suse_observability_cluster.version }}"
+      }
+      {% endif %}
 
 - name: Initialize OpenTofu
   shell: tofu init
@@ -70,63 +104,13 @@
   set_fact:
     tofu_outputs: "{{ aws_ec2_create_result.stdout | from_json }}"
 
-- name: Setup vm_ip
-  set_fact:
-    vm_ip: "{{ tofu_outputs.instance_public_ip.value }}"
+- name: Parse tofu output for the mgmt cluster
+  include_tasks: mgmt_cluster_output.yml
 
-- name: Setup ami_id
-  set_fact:
-    ami_id: "{{ tofu_outputs.ami_id.value }}"
+- name: Parse tofu output for the suse-ai cluster
+  include_tasks: suse_ai_cluster_output.yml
+  when: suse_ai_cluster is defined
 
-- name: Setup kubeapi_fqdn
-  set_fact:
-    kubeapi_fqdn: "{{ tofu_outputs.kubeapi_fqdn.value }}"
-
-- name: Setup ingress_fqdn
-  set_fact:
-    ingress_fqdn: "{{ tofu_outputs.ingress_fqdn.value }}"
-
-- name: Setup cluster control plane master node
-  set_fact:
-    cp_master:
-    - {"name": "private-ai", "hostname": "private-ai", "ip": "{{ tofu_outputs.instance_public_ip.value }}" }
-
-- name: Setup cluster control plane other nodes
-  set_fact:
-    cp_others: "{{ cp_others | default([]) + [ {'name': name, 'hostname': name,  'ip': item } ] }}"
-  vars:
-    name: "private-ai-cp{{ ansible_loop.index }}"
-  loop: "{{ tofu_outputs.instance_public_ip_cp_other.value }}"
-  loop_control:
-    extended: true
-
-- name: Setup cluster worker gpu nodes
-  set_fact:
-    worker_gpu: '{{ worker_gpu |default([]) +  [ {"name": name, "hostname": name, "ip": item } ] }}'
-  vars:
-    name: "private-ai-wkrgpu{{ ansible_loop.index }}"
-  loop: "{{ tofu_outputs.instance_public_ip_worker_gpu.value }}"
-  loop_control:
-    extended: true
-
-- name: Setup cluster worker nongpu nodes
-  set_fact:
-    worker_nongpu: '{{ worker_nongpu |default([]) +  [ {"name": name, "hostname": name, "ip": item } ] }}'
-  vars:
-    name: "private-ai-wkr{{ ansible_loop.index }}"
-  loop: "{{ tofu_outputs.instance_public_ip_worker_nongpu.value }}"
-  loop_control:
-    extended: true
-
-- name: Setup cluster nodes
-  set_fact:
-    cluster_nodes: "{{ cp_master + cp_others | default([]) + worker_gpu | default([]) + worker_nongpu | default([]) }}"
-
-- name: Display all cluster nodes
-  debug:
-    msg: "{{ cluster_nodes }}"
-
-- name: Display AMI id
-  debug:
-    msg: "{{ ami_id }}"
-
+- name: Parse tofu output for the suse-observability cluster
+  include_tasks: suse_observability_cluster_output.yml
+  when: suse_observability_cluster is defined and enable_suse_observability | default('False') | bool

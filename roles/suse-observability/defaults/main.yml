@@ -13,3 +13,4 @@ suse_observability_api_token: suseobservability
 suse_ai_observability_extension_helm_repo: oci://dp.apps.rancher.io/charts/suse-ai-observability-extension
 suse_ai_observability_extension_helm_version: 1.0.1
 suse_ai_observability_extension_release_name: suse-ai-observability-extension
+appco_secret: application-collection

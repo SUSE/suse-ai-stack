@@ -2,7 +2,7 @@
 
 - name: Deploy external-dns
   shell: >
-    helm upgrade --install {{ external_dns_release_name }} --set txtOwnerId={{ registration_email }}-ai-dev-dns \
+    helm upgrade --install {{ external_dns_release_name }} --set txtOwnerId={{ registration_email }}-{{ owner }} \
     --set log-level=debug \
     --set provider=cloudflare \
     --set cloudflare.apiToken={{ cloudflare_api_token }} \
