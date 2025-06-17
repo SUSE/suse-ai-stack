@@ -18,16 +18,23 @@
   retries: 5
   delay: 5
 
+- name: Copy install-kubectl.sh script
+  become: true
+  copy:
+    src: files/install-kubectl.sh
+    dest: /tmp/install-kubectl.sh
+    mode: "0755"
+
 # per https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/#install-kubectl-binary-with-curl-on-linux
 - name: Install kubectl
   become: true
   shell: |
-    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/{{ image_arch }}/kubectl"
-    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/{{ image_arch }}/kubectl.sha256"
-    echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
-    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+    bash install-kubectl.sh {{ image_arch }}
+  register: kubectl_install_result
   args:
     chdir: /tmp
+  retries: 5
+  delay: 30
 
 - name: Install k9s
   become: true
