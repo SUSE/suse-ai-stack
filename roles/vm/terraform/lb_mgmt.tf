@@ -3,7 +3,7 @@
 
 #creating nlb - rke2
 resource "aws_lb" "rke2" {
-  name                             = "${var.aws["resource_prefix"]}-dev-ai-k8s-lb"
+  name                             = "${var.aws["resource_prefix"]}-mgmt-rke2-lb"
   internal                         = false
   load_balancer_type               = "network"
   enable_deletion_protection       = false
@@ -74,7 +74,7 @@ resource "aws_lb_target_group_attachment" "rke2_tg_attachment2_cp_others" {
 
 #creating nlb - ingress
 resource "aws_lb" "ingress" {
-  name                             = "${var.aws["resource_prefix"]}-dev-ai-ingress-lb"
+  name                             = "${var.aws["resource_prefix"]}-mgmt-ingress-lb"
   internal                         = false
   load_balancer_type               = "network"
   enable_deletion_protection       = false

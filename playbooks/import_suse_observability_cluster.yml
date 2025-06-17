@@ -1,0 +1,8 @@
+---
+- name: Import SUSE Observability cluster
+  hosts: suse_observability_cp_master
+  tasks:
+
+  - name: Import suse_observability_cluster
+    import_role:
+      name: import-cluster

@@ -1,0 +1,53 @@
+---
+- name: Define Nodes for the Mgmt Cluster
+  hosts: localhost
+  connection: local
+  tasks:
+  - name: Define master node - mgmt cluster
+    ansible.builtin.add_host:
+      ansible_python_interpreter: "{{ python_interpreter }}"
+      name: mgmt-rancher
+      hostname: mgmt-rancher
+      ansible_user: "{{ vm_ansible_user | default('ai') }}"
+      ansible_host: "{{ vm_ip }}"
+      groups:
+        - mgmt_cp_master
+        - mgmt_cluster
+
+  - name: Define other control plane nodes - mgmt cluster
+    ansible.builtin.add_host:
+      ansible_python_interpreter: "{{ python_interpreter }}"
+      name: "{{ item.name }}"
+      hostname: "{{ item.hostname }}"
+      ansible_user: "{{ vm_ansible_user | default('ai') }}"
+      ansible_host: "{{ item.ip }}"
+      groups:
+        - mgmt_cp_others
+        - mgmt_cluster
+    loop: "{{ mgmt_cp_others | default([]) }}"
+
+  - name: Define worker nodes with GPU - mgmt cluster
+    ansible.builtin.add_host:
+      ansible_python_interpreter: "{{ python_interpreter }}"
+      name: "{{ item.name }}"
+      hostname: "{{ item.hostname }}"
+      ansible_user: "{{ vm_ansible_user | default('ai') }}"
+      ansible_host: "{{ item.ip }}"
+      groups:
+        - mgmt_agents_gpu
+        - mgmt_agents
+        - mgmt_cluster
+    loop: "{{ mgmt_worker_gpu | default([]) }}"
+
+  - name: Define worker nodes with no GPU - mgmt cluster
+    ansible.builtin.add_host:
+      ansible_python_interpreter: "{{ python_interpreter }}"
+      name: "{{ item.name }}"
+      hostname: "{{ item.hostname }}"
+      ansible_user: "{{ vm_ansible_user | default('ai') }}"
+      ansible_host: "{{ item.ip }}"
+      groups:
+        - mgmt_agents_nongpu
+        - mgmt_agents
+        - mgmt_cluster
+    loop: "{{ mgmt_worker_nongpu | default([]) }}"

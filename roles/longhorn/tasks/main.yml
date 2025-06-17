@@ -112,4 +112,4 @@
 #https://github.com/longhorn/longhorn/discussions/4392
 - name: Patch longhorn to add disks in the instance
   shell: >
-    kubectl -n {{ longhorn_namespace }} patch node.longhorn.io private-ai --type merge --patch-file ~/patch-longhorn.yaml
+    kubectl -n {{ longhorn_namespace }} patch node.longhorn.io {{ inventory_hostname }} --type merge --patch-file ~/patch-longhorn.yaml

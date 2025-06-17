@@ -39,7 +39,7 @@ minio:
 {% endif %}
   persistence:
     storageClass: {{ storage_class }}
-    size: 30Gi
+    size: 20Gi
   resources:
     requests:
       memory: 1024Mi
@@ -185,5 +185,5 @@ extraConfigFiles:
       exporter: jaeger
       sampleFraction: 1
       jaeger:
-        url: "http://opentelemetry-collector.{{ suse_observability_namespace }}.svc.cluster.local:14268/api/traces"
+        url: "http://opentelemetry-collector.{{ suse_observability_namespace | default('suse-observability') }}.svc.cluster.local:14268/api/traces"
 {% endif %}

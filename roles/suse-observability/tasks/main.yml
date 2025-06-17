@@ -48,11 +48,16 @@
 - name: Retrieve admin password from baseConfig_values file
   shell: |
     tail -n 1 {{ suse_observability_release_name }}/templates/baseConfig_values.yaml | awk '{print $NF}'
-  register: suse_observability_admin_password
+  register: suse_observability_admin_password_result
 
 - name: Print SUSE Observability admin password
   debug:
-    msg: "The admin password for SUSE Observability is: {{ suse_observability_admin_password.stdout }}"
+    msg: "The admin password for SUSE Observability is: {{ suse_observability_admin_password_result.stdout }}"
+
+- name: Set SUSE Observability admin password fact
+  set_fact:
+    suse_observability_admin_password: "{{ suse_observability_admin_password_result.stdout }}"
+    cacheable: yes
 
 - name: Retrieve API Key from baseConfig_values file
   shell: |

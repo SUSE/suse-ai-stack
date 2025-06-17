@@ -1,0 +1,4 @@
+# per https://github.com/rancher/local-path-provisioner
+- name: Install local-path storage provisioner
+  shell: >
+    kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/{{local_path_provisioner_version}}/deploy/local-path-storage.yaml

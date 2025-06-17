@@ -1,0 +1,34 @@
+- name: Setup facts suse observability cluster
+  set_fact:
+    suse_observability_vm_ip: "{{ tofu_outputs.suse_observability_instance_public_ip.value }}"
+    suse_observability_kubeapi_fqdn: "{{ tofu_outputs.suse_observability_kubeapi_fqdn.value }}"
+    suse_observability_ingress_fqdn: "{{ tofu_outputs.suse_observability_ingress_fqdn.value }}"
+    suse_observability_cp_master:
+    - {"name": "suse-observability", "hostname": "suse-observability", "ip": "{{ tofu_outputs.suse_observability_instance_public_ip.value }}" }
+
+- name: Setup cluster control plane other nodes suse observability cluster
+  set_fact:
+    suse_observability_cp_others: "{{ suse_observability_cp_others | default([]) + [ {'name': name, 'hostname': name,  'ip': item } ] }}"
+  vars:
+    name: "suse-observability-cp{{ ansible_loop.index }}"
+  loop: "{{ tofu_outputs.suse_observability_instance_public_ip_cp_other.value }}"
+  loop_control:
+    extended: true
+
+- name: Setup cluster worker nodes suse observability cluster
+  set_fact:
+    suse_observability_worker: '{{ suse_observability_worker |default([]) +  [ {"name": name, "hostname": name, "ip": item } ] }}'
+  vars:
+    name: "suse-observability-wkr{{ ansible_loop.index }}"
+  loop: "{{ tofu_outputs.suse_observability_instance_public_ip_worker.value }}"
+  loop_control:
+    extended: true
+
+- name: Setup cluster nodes suse observability cluster
+  set_fact:
+    suse_observability_cluster_nodes: "{{ suse_observability_cp_master + suse_observability_cp_others | default([]) + suse_observability_worker | default([]) }}"
+
+- name: Display all cluster nodes suse observability cluster
+  debug:
+    msg: "{{ suse_observability_cluster_nodes }}"
+
