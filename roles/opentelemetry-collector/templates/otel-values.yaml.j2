@@ -25,6 +25,12 @@ config:
                 namespaces:
                   names:
                     - gpu-operator
+          - job_name: 'milvus'
+            scrape_interval: 15s
+            metrics_path: '/metrics'
+
+            static_configs:
+              - targets: ['milvus.suse-private-ai.svc.cluster.local:9091']
   exporters:
     otlp:
       endpoint: {{ endpoint }}
