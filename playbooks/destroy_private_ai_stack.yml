@@ -54,6 +54,7 @@
       when: cloud_provider | default('local') != "local" and tofuoutput.instance_public_ip is defined
 
 - hosts: cp_master
+  gather_facts: false
   tasks:
     # We want to cleanup the DNS records before deleting the stack.
     # Just Uninstalling the external-dns does not cleanup the records.

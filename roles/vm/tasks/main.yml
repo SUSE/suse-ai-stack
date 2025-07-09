@@ -10,6 +10,19 @@
     - cloud_provider != "local"
     - cloud_provider != "aws"
 
+- name: Check for tofu
+  block:
+    - name: Check for tofu CLI
+      shell: >
+        which tofu || true
+      register: check_tofu_result
+
+    - name: Check for tofu CLI result
+      fail:
+        msg: "ERROR: tofu command not found. Please install opentofu."
+      when: check_tofu_result.stdout == ""
+  when: cloud_provider != "local"
+
 - name: Create VM
   block:
     - name: Create VM on local host, destroying existing one, if requested
