@@ -74,7 +74,7 @@
 - name: Create VM
   become: true
   shell: >
-    virt-install --connect qemu:///system --virt-type kvm --os-variant {{ vm_os_variant }} --name {{ vm_instance_name }} --ram {{ vm_memory }} --vcpus={{ vm_vcpus }} --disk path={{ disk_image_file }},format=qcow2,cache=unsafe --disk {{ cloud_config_image_file }},device=cdrom --import {{ vm_libvirt_network_params }} --noautoconsole
+    virt-install --connect qemu:///system --virt-type kvm --os-variant {{ vm_os_variant }} --name {{ vm_instance_name }} --ram {{ vm_memory }} --vcpus={{ vm_vcpus }} --disk path={{ disk_image_file }},format=qcow2,cache=unsafe --disk {{ cloud_config_image_file }},device=cdrom --import {{ vm_libvirt_network_params }} --noautoconsole {% if host_device is defined %}--host-device {{ host_device }}{% endif %}
   register: shell_result
 
 - name: Print create VM result

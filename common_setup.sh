@@ -36,11 +36,6 @@ if ! command -v ansible-playbook &> /dev/null; then
     exit 1
 fi
 
-if ! command -v tofu &> /dev/null; then
-    echo "ERROR: tofu command not found. Please install opentofu."
-    exit 1
-fi
-
 playbook_args+=( -e "@extra_vars.yml" )
 
 inv_file=${PROJECT_DIR}/inventories/${inv_name}_inventory.yml
