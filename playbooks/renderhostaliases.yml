@@ -1,0 +1,7 @@
+---
+- name: Render Host Aliases Yaml template
+  hosts: "{{ allowed_hg }}"
+  tasks:
+    - name: Render host aliases
+      import_role:
+        name: render-host-aliases

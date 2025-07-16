@@ -47,3 +47,41 @@ variable "cluster" {
     version = "v1.32.4+rke2r1"
   }
 }
+
+variable "suse_ai_cluster" {
+  type = object({
+    user = optional(string)
+    user_home = optional(string)
+    root_volume_size = optional(string)
+    image_arch = optional(string)
+    image_distro = optional(string)
+    image_distro_version = optional(string)
+    instance_type_cp = optional(string) #Instance type for control plane nodes
+    instance_type_gpu = optional(string) #Instance type for worker nodes with GPU
+    instance_type_nongpu = optional(string) #Instance type for worker nodes with no GPU
+    num_cp_nodes = optional(string) #Number of control plane nodes including the master node
+    num_worker_nodes_gpu = optional(string) #Number of worker nodes with gpu instance type
+    num_worker_nodes_nongpu = optional(string) #Number of worker nodes with no gpu instance type
+    token = optional(string) #The RKE2 Cluster Join Token to use for the cluster(s)
+    version = optional(string) #The RKE2 Version to use for the clusters(s)
+  })
+  default = {}
+}
+
+variable "suse_observability_cluster" {
+  type = object({
+    user = optional(string)
+    user_home = optional(string)
+    root_volume_size = optional(string)
+    image_arch = optional(string)
+    image_distro = optional(string)
+    image_distro_version = optional(string)
+    instance_type_cp = optional(string) #Instance type for control plane nodes
+    instance_type_worker = optional(string) #Instance type for worker nodes
+    num_cp_nodes = optional(string) #Number of control plane nodes including the master node
+    num_worker_nodes = optional(string) #Number of worker nodes
+    token = optional(string) #The RKE2 Cluster Join Token to use for the cluster(s)
+    version = optional(string) #The RKE2 Version to use for the clusters(s)
+  })
+  default = {}
+}

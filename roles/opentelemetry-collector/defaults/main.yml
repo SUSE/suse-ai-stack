@@ -4,3 +4,5 @@ otel_collector_helm_repo: oci://dp.apps.rancher.io/charts/opentelemetry-collecto
 otel_collector_release_name: opentelemetry-collector
 otel_collector_helm_version: 0.125.0
 appco_secret: application-collection
+suse_observability_namespace: suse-observability
+endpoint: "{{ otel_endpoint | default('http://suse-observability-otel-collector.' ~ suse_observability_namespace ~ '.svc.cluster.local:4317', true) }}"

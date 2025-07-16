@@ -1,0 +1,7 @@
+- name: Deploy NVIDIA GPU operator
+  hosts: "{{ allowed_hg }}"
+  tasks:
+    - name: Install NVIDIA GPU Operator
+      import_role:
+        name: nvidia-gpu-operator
+      when: enable_gpu_operator | default(false)

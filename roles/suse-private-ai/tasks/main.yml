@@ -244,4 +244,4 @@
     remote_src: true
   retries: 10
   delay: 120
-  when: not deploy_rancher_only | default(False) | bool
+  when: not (deploy_rancher_only | default(False) | bool)

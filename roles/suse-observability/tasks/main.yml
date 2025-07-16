@@ -24,6 +24,11 @@
     src: ingress_values.yaml.j2
     dest: "{{ suse_observability_release_name }}/templates/ingress_values.yaml"
 
+- name: Copy ingress_otel_values.yaml
+  template:
+    src: ingress_otel_values.yaml.j2
+    dest: "{{ suse_observability_release_name }}/templates/ingress_otel_values.yaml"
+
 - name: Copy authentication.yaml
   template:
     src: authentication.yaml.j2
@@ -43,16 +48,21 @@
       - "{{ suse_observability_release_name }}/templates/baseConfig_values.yaml"
       - "{{ suse_observability_release_name }}/templates/sizing_values.yaml"
       - "{{ suse_observability_release_name }}/templates/ingress_values.yaml"
+      - "{{ suse_observability_release_name }}/templates/ingress_otel_values.yaml"
       - "{{ suse_observability_release_name }}/templates/authentication.yaml"
 
 - name: Retrieve admin password from baseConfig_values file
   shell: |
     tail -n 1 {{ suse_observability_release_name }}/templates/baseConfig_values.yaml | awk '{print $NF}'
-  register: suse_observability_admin_password
+  register: suse_observability_admin_password_result
 
 - name: Print SUSE Observability admin password
   debug:
-    msg: "The admin password for SUSE Observability is: {{ suse_observability_admin_password.stdout }}"
+    msg: "The admin password for SUSE Observability is: {{ suse_observability_admin_password_result.stdout }}"
+
+- name: Set SUSE Observability admin password fact
+  set_fact:
+    suse_observability_admin_password: "{{ suse_observability_admin_password_result.stdout }}"
 
 - name: Retrieve API Key from baseConfig_values file
   shell: |
@@ -63,21 +73,9 @@
   set_fact:
     suse_observability_api_key: "{{ suse_observability_api_key_result.stdout }}"
 
-- name: Install SUSE Observability Agent
-  kubernetes.core.helm:
-    name: "{{ suse_observability_agent_helm_chart_name }}"
-    chart_ref: "{{ suse_observability_agent_helm_chart_ref }}"
-    namespace: "{{ suse_observability_namespace }}"
-    create_namespace: true
-    release_values:
-      stackstate:
-        apiKey: "{{ suse_observability_api_key }}"
-        cluster:
-          name: "local"
-        url: "http://suse-observability-router.{{ suse_observability_namespace }}.svc.cluster.local:8080/receiver/stsAgent"
-      nodeAgent:
-        skipKubeletTLSVerify: true
-    state: present
+- name: Print SUSE Observability API key
+  debug:
+    msg: "The API key for SUSE Observability is: {{ suse_observability_api_key }}"
 
 - name: Copy genai-values.yaml
   template:
@@ -115,6 +113,10 @@
   - "router"
   - "server"
   - "ui"
+
+- name: Pause for the API server to respond to requests
+  ansible.builtin.pause:
+    seconds: 30
 
 - name: Deploy SUSE AI Observability Extension
   shell: |

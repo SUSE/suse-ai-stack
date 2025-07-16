@@ -43,7 +43,7 @@
         port: 22
         delay: 10
         timeout: 180
-      loop: "{{ cluster_nodes }}"
+      loop: "{{ mgmt_cluster_nodes }}"
   when: vm_action is not defined or vm_action == "create"
 
 - name: Destroy VM

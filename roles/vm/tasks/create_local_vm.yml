@@ -95,10 +95,10 @@
 
 - name: Setup cluster control plane master node
   set_fact:
-    cp_master:
-    - {"name": "private-ai", "hostname": "private-ai", "ip": "{{ vm_ip }}" }
+    mgmt_cp_master:
+    - {"name": "mgmt-rancher", "hostname": "mgmt-rancher", "ip": "{{ vm_ip }}" }
 
 - name: Setup cluster nodes
   set_fact:
-    cluster_nodes: "{{ cp_master + cp_others | default([]) + worker_gpu | default([]) + worker_nongpu | default([]) }}"
+    mgmt_cluster_nodes: "{{ mgmt_cp_master + mgmt_cp_others | default([]) + mgmt_worker_gpu | default([]) + mgmt_worker_nongpu | default([])  }}"
 

@@ -46,13 +46,13 @@
     path: /etc/rancher/rke2/config.yaml
     block: |
       use-service-account-credentials: true
-      token: "{{ cluster.token | default('ai-rke2token') }}"
+      token: "{{ token }}"
       tls-san:
         - "{{ rke2endpoint }}"
+      cluster-name: "{{ cluster_name }}"
     create: true
     mode: "0640"
-  when:
-    - inventory_hostname in groups['cp_master']
+  when: role == 'control-plane-master'
 
 - name: Create config.yaml cp_others
   become: true
@@ -60,14 +60,14 @@
     path: /etc/rancher/rke2/config.yaml
     block: |
       use-service-account-credentials: true
-      token: "{{ cluster.token | default('ai-rke2token')}}"
+      token: "{{ token }}"
       tls-san:
         - "{{ rke2endpoint }}"
       server: "https://{{ rke2endpoint }}:9345"
+      cluster-name: "{{ cluster_name }}"
     create: true
     mode: "0640"
-  when:
-    - inventory_hostname in groups.get('cp_others', [])
+  when: role == 'control-plane-others'
 
 - name: Create config.yaml agents
   become: true
@@ -75,12 +75,12 @@
     path: /etc/rancher/rke2/config.yaml
     block: |
       server: "https://{{ rke2endpoint }}:9345"
-      token: "{{ cluster.token | default('ai-rke2token')}}"
+      token: "{{ token }}"
       insecure-skip-tls-verify: true
+      cluster-name: "{{ cluster_name }}"
     create: true
     mode: "0640"
-  when:
-    - inventory_hostname in groups.get('agents', [])
+  when: role == 'agent'
 
 - name: Download RKE2 installer
   get_url:
@@ -90,7 +90,7 @@
 
 - name: Install RKE2
   shell: >
-    sudo INSTALL_RKE2_CHANNEL={{ cluster.version | default('v1.32.4+rke2r1') }} /tmp/rke2_installer.sh
+    sudo INSTALL_RKE2_CHANNEL={{ version }} /tmp/rke2_installer.sh
 
 - name: Enable and start service
   become: true
@@ -105,8 +105,7 @@
   file:
     path: ~/.kube
     state: directory
-  when:
-    - inventory_hostname in groups['cp_master']
+  when: role == 'control-plane-master'
 
 - name: Create kube config
   become: true
@@ -117,27 +116,23 @@
     group: users
     mode: 0600
     remote_src: true
-  when:
-    - inventory_hostname in groups['cp_master']
+  when: role == 'control-plane-master'
 
 - name: Update with kubeapi fqdn
   ansible.builtin.replace:
     path: "/home/{{ vm_ansible_user | default('ai') }}/.kube/config"
     regexp: '127.0.0.1'
     replace:  "{{ rke2endpoint }}"
-  when:
-    - inventory_hostname in groups['cp_master']
+  when: role == 'control-plane-master'
 
 - name: Create .kube for root user
   become: true
   shell: |
     cp -r /home/{{ vm_ansible_user | default('ai') }}/.kube /root/
-  when:
-    - inventory_hostname in groups['cp_master']
+  when: role == 'control-plane-master'
 
 - name: Wait for pods to be ready
   shell: |
     sleep 90
     kubectl wait pod -l tier=control-plane --for=condition=Ready --namespace=kube-system --timeout=120s
-  when:
-    - inventory_hostname in groups['cp_master']
+  when: role == 'control-plane-master'

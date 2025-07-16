@@ -1,5 +1,4 @@
 ---
-
 - name: Install SUSE packages "{{ suse_packages }}"
   become: true
   community.general.zypper:
@@ -14,15 +13,26 @@
 
 - name: Install SUSE packages "{{ suse_packages }}" sle-micro
   become: true
-  shell:
-    transactional-update -n pkg install --auto-agree-with-licenses {{ suse_packages | join(' ') }}
-  when: (suse_packages | length > 0 and cluster is defined and cluster.image_distro == "sle-micro") or cluster is not defined
+  shell: |
+    transactional-update --continue -n pkg install --auto-agree-with-licenses {{ suse_packages | join(' ') }}
+  when:
+    - suse_packages | length > 0
+    - ansible_distribution == 'SL-Micro'
+
+# Since unzip is not available in sle-micro, this is a workaround.
+- name: Install unzip package required to install opentofu on sle-micro
+  become: true
+  shell: |
+    transactional-update --continue -n pkg install --auto-agree-with-licenses https://download.opensuse.org/distribution/leap/15.6/repo/oss/{{ ansible_facts.architecture }}/unzip-6.00-150000.4.11.1.{{ ansible_facts.architecture }}.rpm
+  when: ansible_distribution == 'SL-Micro'
 
 - name: Install SUSE packages "{{ suse_packages }}" sles
   become: true
-  shell:
+  shell: |
     zypper --non-interactive install {{ suse_packages | join(' ') }}
-  when: suse_packages | length > 0 and cluster is defined and cluster.image_distro == "sles"
+  when:
+    - suse_packages | length > 0
+    - ansible_distribution == 'SLES'
 
 - name: Install NVIDIA graphic drivers
   become: true
@@ -53,9 +63,26 @@
 - name: Reboot after transactional update
   become: true
   reboot:
-    msg: "Rebooting after transactional update for the chagnes take effect."
+    msg: "Rebooting after transactional update for the changes take effect."
 
 - name: Wait for port 22
   wait_for:
     port: 22
     timeout: "{{ reboot_wait_timeout }}"
+
+- name: Pause
+  ansible.builtin.pause:
+    minutes: 1
+
+- name: Check that each package is installed after the reboot
+  become: true
+  command: rpm -q {{ item }}
+  loop: "{{ suse_packages }}"
+  register: check_installed
+  when:
+    - suse_packages | length > 0
+
+- name: Print if any package is not installed
+  debug:
+    msg: "One or more packages were not installed successfully."
+  when: check_installed.results | selectattr('rc', 'ne', 0) | list | length > 0

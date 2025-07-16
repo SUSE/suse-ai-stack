@@ -56,6 +56,6 @@ vm_user_plain_text_password: aiyaya
 # root user password (in plain text, not the hash)
 vm_root_user_plain_text_passwd: linux
 
-suse_packages: ["jq", "python3-PyYAML", "curl", "git", "selinux-tools"]
+suse_packages: ["jq", "python311-PyYAML", "curl", "git", "selinux-tools"]
 
 reboot_wait_timeout: 540

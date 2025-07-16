@@ -1,0 +1,12 @@
+---
+- name: Import SUSE AI cluster
+  hosts: suse_ai_cp_master
+  tasks:
+
+  - name: Import suse_ai_cluster
+    import_role:
+      name: import-cluster
+    vars:
+      rancher_url: "https://{{ hostvars['localhost']['rancher_host'] }}"
+      rancher_token: "{{ hostvars['mgmt-rancher']['rancher_token'] }}"
+      cluster_name: suse-ai
