@@ -233,7 +233,17 @@ enable_minio_standalone_deployment: false
 enable_longhorn: false
 
 #
-# RKE2 cluster
+# Install SUSE Observability
+#
+enable_suse_observability: false
+
+#
+# SUSE Observability License
+#
+suse_observability_license: <your SUSE Observability license>
+
+#
+# RKE2 Management cluster
 #
 cluster:
   user: "ec2-user"
@@ -248,15 +258,5 @@ cluster:
   num_cp_nodes: 1
   num_worker_nodes_gpu: 0
   num_worker_nodes_nongpu: 0
-  token: "ai-rke2token"
+  token: "mgmt-rke2token"
   version: "v1.32.4+rke2r1" #RKE2 channel version. see https://update.rke2.io/v1-release/channels for a complete list
-
-#
-# Install SUSE Observability
-#
-enable_suse_observability: false
-
-#
-# SUSE Observability License
-#
-suse_observability_license: <your SUSE Observability license>

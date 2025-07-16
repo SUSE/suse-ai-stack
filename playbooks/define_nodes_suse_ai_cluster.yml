@@ -1,0 +1,53 @@
+---
+- name: Define Nodes for the SUSE AI Cluster
+  hosts: localhost
+  connection: local
+  tasks:
+  - name: Define master node - suse ai cluster
+    ansible.builtin.add_host:
+      ansible_python_interpreter: "{{ suse_ai_python_interpreter }}"
+      name: suse-ai
+      hostname: suse-ai
+      ansible_user: "{{ vm_ansible_user | default('ai') }}"
+      ansible_host: "{{ suse_ai_vm_ip }}"
+      groups:
+        - suse_ai_cp_master
+        - suse_ai_cluster
+
+  - name: Define other control plane nodes - suse ai cluster
+    ansible.builtin.add_host:
+      ansible_python_interpreter: "{{ suse_ai_python_interpreter }}"
+      name: "{{ item.name }}"
+      hostname: "{{ item.hostname }}"
+      ansible_user: "{{ vm_ansible_user | default('ai') }}"
+      ansible_host: "{{ item.ip }}"
+      groups:
+        - suse_ai_cp_others
+        - suse_ai_cluster
+    loop: "{{ suse_ai_cp_others | default([]) }}"
+
+  - name: Define worker nodes with GPU - suse ai cluster
+    ansible.builtin.add_host:
+      ansible_python_interpreter: "{{ suse_ai_python_interpreter }}"
+      name: "{{ item.name }}"
+      hostname: "{{ item.hostname }}"
+      ansible_user: "{{ vm_ansible_user | default('ai') }}"
+      ansible_host: "{{ item.ip }}"
+      groups:
+        - suse_ai_agents_gpu
+        - suse_ai_agents
+        - suse_ai_cluster
+    loop: "{{ suse_ai_worker_gpu | default([]) }}"
+
+  - name: Define worker nodes with no GPU - suse ai cluster
+    ansible.builtin.add_host:
+      ansible_python_interpreter: "{{ suse_ai_python_interpreter }}"
+      name: "{{ item.name }}"
+      hostname: "{{ item.hostname }}"
+      ansible_user: "{{ vm_ansible_user | default('ai') }}"
+      ansible_host: "{{ item.ip }}"
+      groups:
+        - suse_ai_agents_nongpu
+        - suse_ai_agents
+        - suse_ai_cluster
+    loop: "{{ suse_ai_worker_nongpu | default([]) }}"

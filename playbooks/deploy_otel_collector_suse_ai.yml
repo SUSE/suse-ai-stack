@@ -1,0 +1,14 @@
+- name: Deploy OTEL Collector
+  hosts: "{{ allowed_hg }}"
+  tasks:
+    - name: Print suse observability api key
+      debug:
+        msg: "{{ api_key }}"
+
+    - name: Deploy OTEL Collector
+      import_role:
+        name: opentelemetry-collector
+      vars:
+        suse_observability_api_key: "{{ api_key }}"
+        otel_endpoint: "{% if suse_observability_cluster is defined %}http://{{ hostvars['localhost']['suse_observability_otel_host'] }}:80{% endif %}"
+      when: enable_suse_observability | default(false)

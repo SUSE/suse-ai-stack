@@ -1,0 +1,68 @@
+- name: Update CoreDNS Corefile to add host entries
+  hosts: "{{ allowed_hg }}"
+  vars:
+    cm: rke2-coredns-rke2-coredns
+    ns: kube-system
+  tasks:
+    # bash script below was suggested by an AI-based tool
+    - name: Update ConfigMap core dns with the new host entry
+      shell: |
+        #!/bin/bash
+
+        set -euo pipefail
+
+        namespace="{{ ns }}"
+        cm_name="{{ cm }}"
+        host_entry="{{ item }}"
+        tmp_corefile="/tmp/Corefile.updated"
+
+        # Fetch current Corefile
+        existing_corefile=$(kubectl -n "$namespace" get configmap "$cm_name" -o jsonpath='{.data.Corefile}')
+
+        # Exit early if entry already exists
+        if echo "$existing_corefile" | grep -qF "$host_entry"; then
+          echo "Host entry already exists in Corefile"
+          exit 0
+        fi
+
+        # Check if a hosts block exists
+        if echo "$existing_corefile" | grep -q '^\s*hosts\s*{'; then
+          # Inject entry inside existing hosts block before fallthrough
+          echo "$existing_corefile" | awk -v entry="$host_entry" '
+            BEGIN { inside_hosts = 0; inserted = 0 }
+            /^\s*hosts\s*{/ { inside_hosts = 1 }
+            inside_hosts && /^\s*fallthrough/ && !inserted {
+              print "        " entry
+              inserted = 1
+            }
+            inside_hosts && /^\s*}/ { inside_hosts = 0 }
+            { print }
+          ' > "$tmp_corefile"
+        else
+          # No hosts block — insert a new one after `loadbalance`
+          echo "$existing_corefile" | awk -v entry="$host_entry" '
+            { print }
+            /loadbalance/ && !added {
+              print "    hosts {"
+              print "        " entry
+              print "        fallthrough"
+              print "    }"
+              added = 1
+            }
+          ' > "$tmp_corefile"
+        fi
+
+        # Apply updated configmap
+        kubectl -n "$namespace" create configmap "$cm_name" --from-file=Corefile="$tmp_corefile" -o yaml --dry-run=client | kubectl apply -f -
+        echo "Updated Corefile applied with new host entry."
+        sleep 20
+      loop: "{{ host_entries }}"
+      register: coredns_update_result
+
+    - name: restart coredns to rollout
+      shell: |
+        kubectl -n {{ ns }} rollout restart deployment {{ cm }}
+
+    - name: Pause for updated coredns to rollout
+      ansible.builtin.pause:
+        seconds: 10

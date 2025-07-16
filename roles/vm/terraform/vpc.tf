@@ -117,6 +117,18 @@ resource "aws_security_group" "sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
   ingress {
+    from_port   = 8080
+    to_port     = 8080
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 4317
+    to_port     = 4318
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
     from_port   = 2376
     to_port     = 2376
     protocol    = "tcp"
@@ -225,7 +237,7 @@ resource "aws_security_group" "sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
   tags = {
-    Name = "${var.aws["resource_prefix"]}-dev-ai-rancher-rt"
+    Name = "${var.aws["resource_prefix"]}-dev-ai-rt"
     Owner = "${var.aws["resource_owner"]}"
     Project = "ai"
   }

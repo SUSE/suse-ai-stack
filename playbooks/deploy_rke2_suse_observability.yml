@@ -1,0 +1,63 @@
+- name: Deploy RKE2 on SUSE Observability cluster - CP Master
+  hosts: suse_observability_cp_master
+  tasks:
+    - name: Deploy RKE2 master
+      import_role:
+        name: rke2
+      vars:
+        rke2endpoint: "{{ hostvars['localhost']['suse_observability_kubeapi_fqdn'] }}"
+        service_name: "rke2-server"
+        token: "{{ suse_observability_cluster.token | default('suse-observability-rke2token') }}"
+        version: "{{ suse_observability_cluster.version | default('v1.30.5+rke2r1') }}"
+        role: control-plane-master
+        cluster_name: "{% if suse_observability_cluster is defined %}suse-observability{% endif %}"
+
+    #https://github.com/NVIDIA/gpu-operator/issues/992#issuecomment-2796578769
+    - name: Update PATH
+      become: true
+      shell: |
+        echo PATH=$PATH:/usr/local/nvidia/toolkit >> /etc/default/rke2-server
+
+    - name: Deploy local-path provisioner
+      import_role:
+        name: local-path
+
+- name: Deploy RKE2 on SUSE Observability cluster - CP Others
+  hosts: suse_observability_cp_others
+  tasks:
+    - name: Deploy RKE2 cp others
+      import_role:
+        name: rke2
+      vars:
+        rke2endpoint: "{{ hostvars['localhost']['suse_observability_kubeapi_fqdn'] }}"
+        service_name: "rke2-server"
+        token: "{{ suse_observability_cluster.token | default('suse-observability-rke2token') }}"
+        version: "{{ suse_observability_cluster.version | default('v1.30.5+rke2r1') }}"
+        role: control-plane-others
+        cluster_name: "{% if suse_observability_cluster is defined %}suse-observability{% endif %}"
+
+    #https://github.com/NVIDIA/gpu-operator/issues/992#issuecomment-2796578769
+    - name: Update PATH
+      become: true
+      shell: |
+        echo PATH=$PATH:/usr/local/nvidia/toolkit >> /etc/default/rke2-server
+
+- name: Deploy RKE2 on SUSE Observability cluster - Agents
+  hosts: suse_observability_agents
+  tasks:
+    - name: Deploy RKE2 agents
+      import_role:
+        name: rke2
+      vars:
+        rke2endpoint: "{{ hostvars['localhost']['suse_observability_kubeapi_fqdn'] }}"
+        service_name: "rke2-agent"
+        token: "{{ suse_observability_cluster.token | default('suse-observability-rke2token') }}"
+        version: "{{ suse_observability_cluster.version | default('v1.30.5+rke2r1') }}"
+        role: agent
+        cluster_name: "{% if suse_observability_cluster is defined %}suse-observability{% endif %}"
+
+      #https://github.com/NVIDIA/gpu-operator/issues/992#issuecomment-2796578769
+    - name: Update PATH
+      become: true
+      shell: |
+        echo PATH=$PATH:/usr/local/nvidia/toolkit >> /etc/default/rke2-agent

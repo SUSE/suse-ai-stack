@@ -27,14 +27,32 @@
   shell: >
     kubectl -n {{ rancher_namespace }} rollout status deploy/{{ item }}
   register: rancher_rollout_result
-  retries: 10
+  retries: 12
   delay: 30
   with_items:
     - "{{ rancher_release }}"
     - "{{ rancher_release }}-webhook"
   until: "'successfully rolled out' in rancher_rollout_result.stdout"
 
-# per https://github.com/rancher/local-path-provisioner
-- name: Install local-path storage provisioner
-  shell: >
-    kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.28/deploy/local-path-storage.yaml
+- name: Copy get_rancher_admin_token.sh script
+  copy:
+    src: files/get_rancher_admin_token.sh
+    dest: ~/get_rancher_admin_token.sh
+    mode: "0755"
+
+- name: Generate Rancher admin token
+  shell: |
+    bash ~/get_rancher_admin_token.sh https://{{ rancher_host }} admin {{ rancher_bootstrap_password}}
+  register: rancher_token_result
+
+- name: print rancher admin token
+  debug:
+    msg: "{{ rancher_token_result.stdout }}"
+
+- name: set rancher token
+  set_fact:
+    rancher_token: "{{ rancher_token_result.stdout }}"
+
+- name: Display Rancher URL
+  debug:
+    msg: "https://{{ rancher_host }}"

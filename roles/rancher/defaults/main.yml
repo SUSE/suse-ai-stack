@@ -11,6 +11,6 @@ rancher_helm_chart_ref: "{{ rancher_helm_repo_name }}/rancher"
 
 rancher_release: rancher
 rancher_replicas: 1
-rancher_hostname: "private-ai.suse.demo"
+rancher_hostname: "suse-rancher.demo"
 rancher_namespace: cattle-system
 rancher_bootstrap_password: rancher

@@ -1,0 +1,61 @@
+- name: Deploy SUSE Observability
+  hosts: "{{ allowed_hg }}"
+  tasks:
+    - name: Deploy external-dns
+      import_role:
+        name: external-dns
+      vars:
+        owner: observability-dev
+      when: enable_external_dns | default(false) and suse_observability_cluster is defined
+
+    - name: Deploy Cert-Manager
+      import_role:
+        name: cert-manager
+      when: suse_observability_cluster is defined
+
+    - name: Set longhorn facts for observability
+      set_fact:
+        lh_username: "{{ longhorn_username }}"
+        lh_password: "{{ longhorn_password }}"
+
+    - name: Set target when no external-dns
+      set_fact:
+        suse_observability_target: "{{ ansible_host }}"
+      when: not ( enable_external_dns | default(false))
+
+    - name: Set target when external-dns
+      set_fact:
+        suse_observability_target: "{{ hostvars['localhost']['suse_observability_ingress_fqdn'] | default(hostvars['localhost']['ingress_fqdn']) }}"
+      when: enable_external_dns | default(false)
+
+    - name: Install Longhorn
+      import_role:
+        name: longhorn
+      vars:
+        target: "{{ suse_observability_target }}"
+        lhost: "observ-{{ hostvars['localhost']['longhorn_host'] }}"
+      when: (cloud_provider | default('local')) == "aws" and enable_longhorn and suse_observability_cluster is defined
+
+    - name: Deploy SUSE Observability
+      import_role:
+        name: suse-observability
+      vars:
+        suse_observability_host: "{{ hostvars['localhost']['suse_observability_host'] }}"
+        suse_observability_otel_host: "{{ hostvars['localhost']['suse_observability_otel_host'] }}"
+        cluster_name: "{{ 'suse-ai' if suse_ai_cluster is defined else 'local' }}"
+
+    - name: Show SUSE Observability kubeapi_fqdn
+      debug:
+        msg: "{{ hostvars['localhost']['suse_observability_kubeapi_fqdn'] | default(hostvars['localhost']['kubeapi_fqdn']) }}"
+
+    - name: Show SUSE Observability ingress_fqdn
+      debug:
+        msg: "{{ hostvars['localhost']['suse_observability_ingress_fqdn'] | default(hostvars['localhost']['ingress_fqdn'])}}"
+
+    - name: Show SUSE Observability ansible_host
+      debug:
+        msg: "{{ ansible_host }}"
+
+    - name: Show SUSE Observability Stack VM IP
+      debug:
+        msg: "Login to the suse-ai vm with 'ssh {{ hostvars['localhost']['vm_ansible_user'] | default('ai') }}@{{ hostvars['localhost']['suse_observability_vm_ip'] | default(hostvars['localhost']['vm_ip'])}}'"

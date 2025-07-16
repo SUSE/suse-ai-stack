@@ -1,0 +1,113 @@
+---
+- name: Check AWS configuration
+  fail:
+    msg: |-
+      Did you remember to copy extra_vars.yml.example to extra_vars.yml
+          and configure it appropriately?
+  when:
+    - aws_secret_key is not defined
+
+#https://github.com/rancher/terraform-provider-rancher2/issues/1042
+- name: workaround for rancher terraform provider issue 1042
+  shell: |
+    #!/bin/bash
+    set -x
+    RANCHER_URL={{ rancher_url }}
+    RANCHER_TOKEN={{ rancher_token }}
+
+    # Configure the server-url
+    curl -s -k -X PUT "${RANCHER_URL}/v3/settings/server-url" \
+      -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+      -H 'Content-Type: application/json' \
+      --data-binary "{\"name\": \"server-url\", \"value\":\"${RANCHER_URL}\"}"
+
+- name: Download OpenTofu Installer script and install it
+  shell: |
+    curl --proto '=https' --tlsv1.2 -fsSL https://get.opentofu.org/install-opentofu.sh -o install-opentofu.sh
+    chmod +x install-opentofu.sh
+    ./install-opentofu.sh --install-method standalone
+  register: opentofu_install_result
+  failed_when: "'Error' in opentofu_install_result.stdout"
+
+- name: Create ~/terraform-import-cluster directory
+  ansible.builtin.file:
+    path: "~/terraform-import-cluster"
+    state: directory
+    mode: '0755'
+
+- name: Copy tf files
+  copy:
+    src: "{{ (current_project_dir, 'roles/import-cluster/terraform') | path_join }}"
+    dest: "~/terraform-import-cluster/{{ cluster_name }}"
+
+- name: Write variables to a .tfvars file
+  copy:
+    dest: "~/terraform-import-cluster/{{ cluster_name }}/terraform/ansible.tfvars"
+    content: |
+      aws = {
+        access_key = "{{ aws_access_key }}"
+        secret_key = "{{ aws_secret_key }}"
+        region = "{{ aws_region }}"
+      }
+      rancher_url = "{{ rancher_url }}"
+      rancher_token = "{{ rancher_token }}"
+      cluster_name = "{{ cluster_name }}"
+
+- name: Add /opt/local/bin and ~/bin to PATH
+  lineinfile:
+    path: ~/.bashrc
+    line: export PATH="/opt/local/bin:~/bin:$PATH"
+
+- name: Initialize OpenTofu
+  shell: tofu init
+  args:
+    chdir: ~/terraform-import-cluster/{{ cluster_name }}/terraform
+
+- name: Plan OpenTofu deployment
+  shell: tofu plan -var-file="ansible.tfvars"
+  args:
+    chdir: ~/terraform-import-cluster/{{ cluster_name }}/terraform
+
+- name: Apply OpenTofu configuration and create AWS resources
+  shell: tofu apply -auto-approve -var-file="ansible.tfvars"
+  args:
+    chdir: ~/terraform-import-cluster/{{ cluster_name }}/terraform
+  register: tofu_apply_result
+
+- name: Import cluster output
+  shell: tofu output --json
+  args:
+    chdir: ~/terraform-import-cluster/{{ cluster_name }}/terraform
+  register: import_cluster_result
+
+- name: Display command to import cluster
+  debug:
+    msg: "{{ import_cluster_result.stdout }}"
+
+- name: Set parsed tofu output
+  set_fact:
+    import_cluster_tofu_outputs: "{{ import_cluster_result.stdout | from_json }}"
+
+- name: Register cluster
+  shell: |
+    CLUSTER_ID=$(curl -ks "{{ rancher_url }}/v3/clusters?name={{ cluster_name }}" -H 'content-type: application/json' -H "Authorization: Bearer {{ rancher_token }}" | jq -r .data[].id)
+    status=$(curl -ks "{{ rancher_url }}v3/clusters/$CLUSTER_ID" -H "Content-Type: application/json" -H "Authorization: Bearer {{ rancher_token }}" | jq .state)
+    if [[ "$status" != *"active"* ]]; then
+      {{ import_cluster_tofu_outputs.insecure_kubectl_command.value }}
+    fi
+
+
+- name: Wait for {{ cluster_name }} cluster to be imported succesfully
+  shell: |
+    max_retries=6
+    delay=30
+    for retry in $(seq 1 $max_retries); do
+      CLUSTER_ID=$(curl -ks "{{ rancher_url }}/v3/clusters?name={{ cluster_name }}" -H 'content-type: application/json' -H "Authorization: Bearer {{ rancher_token }}" | jq -r .data[].id)
+      status=$(curl -ks "{{ rancher_url }}v3/clusters/$CLUSTER_ID" -H "Content-Type: application/json" -H "Authorization: Bearer {{ rancher_token }}" | jq .state)
+      if [[ "$status" == *"active"* ]]; then
+        exit 0
+      else
+        sleep $delay
+      fi
+    done
+

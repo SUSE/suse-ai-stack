@@ -2,3 +2,4 @@
 
 uninstall: false
 external_dns_release_name: external-dns
+owner: dev

@@ -1,8 +1,8 @@
 ---
-- hosts: localhost
+- name: Fetch Resources
+  hosts: localhost
   connection: local
   tasks:
-
     - name: Fetch tofu output
       shell: |
         tofu output --json
@@ -21,36 +21,36 @@
         msg: "{{ tofuoutput }}"
       when: cloud_provider | default('local') != "local"
 
-    - name: set python_interpreter sle-micro
+    - name: Set python_interpreter sle-micro
       set_fact:
         python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3') }}"
       when: (cluster is defined and cluster.image_distro == "sle-micro") or cluster is not defined
 
-    - name: set python_interpreter sles
+    - name: Set python_interpreter sles
       set_fact:
         python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3.11') }}"
       when: (cluster is defined and cluster.image_distro == "sles")   
 
-    - name: Define private-ai node (master node) local
+    - name: Define mgmt-rancher node (master node) local
       ansible.builtin.add_host:
         ansible_python_interpreter: "{{ python_interpreter }}"
-        name: private-ai
-        hostname: private-ai
+        name: mgmt-rancher
+        hostname: mgmt-rancher
         ansible_user: "{{ vm_ansible_user | default('ai') }}"
         ansible_host: "{{ private_ai_vm_ip | default('192.168.122.100') }}"
         groups:
-          - cp_master
+          - mgmt_cp_master
       when: cloud_provider | default('local') == "local"
 
-    - name: Define private-ai node (master node) non-local
+    - name: Define mgmt-rancher node (master node) non-local
       ansible.builtin.add_host:
         ansible_python_interpreter: "{{ python_interpreter }}"
-        name: private-ai
-        hostname: private-ai
+        name: mgmt-rancher
+        hostname: mgmt-rancher
         ansible_user: "{{ vm_ansible_user | default('ai') }}"
         ansible_host: "{{ tofuoutput.instance_public_ip.value }}"
         groups:
-          - cp_master
+          - mgmt_cp_master
       when: cloud_provider | default('local') != "local" and tofuoutput.instance_public_ip is defined
 
 - hosts: cp_master
@@ -81,12 +81,13 @@
       when: enable_external_dns | default(false)
       ignore_errors: true
 
-- hosts: localhost
+- name: Destroy Resources
+  hosts: localhost
   connection: local
   tasks:
-    - name: Destroy Private AI Stack
+    - name: Destroy Resources
       include_role:
         name: vm
       vars:
         vm_action: destroy
-        vm_instance_name: private-ai
+        vm_instance_name: mgmt-rancher

@@ -1,8 +1,8 @@
 global:
   imagePullSecrets:
-  - application-collection
-serverUrl: http://suse-observability-router.{{ suse_observability_namespace }}.svc.cluster.local:8080
+  - {{ appco_secret }}
+serverUrl: {{ suse_observability_server_url }}
 apiKey: {{ suse_observability_api_key }}
 apiToken: {{ suse_observability_api_token }}
 tokenType: service
-clusterName: local
+clusterName: {{ clusterName }}

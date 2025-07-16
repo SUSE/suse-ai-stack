@@ -46,3 +46,12 @@
 - name: Add custom RBAC rules for metrics
   shell: >
     kubectl apply -n gpu-operator -f otel-rbac.yaml
+
+- name: Wait for OpenTelemetry Collector rollout to finish
+  shell: |
+    kubectl rollout status deployment/{{ otel_collector_release_name }} -n {{ otel_namespace }} --timeout=120s
+  register: rollout_status
+  failed_when: "'successfully rolled out' not in rollout_status.stdout"
+  retries: 5
+  delay: 10
+  until: rollout_status.rc == 0

@@ -1,0 +1,67 @@
+- name: Add SUSE Observability Helm repo
+  kubernetes.core.helm_repository:
+    repo_url: "{{ suse_observability_helm_repo_url }}"
+    name: "{{ suse_observability_helm_repo_name }}"
+
+- name: Create {{ suse_observability_namespace }}
+  shell: |
+    if ! kubectl get namespaces -o json | jq -r ".items[].metadata.name" | grep {{ suse_observability_namespace }};then
+      kubectl create namespace {{ suse_observability_namespace }}
+    fi
+
+- name: Check if AppCo secret exists
+  command: kubectl get secret "{{ appco_secret }}" -n "{{ suse_observability_namespace }}" --ignore-not-found
+  register: secret_check
+  changed_when: false
+
+- name: Create AppCo registry secret
+  command: >
+    kubectl create secret docker-registry "{{ appco_secret }}"
+    --docker-server=dp.apps.rancher.io
+    --docker-username="{{ application_collection_user_email }}"
+    --docker-password="{{ application_collection_user_token }}"
+    -n "{{ suse_observability_namespace }}"
+  when: "appco_secret not in secret_check.stdout"
+
+# - name: Install SUSE Observability Agent
+#   kubernetes.core.helm:
+#     name: "{{ suse_observability_agent_helm_chart_name }}"
+#     chart_ref: "{{ suse_observability_agent_helm_chart_ref }}"
+#     namespace: "{{ suse_observability_namespace }}"
+#     create_namespace: true
+#     release_values:
+#       stackstate:
+#         apiKey: "{{ suse_observability_api_key }}"
+#         cluster:
+#           name: "{{ stackstate_cluster_name }}"
+#         url: "{{ stackstate_url }}"
+#       nodeAgent:
+#         skipKubeletTLSVerify: true
+#     state: present
+
+- name: Copy suse-observability-agent.yaml
+  template:
+    src: suse-observability-agent.yaml.j2
+    dest: "suse-observability-agent.yaml"
+
+- name: Install SUSE Observability Agent
+  kubernetes.core.helm:
+    name: "{{ suse_observability_agent_helm_chart_name }}"
+    chart_ref: "{{ suse_observability_agent_helm_chart_ref  }}"
+    release_namespace: "{{ suse_observability_namespace }}"
+    create_namespace: true
+    values_files:
+      - suse-observability-agent.yaml
+    state: present
+
+- name: Wait for SUSE Observability Agent rollout to finish
+  shell: |
+    kubectl rollout status deployment/{{ item }} -n {{ suse_observability_namespace }} --timeout=120s
+  register: rollout_status
+  failed_when: "'successfully rolled out' not in rollout_status.stdout"
+  retries: 5
+  delay: 10
+  with_items:
+  - "{{ suse_observability_agent_helm_chart_name }}-checks-agent"
+  - "{{ suse_observability_agent_helm_chart_name }}-cluster-agent"
+  until: rollout_status.rc == 0

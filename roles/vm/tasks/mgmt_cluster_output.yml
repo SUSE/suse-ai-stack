@@ -1,0 +1,48 @@
+- name: Setup facts mgmt cluster
+  set_fact:
+    vm_ip: "{{ tofu_outputs.mgmt_instance_public_ip.value }}"
+    ami_id_mgmt: "{{ tofu_outputs.ami_id_mgmt.value }}"
+    kubeapi_fqdn: "{{ tofu_outputs.mgmt_kubeapi_fqdn.value }}"
+    ingress_fqdn: "{{ tofu_outputs.mgmt_ingress_fqdn.value }}"
+    mgmt_cp_master:
+    - {"name": "mgmt-rancher", "hostname": "mgmt-rancher", "ip": "{{ tofu_outputs.mgmt_instance_public_ip.value }}" }
+
+- name: Setup cluster control plane other nodes mgmt cluster
+  set_fact:
+    mgmt_cp_others: "{{ mgmt_cp_others | default([]) + [ {'name': name, 'hostname': name,  'ip': item } ] }}"
+  vars:
+    name: "mgmt-rancher-cp{{ ansible_loop.index }}"
+  loop: "{{ tofu_outputs.mgmt_instance_public_ip_cp_other.value }}"
+  loop_control:
+    extended: true
+
+- name: Setup cluster worker gpu nodes mgmt cluster
+  set_fact:
+    mgmt_worker_gpu: '{{ mgmt_worker_gpu | default([]) +  [ {"name": name, "hostname": name, "ip": item } ] }}'
+  vars:
+    name: "mgmt-rancher-wkrgpu{{ ansible_loop.index }}"
+  loop: "{{ tofu_outputs.instance_public_ip_worker_gpu.value }}"
+  loop_control:
+    extended: true
+
+- name: Setup cluster worker nongpu nodes
+  set_fact:
+    mgmt_worker_nongpu: '{{ mgmt_worker_nongpu | default([]) +  [ {"name": name, "hostname": name, "ip": item } ] }}'
+  vars:
+    name: "mgmt-rancher-wkr{{ ansible_loop.index }}"
+  loop: "{{ tofu_outputs.instance_public_ip_worker_nongpu.value }}"
+  loop_control:
+    extended: true
+
+- name: Setup cluster nodes mgmt cluster
+  set_fact:
+    mgmt_cluster_nodes: "{{ mgmt_cp_master + mgmt_cp_others | default([]) + mgmt_worker_gpu | default([]) + mgmt_worker_nongpu | default([]) }}"
+
+- name: Display all cluster nodes mgmt cluster
+  debug:
+    msg: "{{ mgmt_cluster_nodes }}"
+
+- name: Display AMI id for mgmt cluster
+  debug:
+    msg: "{{ ami_id_mgmt }}"
+

@@ -1,6 +1,6 @@
 global:
   imagePullSecrets:
-  - application-collection
+  - {{ appco_secret }}
 extraEnvsFrom:
   - secretRef:
       name: {{ otel_secret }}
@@ -27,7 +27,7 @@ config:
                     - gpu-operator
   exporters:
     otlp:
-      endpoint: http://suse-observability-otel-collector.{{ suse_observability_namespace }}.svc.cluster.local:4317
+      endpoint: {{ endpoint }}
       headers:
         Authorization: "SUSEObservability ${env:API_KEY}"
       tls:

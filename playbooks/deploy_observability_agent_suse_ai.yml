@@ -1,0 +1,11 @@
+- name: Deploy SUSE Observability Agent on suse ai cluster
+  hosts: "{{ allowed_hg }}"
+  tasks:
+    - name: Deploy SUSE Observability Agent on suse ai cluster
+      import_role:
+        name: suse-observability-agent
+      vars:
+        suse_observability_api_key: "{{ api_key }}"
+        cluster_name: "{{ 'suse-ai' if suse_ai_cluster is defined }}"
+        ss_url: "{% if suse_observability_cluster is defined %}http://{{ hostvars['localhost']['suse_observability_host'] }}/receiver/stsAgent{% endif %}"
+        suse_observabiltity_host: "{{ hostvars['localhost']['suse_observability_host'] }}"

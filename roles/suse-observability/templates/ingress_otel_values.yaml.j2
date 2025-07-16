@@ -1,0 +1,16 @@
+opentelemetry-collector:
+  ingress:
+    enabled: true
+    annotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+      nginx.ingress.kubernetes.io/backend-protocol: GRPC
+{% if cloud_provider is defined and cloud_provider == "aws" and enable_external_dns %}
+      external-dns.alpha.kubernetes.io/target: {{ suse_observability_target }}
+      external-dns.alpha.kubernetes.io/ttl: "60"
+{% endif %}
+    hosts:
+      - host: {{ suse_observability_otel_host }}
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 4317
