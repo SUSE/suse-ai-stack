@@ -19,7 +19,7 @@ ingress:
     source: rancher
     secretName: tls-rancher-ingress
   extraAnnotations:
-{% if cloud_provider is defined and cloud_provider == "aws" and enable_external_dns %}
+{% if cloud_provider is defined and cloud_provider == "aws" and enable_external_dns | default(false) %}
     external-dns.alpha.kubernetes.io/target: {{ mgmt_target }}
     external-dns.alpha.kubernetes.io/ttl: "60"
 {% endif %}
