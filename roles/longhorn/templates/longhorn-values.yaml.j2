@@ -15,7 +15,7 @@ ingress:
     # custom max body size for file uploading like backing image uploading
     nginx.ingress.kubernetes.io/proxy-body-size: 10000m
 
-{% if cloud_provider is defined and cloud_provider == "aws" and enable_external_dns %}
+{% if cloud_provider is defined and cloud_provider == "aws" and enable_external_dns | default(false) %}
     external-dns.alpha.kubernetes.io/target: {{ target }}
     external-dns.alpha.kubernetes.io/ttl: "60"
 {% endif %}

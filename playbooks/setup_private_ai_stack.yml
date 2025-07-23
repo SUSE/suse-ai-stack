@@ -94,17 +94,29 @@
     suse_observability_host: "{{ hostvars['localhost']['suse_observability_host'] }}"
     suse_observability_otel_host: "{{ hostvars['localhost']['suse_observability_otel_host'] }}"
 
+# Set up RKE2 on mgmt, suse_ai and suse_observability clusters
 - name: Deploy RKE2 on mgmt cluster
   import_playbook: deploy_rke2_mgmt.yml
+
+- name: Deploy RKE2 on suse observability cluster
+  import_playbook: deploy_rke2_suse_observability.yml
+  when: suse_observability_cluster is defined and enable_suse_observability | default('False') | bool
+
+- name: Deploy RKE2 on suse ai cluster
+  import_playbook: deploy_rke2_suse_ai.yml
+  when: suse_ai_cluster is defined
+
+- name: Label nodes and deploy Nvidia driver installer
+  import_playbook: deploy_nvidia_driver_installer.yml
+  vars:
+    ai_allowed_hg: "{{ 'suse_ai_cp_master' if suse_ai_cluster is defined else 'mgmt_cp_master' }}"
+    ai_hg: "{{ groups['suse_ai_cluster'] if suse_ai_cluster is defined else groups['mgmt_cluster'] }}"
+  when: use_nvidia_driver_installer | default(false)
 
 - name: Deploy Rancher on mgmt cluster
   import_playbook: deploy_rancher_mgmt.yml
   vars:
     rancher_host: "{{ hostvars['localhost']['rancher_host'] }}"
-
-- name: Deploy RKE2 on suse ai cluster
-  import_playbook: deploy_rke2_suse_ai.yml
-  when: suse_ai_cluster is defined
 
 - name: Update core dns entries on suse-ai cluster
   import_playbook: update_core_dns.yml
@@ -117,10 +129,6 @@
       }}
     allowed_hg: 'suse_ai_cp_master'
   when: not (enable_external_dns | default(false)) and suse_ai_cluster is defined
-
-- name: Deploy RKE2 on suse observability cluster
-  import_playbook: deploy_rke2_suse_observability.yml
-  when: suse_observability_cluster is defined and enable_suse_observability | default('False') | bool
 
 - name: Update core dns entries on suse-observability cluster
   import_playbook: update_core_dns.yml

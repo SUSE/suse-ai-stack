@@ -34,18 +34,6 @@
     - suse_packages | length > 0
     - ansible_distribution == 'SLES'
 
-- name: Install NVIDIA graphic drivers
-  become: true
-  community.general.zypper:
-    name: ["nvidia-open-driver-G06-signed-kmp={{ driver_version }}", "nvidia-compute-utils-G06={{ driver_version }}"]
-    state: latest
-    update_cache: true
-  register: install_suse_packages_result
-  until: "'rc' not in install_suse_packages_result or install_suse_packages_result.rc == 0"
-  retries: 10
-  delay: 60
-  when: enable_gpu_operator | default(false)
-
 - name: Install Longhorn dependency packages
   become: true
   community.general.zypper:
@@ -57,6 +45,28 @@
   retries: 10
   delay: 60
   when: cloud_provider == "aws" and enable_longhorn
+
+- name: Add NVIDIA graphics drivers for SLE repo
+  become: true
+  community.general.zypper_repository:
+    name: nvidia-sle15sp6-main
+    repo: 'https://download.nvidia.com/suse/sle15sp6/'
+    state: present
+    auto_import_keys: true
+    runrefresh: true
+  when: (enable_gpu_operator | default(false)) and not (use_nvidia_driver_installer | default(false))
+
+- name: Install NVIDIA graphic drivers packages
+  become: true
+  community.general.zypper:
+    name: ["nvidia-open-driver-G06-signed-kmp={{ driver_version | default('570.144') }}", "nvidia-compute-utils-G06={{ driver_version | default('570.144') }}"]
+    state: latest
+    update_cache: true
+  register: install_suse_packages_result
+  until: "'rc' not in install_suse_packages_result or install_suse_packages_result.rc == 0"
+  retries: 10
+  delay: 60
+  when: (enable_gpu_operator | default(false)) and not (use_nvidia_driver_installer | default(false))
 
 # NOTE: for SL Micro, package installation requires transactional update.
 # Therefore, we need to do reboot for the changes to take effect.
@@ -72,7 +82,16 @@
 
 - name: Pause
   ansible.builtin.pause:
-    minutes: 1
+    seconds: 30
+
+- name: Check that driver package is installed after the reboot
+  become: true
+  command: rpm -q {{ item }}
+  register: check_installed
+  loop:
+    - "nvidia-open-driver-G06-signed-kmp-default"
+    - "nvidia-compute-utils-G06"
+  when: (enable_gpu_operator | default(false)) and not (use_nvidia_driver_installer | default(false))
 
 - name: Check that each package is installed after the reboot
   become: true

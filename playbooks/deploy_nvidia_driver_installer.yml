@@ -1,0 +1,93 @@
+# Deploy nvidia-driver-installer optionally
+
+- name: Label nodes with GPU - a requirement for NVIDIA driver installer
+  hosts: "{{ ai_hg }}"
+  tasks:
+    - name: Check for GPU using lspci
+      become: true
+      command: lspci
+      register: lspci_out
+
+    - name: Determine if GPU is present
+      set_fact:
+        has_gpu: "{{ lspci_out.stdout is search('VGA compatible controller.*NVIDIA|3D controller.*NVIDIA', ignorecase=True) }}"
+
+    - name: Label GPU node via kubectl per requirement for the nvidia driver installer
+      command: >
+        kubectl label node {{ inventory_hostname }} node-role.kubernetes.io/ai-worker=true --overwrite
+      register: label_result
+      retries: 20
+      delay: 30
+      until: label_result.rc == 0
+      when: has_gpu
+
+- name: Calculate the reboot window based on the number of nodes detected with GPU
+  hosts: localhost
+  tasks:
+    - name: Add host to group
+      add_host:
+        host: "{{ item }}"
+        group: detected_gpu_group
+      with_items: "{{ ai_hg }}"
+      when: hostvars[item]['has_gpu'] is defined and hostvars[item]['has_gpu']
+
+    # Kured reboots nodes one at a time in a random order, so we can't predict exactly when a particular node will reboot.
+    # To handle this uncertainty, we wait for a predefined time window.
+    # The duration of this window should be adjusted based on the number of nodes that need to be rebooted.
+    # The more nodes, the longer the window should be, as Kured processes them sequentially.
+    # Therefore, the reboot_window is dynamically set based on the number of hosts in the group.
+    - name: Set reboot window based on group size
+      set_fact:
+        reboot_window: "{{ groups['detected_gpu_group'] | default([]) | length * 360 }}" # 360 seconds max per node
+
+    - name: Number of hosts in the detected_gpu_group
+      debug:
+        msg: "{{ groups['detected_gpu_group'] | default([]) | length }}"
+
+- name: Deploy the NVIDIA driver installer
+  hosts: "{{ ai_allowed_hg }}"
+  tasks:
+    - name: Deploy NVIDIA driver installer
+      import_role:
+        name: nvidia-driver-installer
+      when: enable_gpu_operator | default(false)
+
+- name: Pause for kured to serially cycle through rebooting all GPU detected systems
+  hosts: localhost
+  tasks:
+    - name: Pause
+      ansible.builtin.pause:
+        seconds: "{{ hostvars['localhost']['reboot_window'] | int }}"
+
+- name: Validate package is installed
+  hosts: "{{ groups['detected_gpu_group'] | default([]) }}"
+  tasks:
+    - name: Wait for port 22
+      wait_for:
+        port: 22
+        timeout: 120
+
+    - name: Check that each package is installed after the reboot
+      become: true
+      command: rpm -q {{ item }}
+      register: check_installed
+      loop:
+        - "nvidia-open-driver-G06-signed-kmp-default"
+        - "nvidia-compute-utils-G06"
+
+    - name: Print if any package is not installed
+      debug:
+        msg: "One or more packages were not installed successfully."
+      when: check_installed.results | selectattr('rc', 'ne', 0) | list | length > 0
+
+    - name: Query installed version of package
+      become: true
+      command: rpm -q --qf "%{VERSION}-%{RELEASE}" {{ item }}
+      register: pkg_query
+      loop:
+        - "nvidia-open-driver-G06-signed-kmp-default"
+        - "nvidia-compute-utils-G06"
+
+    - name: Print full release version
+      debug:
+        msg:  "{{ pkg_query.results[0].stdout }}"

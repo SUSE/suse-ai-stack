@@ -1,0 +1,24 @@
+namespace: "{{ nvidia_driver_installer_namespace }}"
+
+nvidia:
+  image: "{{ nvidia_driver_installer_image_registry }}/{{ nvidia_driver_installer_image_repository }}:{{ nvidia_driver_installer_image_tag }}"
+  nodeSelector:
+    node-role.kubernetes.io/ai-worker: "true"
+
+os:
+  sles:
+    # We use PAYG instance for SLES in AWS. So no need for registration
+{% if cloud_provider != 'aws' %}
+    regcode: "{{ registration_code }}"
+    regemail: "{{ registration_email }}"
+{% endif %}
+    driverVersion: "{{ nvidia_driver_sles_version }}"
+  slem:
+    regcode: "{{ registration_code }}"
+    regemail: "{{ registration_email }}"
+    driverVersion: "{{ nvidia_driver_sle_micro_version }}"
+
+kured:
+  image: ghcr.io/kubereboot/kured:1.17.1
+  updatePeriod: "30s"
+  rebootSentinel: "/sentinel/reboot-needed"
