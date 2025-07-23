@@ -32,11 +32,6 @@
       import_role:
         name: kubernetes-tools
 
-    - name: Install NVIDIA driver
-      import_role:
-        name: nvidia-driver
-      when: enable_gpu_operator | default(false)
-
     - name: Install Packages
       include_role:
         name: vm

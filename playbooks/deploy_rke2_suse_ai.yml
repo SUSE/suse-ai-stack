@@ -18,9 +18,15 @@
       shell: |
         echo PATH=$PATH:/usr/local/nvidia/toolkit >> /etc/default/rke2-server
 
-    - name: Deploy local-path provisioner
-      import_role:
-        name: local-path
+    - name: Read kubeconfig from master node
+      ansible.builtin.slurp:
+        src: "/home/{{ vm_ansible_user | default('ai') }}/.kube/config"
+      register: suse_ai_kubeconfig_data
+      become: true
+
+    - name: Set kubeconfig as fact
+      ansible.builtin.set_fact:
+        suse_ai_kubeconfig_content: "{{ suse_ai_kubeconfig_data['content'] | b64decode }}"
 
 - name: Deploy RKE2 on SUSE AI cluster - CP Others
   hosts: suse_ai_cp_others
@@ -61,3 +67,25 @@
       become: true
       shell: |
         echo PATH=$PATH:/usr/local/nvidia/toolkit >> /etc/default/rke2-agent
+
+- name: Copy kubeconfig
+  hosts: suse_ai_cp_others:suse_ai_agents
+  tasks:
+    - name: Create kubeconfig directory
+      ansible.builtin.file:
+        path: "/home/{{ vm_ansible_user | default('ai') }}/.kube"
+        state: directory
+        mode: '0755'
+
+    - name: Copy kubeconfig
+      ansible.builtin.copy:
+        dest: "/home/{{ vm_ansible_user | default('ai') }}/.kube/config"
+        content: "{{ hostvars[groups['suse_ai_cp_master'][0]]['suse_ai_kubeconfig_content'] }}"
+
+- name: Deploy local-path provisioner suse-ai cluster
+  hosts: suse_ai_cp_master
+  tasks:
+    - name: Deploy local-path provisioner suse_ai cluster
+      import_role:
+        name: local-path
+      when: not (enable_longhorn | default(false) | bool)

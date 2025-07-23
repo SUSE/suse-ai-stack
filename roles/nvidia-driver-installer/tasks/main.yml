@@ -1,0 +1,38 @@
+---
+# Pin the driver version that's known to work
+- name: Set driver version
+  set_fact:
+    driver_version: "{{ nvidia_driver_sles_version if ansible_distribution == 'SLES' else nvidia_driver_sle_micro_version }}"
+
+- name: Print driver version
+  debug:
+    msg: "Use driver version {{ driver_version }}"
+
+# Note that the systems are either already registered or payg and hence not sending the regcode and regemail
+- name: Copy nvidia-driver-installer.yaml
+  template:
+    src: nvidia-driver-installer.yaml.j2
+    dest: "nvidia-driver-installer.yaml"
+
+- name: Install NVIDIA Driver Installer via Helm
+  kubernetes.core.helm:
+    name: "{{ nvidia_driver_installer_name }}"
+    chart_ref: "{{ nvidia_driver_installer_helm_chart_ref }}"
+    chart_version: "{{ nvidia_driver_installer_chart_version }}"
+    values_files:
+      - "nvidia-driver-installer.yaml"
+    state: present
+    namespace: "{{ nvidia_driver_installer_namespace }}"
+    create_namespace: true
+
+- name: Wait for  NVIDIA Driver Installer rollout to finish
+  shell: |
+    kubectl rollout status daemonset/{{ item }} -n "{{ nvidia_driver_installer_namespace }}" --timeout=180s
+  register: rollout_status
+  failed_when: "'successfully rolled out' not in rollout_status.stdout"
+  retries: 5
+  delay: 10
+  with_items:
+  - "kured"
+  - "nvidia-driver-installer"
+  until: rollout_status.rc == 0
