@@ -25,12 +25,14 @@ config:
                 namespaces:
                   names:
                     - gpu-operator
+{% if otel_scrape_milvus | default(false) %}
           - job_name: 'milvus'
             scrape_interval: 15s
             metrics_path: '/metrics'
 
             static_configs:
-              - targets: ['milvus.suse-private-ai.svc.cluster.local:9091']
+              - targets: ['{{ otel_milvus_endpoint }}']
+{% endif %}
   exporters:
     otlp:
       endpoint: {{ endpoint }}
