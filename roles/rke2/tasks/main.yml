@@ -88,6 +88,11 @@
 - name: Install RKE2
   shell: >
     sudo INSTALL_RKE2_CHANNEL={{ version }} /tmp/rke2_installer.sh
+  register: rke2_install_result
+  retries: 5
+  delay: 10
+  until: rke2_install_result.rc == 0
+
 
 - name: Enable and start service
   become: true
