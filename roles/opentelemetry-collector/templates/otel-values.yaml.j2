@@ -25,7 +25,7 @@ config:
                 namespaces:
                   names:
                     - gpu-operator
-{% if otel_scrape_milvus | default(false) %}
+{% if otel_scrape_milvus %}
           - job_name: 'milvus'
             scrape_interval: 15s
             metrics_path: '/metrics'
