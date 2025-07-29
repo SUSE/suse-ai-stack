@@ -46,27 +46,55 @@
   delay: 60
   when: cloud_provider == "aws" and enable_longhorn
 
-- name: Add NVIDIA graphics drivers for SLE repo
+# https://documentation.suse.com/suse-ai/1.0/html/NVIDIA-GPU-driver-on-SL-Micro/index.html
+# Install the nvidia driver packages on the servers that has GPU.
+- name: Add a package repository from NVIDIA
   become: true
   community.general.zypper_repository:
-    name: nvidia-sle15sp6-main
-    repo: 'https://download.nvidia.com/suse/sle15sp6/'
+    name: cuda-sle15
+    repo: 'https://developer.download.nvidia.com/compute/cuda/repos/sles15/{{ ansible_architecture }}/'
+    #name: nvidia-sle15sp6-main
+    #repo: 'https://download.nvidia.com/suse/sle15sp6/'
     state: present
     auto_import_keys: true
     runrefresh: true
   when: (enable_gpu_operator | default(false)) and not (use_nvidia_driver_installer | default(false))
 
+- name: Copy install-nvidia-packages.sh script
+  become: true
+  copy:
+    src: files/install-nvidia-packages.sh
+    dest: ~/install-nvidia-packages.sh
+    mode: "0755"
+
+- name: Set nvidia_pkg_install command - sles
+  set_fact:
+    nvidia_pkg_install_cmd: >-
+      bash -c "FALLBACK_DRIVER_VERSION_SLES={{ nvidia_driver_sles_version | default('570.144') }} ~/install-nvidia-packages.sh"
+  when: ansible_distribution == 'SLES'
+
+- name: Set nvidia_pkg_install command - sl-micro
+  set_fact:
+    nvidia_pkg_install_cmd: >-
+      transactional-update --continue run bash -c "FALLBACK_DRIVER_VERSION_SLE_MICRO={{ nvidia_driver_sle_micro_version | default('570.133.20') }} ~/install-nvidia-packages.sh"
+  when: ansible_distribution == 'SL-Micro'
+
+- name: Check for GPU using lspci
+  become: true
+  command: lspci
+  register: lspci_out
+  when: (enable_gpu_operator | default(false)) and not (use_nvidia_driver_installer | default(false))
+
+- name: Determine if GPU is present
+  set_fact:
+    has_gpu: "{{ lspci_out.stdout is search('VGA compatible controller.*NVIDIA|3D controller.*NVIDIA', ignorecase=True) }}"
+  when: (enable_gpu_operator | default(false)) and not (use_nvidia_driver_installer | default(false))
+
 - name: Install NVIDIA graphic drivers packages
   become: true
-  community.general.zypper:
-    name: ["nvidia-open-driver-G06-signed-kmp={{ driver_version | default('570.144') }}", "nvidia-compute-utils-G06={{ driver_version | default('570.144') }}"]
-    state: latest
-    update_cache: true
-  register: install_suse_packages_result
-  until: "'rc' not in install_suse_packages_result or install_suse_packages_result.rc == 0"
-  retries: 10
-  delay: 60
-  when: (enable_gpu_operator | default(false)) and not (use_nvidia_driver_installer | default(false))
+  command: "{{ nvidia_pkg_install_cmd }}"
+  register: version_result
+  when: (enable_gpu_operator | default(false)) and not (use_nvidia_driver_installer | default(false)) and has_gpu
 
 # NOTE: for SL Micro, package installation requires transactional update.
 # Therefore, we need to do reboot for the changes to take effect.
@@ -84,14 +112,47 @@
   ansible.builtin.pause:
     seconds: 30
 
-- name: Check that driver package is installed after the reboot
+- name: Check that driver packages is installed after the reboot
   become: true
   command: rpm -q {{ item }}
   register: check_installed
   loop:
-    - "nvidia-open-driver-G06-signed-kmp-default"
+    - "nvidia-open-driver-G06-signed-cuda-kmp-default"
     - "nvidia-compute-utils-G06"
-  when: (enable_gpu_operator | default(false)) and not (use_nvidia_driver_installer | default(false))
+    - "nvidia-container-toolkit" # validation
+  when: (enable_gpu_operator | default(false)) and not (use_nvidia_driver_installer | default(false)) and has_gpu
+
+- name: Validate via nvidia-smi
+  become: true
+  shell: |
+    nvidia-smi --query-gpu=driver_version --format=csv,noheader
+  register: nvidia_smi_version_result
+  when: (enable_gpu_operator | default(false)) and not (use_nvidia_driver_installer | default(false)) and has_gpu
+
+- name: Assert the driver version
+  assert:
+    that:
+      - nvidia_smi_version_result.stdout in version_result.stdout
+    success_msg: "NVIDIA driver version validation passed"
+    fail_msg: "NVIDIA driver version validation failed"
+  when: (enable_gpu_operator | default(false)) and not (use_nvidia_driver_installer | default(false)) and has_gpu
+
+- name: Validate via nvidia-ctk
+  become: true
+  shell: |
+    nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+  register: nvidia_ctk_result
+  ignore_errors: true # validation in next task
+  when: (enable_gpu_operator | default(false)) and not (use_nvidia_driver_installer | default(false)) and has_gpu
+
+- name: Assert the nvidia-ctk result
+  assert:
+    that:
+      - nvidia_ctk_result.stdout is defined
+      -  "'error' not in nvidia_ctk_result.stdout | lower"
+    success_msg: "nvidia-ctk validation passed"
+    fail_msg: "nvidia-ctk validation failed"
+  when: (enable_gpu_operator | default(false)) and not (use_nvidia_driver_installer | default(false)) and has_gpu
 
 - name: Check that each package is installed after the reboot
   become: true
