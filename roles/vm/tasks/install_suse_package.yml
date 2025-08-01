@@ -70,7 +70,7 @@
 - name: Set nvidia_pkg_install command - sles
   set_fact:
     nvidia_pkg_install_cmd: >-
-      bash -c "FALLBACK_DRIVER_VERSION_SLES={{ nvidia_driver_sles_version | default('570.144') }} ~/install-nvidia-packages.sh"
+      bash -c "FALLBACK_DRIVER_VERSION_SLES={{ nvidia_driver_sles_version | default('575.57.08') }} ~/install-nvidia-packages.sh"
   when: ansible_distribution == 'SLES'
 
 - name: Set nvidia_pkg_install command - sl-micro
