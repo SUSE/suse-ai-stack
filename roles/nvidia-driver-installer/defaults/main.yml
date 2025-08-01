@@ -1,7 +1,7 @@
 ---
 
-nvidia_driver_sle_micro_version: "570.144"
-nvidia_driver_sles_version: "570.144"
+nvidia_driver_sle_micro_version: "570.133.20"
+nvidia_driver_sles_version: "575.57.08"
 
 nvidia_driver_installer_namespace: kube-system
 nvidia_driver_installer_name: nvidia-driver-installer
