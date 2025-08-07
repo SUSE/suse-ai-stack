@@ -1,0 +1,23 @@
+- name: Copy selinux policy for pulsar
+  template:
+    src: pulsar.pp
+    dest: ~/pulsar.pp
+
+- name: Check SELinux status
+  become: true
+  command: getenforce
+  register: selinux_status
+  ignore_errors: true
+
+- name: Run semodule command if SELinux is enabled
+  become: true
+  shell: |
+    semodule -X 300 -i /home/{{ vm_ansible_user | default('ai') }}/pulsar.pp
+    sleep 20 # need to let things settle after semodule
+  when: selinux_status.stdout in ['Enforcing', 'Permissive']
+
+- name: Wait for port 9345
+  wait_for:
+    port: 9345
+    delay: 10
+    timeout: 180

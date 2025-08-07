@@ -1,0 +1,42 @@
+- name: Install Ollama CLI
+  shell: >
+    export PATH=/usr/local/bin:$PATH
+    curl -fsSL https://ollama.com/install.sh | sh
+  when: not (deploy_rancher_only | default(false))
+
+- name: Add OLLAMA_HOST to .bashrc
+  lineinfile:
+    path: "~/.bashrc"
+    regexp: "^export OLLAMA_HOST="
+    line: "export OLLAMA_HOST={{ ollama_hostname }}:80"
+
+- name: Copy ollama-values.yaml
+  template:
+    src: ollama-values.yaml.j2
+    dest: ~/ollama-values.yaml
+  when: ollama_deploy_separately
+
+- name: Deploy ollama separately
+  shell: |
+    if [[ {{ ollama_helm_repo }} == *"dp.apps.rancher.io"* ]]; then
+        helm registry login dp.apps.rancher.io/charts -u {{ application_collection_user_email }} -p {{ application_collection_user_token }}
+        helm upgrade --install {{ ollama_release_name }} {{ ollama_helm_repo }} -n {{ suse_private_ai_namespace }} --create-namespace --version {{ ollama_helm_version }} -f ollama-values.yaml
+    else
+        helm upgrade --install {{ ollama_release_name }} ollama --repo {{ ollama_helm_repo }} -n {{ suse_private_ai_namespace }} --create-namespace --version {{ ollama_helm_version }}  -f ollama-values.yaml
+    fi
+  register: ollama_deploy_result
+  until: ollama_deploy_result.rc == 0
+  retries: 3
+  delay: 20
+  when: ollama_deploy_separately and (not deploy_rancher_only | default(False) | bool)
+
+- name: Wait for SUSE Private AI ollama to be successfully rolled out
+  shell: >
+    kubectl -n {{ suse_private_ai_namespace }} rollout status deploy/{{ item }}
+  register: rollout_result
+  retries: 6
+  delay: 30
+  until: "'successfully rolled out' in rollout_result.stdout"
+  with_items:
+  - "ollama"
+  when: ollama_deploy_separately and (not deploy_rancher_only | default(False) | bool)

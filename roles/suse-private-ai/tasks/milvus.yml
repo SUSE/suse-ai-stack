@@ -1,0 +1,65 @@
+- name: Copy milvus-values.yaml
+  template:
+    src: milvus-values.yaml.j2
+    dest: ~/milvus-values.yaml
+
+- name: Deploy milvus helm chart
+  shell: |
+    if [[ {{ milvus_helm_repo }} == *"dp.apps.rancher.io"* ]]; then
+        helm registry login dp.apps.rancher.io/charts -u {{ application_collection_user_email }} -p {{ application_collection_user_token }}
+        helm upgrade --install {{ milvus_release_name }} {{ milvus_helm_repo }} -n {{ suse_private_ai_namespace }} --create-namespace  --version {{ milvus_helm_version }} -f milvus-values.yaml
+    else
+        helm upgrade --install {{ milvus_release_name }} milvus --repo {{ milvus_helm_repo }} -n {{ suse_private_ai_namespace }} --create-namespace --version {{ milvus_helm_version }} -f milvus-values.yaml
+    fi
+  register: milvus_deploy_result
+  until: milvus_deploy_result.rc == 0
+  retries: 5
+  delay: 20
+  when: enable_milvus and (not deploy_rancher_only | default(False) | bool)
+
+- name: Wait for SUSE Private AI (Minio Standalone) to be successfully rolled out
+  shell: >
+    kubectl -n {{ suse_private_ai_namespace }} rollout status deploy/{{ item }}
+  register: rollout_result
+  retries: 6
+  delay: 30
+  until: "'successfully rolled out' in rollout_result.stdout"
+  with_items:
+  - "{{ milvus_release_name }}-minio"
+  when: enable_milvus and enable_minio_standalone_deployment and (not deploy_rancher_only | default(False) | bool)
+
+- name: Wait for SUSE Private AI (Minio distributed) to be successfully rolled out
+  shell: >
+    kubectl -n {{ suse_private_ai_namespace }} rollout status statefulset {{ item }}
+  register: rollout_result
+  retries: 8
+  delay: 30
+  until: "'statefulset rolling update complete' in rollout_result.stdout"
+  with_items:
+  - "{{ milvus_release_name }}-minio"
+  when: enable_milvus and (not enable_minio_standalone_deployment) and  (not deploy_rancher_only | default(False) | bool)
+
+- name: Wait for SUSE Private AI (Milvus Standalone) to be successfully rolled out
+  shell: >
+    kubectl -n {{ suse_private_ai_namespace }} rollout status deploy/{{ item }}
+  register: rollout_result
+  retries: 6
+  delay: 30
+  until: "'successfully rolled out' in rollout_result.stdout"
+  with_items:
+  - "milvus-standalone"
+  when: enable_milvus and (not enable_milvus_cluster_deployment) and  (not deploy_rancher_only | default(False) | bool)
+
+- name: Wait for SUSE Private AI (Milvus cluster) to be successfully rolled out
+  shell: >
+    kubectl -n {{ suse_private_ai_namespace }} rollout status deploy/{{ item }}
+  register: rollout_result
+  retries: 8
+  delay: 30
+  until: "'successfully rolled out' in rollout_result.stdout"
+  with_items:
+  - "milvus-datanode"
+  - "milvus-indexnode"
+  - "milvus-proxy"
+  - "milvus-querynode"
+  when: enable_milvus and enable_milvus_cluster_deployment and (not deploy_rancher_only | default(False) | bool)

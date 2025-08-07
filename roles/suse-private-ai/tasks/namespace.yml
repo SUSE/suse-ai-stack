@@ -1,0 +1,16 @@
+# sometimes an error like this is seen: "failed calling webhook \"rancher.cattle.io.namespaces.create-non-kubesystem\": failed to call webhook: Post \"https://rancher-webhook.cattle-system.svc:443/v1/webhook/validation/namespaces?timeout=10s\"
+# workaround is to retry
+- name: Create suse-private-ai namespace
+  shell: |
+    max_retries=10
+    delay=30
+    for retry in $(seq 1 $max_retries); do
+      if ! kubectl get namespaces -o json | jq -r ".items[].metadata.name" | grep {{ suse_private_ai_namespace }};then
+        status=$(kubectl create namespace {{ suse_private_ai_namespace }})
+        if [[ "$status" == *"created"* ]]; then
+          exit 0
+        else
+          sleep $delay
+        fi
+      fi
+    done

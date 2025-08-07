@@ -15,20 +15,6 @@
         vm_mac_address: "{{ private_ai_vm_mac_address | default('52:54:00:6C:3C:88') }}"
         vm_libvirt_network_params: "{{ private_ai_vm_libvirt_network_params | default('') }}"
 
-    - name: Show Mgmt Cluster VM IP
-      debug:
-        msg: "Login to the mgmt-rancher vm with 'ssh {{ vm_ansible_user | default('ai') }}@{{ vm_ip }}'"
-
-    - name: Show SUSE AI Cluster VM IP
-      debug:
-        msg: "Login to the suse-ai vm with 'ssh {{ vm_ansible_user | default('ai') }}@{{ suse_ai_vm_ip }}'"
-      when: suse_ai_cluster is defined
-
-    - name: Show SUSE Observability Cluster VM IP
-      debug:
-        msg: "Login to the suse-observability vm with 'ssh {{ vm_ansible_user | default('ai') }}@{{ suse_observability_vm_ip }}'"
-      when: suse_observability_cluster is defined and enable_suse_observability | default('False') | bool
-
     - name: Generate a random string
       set_fact:
         unique_id: "{{ lookup('community.general.random_string', length=5, upper=false, numbers=false, special=false) }}"
@@ -58,6 +44,9 @@
         observ_allowed_hg: "{{ 'suse_observability_cp_master' if suse_observability_cluster is defined and enable_suse_observability | default(false) else 'mgmt_cp_master' }}"
         suse_ai_vm_ip: "{{ hostvars['localhost']['suse_ai_vm_ip'] | default(hostvars['localhost']['vm_ip']) }}"
         suse_observability_vm_ip: "{{ hostvars['localhost']['suse_observability_vm_ip'] | default(hostvars['localhost']['vm_ip']) }}"
+
+- name: Display Control Plane Master Node IP
+  import_playbook: ssh-access.yml
 
 - name: Setup the right python interpreter based on the distro
   import_playbook: setup_python_interpreter.yml
@@ -148,6 +137,9 @@
     allowed_hg: "{{ hostvars['localhost']['ai_allowed_hg'] }}"
   when: enable_gpu_operator | default(false)
 
+- name: Display Control Plane Master Node IP
+  import_playbook: ssh-access.yml
+
 - name: Deploy SUSE Observability and SUSE Observability extension
   import_playbook: deploy_suse_observability.yml
   vars:
@@ -180,6 +172,9 @@
 - name: Import the suse-observability cluster as a downstream cluster to be managed by rancher
   import_playbook: import_suse_observability_cluster.yml
   when: suse_observability_cluster is defined and enable_suse_observability | default('False') | bool
+
+- name: Display Control Plane Master Node IP
+  import_playbook: ssh-access.yml
 
 - name: Display Access URL and credentials
   hosts: localhost

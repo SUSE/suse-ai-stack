@@ -1,0 +1,35 @@
+global:
+  imagePullSecrets:
+  - {{ appco_secret }}
+servingEngineSpec:
+  modelSpec:
+  - name: "{{ vllm_model_name }}"
+{% if "dp.apps.rancher.io" in  vllm_helm_repo  %}
+    registry: dp.apps.rancher.io
+    repository: containers/lmcache-vllm-openai
+    tag: {{ vllm_cache_image_version }}
+    imagePullPolicy: "IfNotPresent"
+{% else %}
+    repository: "lmcache/vllm-openai"
+    tag: "latest"
+    imagePullPolicy: "IfNotPresent"
+{% endif %}
+    modelURL: "{{ vllm_model_url }}"
+    replicaCount: 1
+    requestCPU: 2
+    requestMemory: "8Gi"
+    requestGPU: 1
+    vllmConfig:
+      # share the timesliced GPU with Ollama
+      extraArgs: ["--disable-log-requests", "--enforce-eager", "--gpu-memory-utilization", "0.5"]
+routerSpec:
+{% if "dp.apps.rancher.io" in  vllm_helm_repo  %}
+  registry: dp.apps.rancher.io
+  repository: containers/lmcache-vllm-openai
+  tag: {{ vllm_cache_image_version }}
+  imagePullPolicy: "IfNotPresent"
+{% else %}
+  repository: "lmcache/lmstack-router"
+  tag: "latest" 
+  imagePullPolicy: "IfNotPresent"
+{% endif %}
