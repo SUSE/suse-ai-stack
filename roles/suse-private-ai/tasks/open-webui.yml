@@ -1,0 +1,81 @@
+- name: Copy open-webui-values.yaml
+  template:
+    src: open-webui-values.yaml.j2
+    dest: ~/open-webui-values.yaml
+
+- name: Deploy open-webui
+  shell: |
+    if [[ {{ openwebui_helm_repo }} == *"dp.apps.rancher.io"* ]]; then
+        helm registry login dp.apps.rancher.io/charts -u {{ application_collection_user_email }} -p {{ application_collection_user_token }}
+        helm upgrade --install {{ openwebui_release_name }} {{ openwebui_helm_repo }} -n {{ suse_private_ai_namespace }} --create-namespace  --version {{ openwebui_helm_version }} -f open-webui-values.yaml
+    else
+        helm upgrade --install {{ openwebui_release_name }} open-webui --repo {{ openwebui_helm_repo }} -n {{ suse_private_ai_namespace }} --create-namespace --version {{ openwebui_helm_version }} -f open-webui-values.yaml
+    fi
+  register: open_webui_deploy_result
+  until: open_webui_deploy_result.rc == 0
+  retries: 3
+  delay: 20
+  when: not deploy_rancher_only | default(False) | bool
+
+- name: Wait for SUSE Private AI (embedded ollama) to be successfully rolled out
+  shell: >
+    kubectl -n {{ suse_private_ai_namespace }} rollout status deploy/{{ item }}
+  register: rollout_result
+  retries: 6
+  delay: 30
+  until: "'successfully rolled out' in rollout_result.stdout"
+  with_items:
+  - "{{ openwebui_release_name }}-ollama"
+  when: not ollama_deploy_separately and (not deploy_rancher_only | default(False) | bool)
+
+
+- name: Wait for SUSE Private AI (openwebui) to be successfully rolled out
+  shell: >
+    kubectl -n {{ suse_private_ai_namespace }} rollout status statefulset/{{ item }}
+  register: rollout_result
+  retries: 6
+  delay: 30
+  until: "'roll out complete' in rollout_result.stdout"
+  with_items:
+  - "{{ openwebui_release_name }}"
+  when: not ollama_deploy_separately and (not deploy_rancher_only | default(False) | bool)
+
+- name: Copy patch-open-webui-ingress.yaml
+  template:
+    src: patch-open-webui-ingress.yaml.j2
+    dest: ~/patch-open-webui-ingress.yaml
+  when: false
+
+- name: Patch open-webui ingress
+  shell: >
+    kubectl patch ingress open-webui -n {{ suse_private_ai_namespace }} --patch-file patch-open-webui-ingress.yaml
+  when: false
+
+- name: Copy patch-open-webui-deployment.yaml
+  template:
+    src: patch-open-webui-deployment.yaml.j2
+    dest: ~/patch-open-webui-deployment.yaml
+  when: false
+
+- name: Patch open-webui deployment with the private DNS entry
+  shell: >
+    kubectl patch statefulset open-webui -n {{ suse_private_ai_namespace }} --patch-file patch-open-webui-deployment.yaml
+  when: false
+
+- name: Copy open_webui_user_create.json.j2
+  template:
+    src: open_webui_user_create.json.j2
+    dest: ~/open_webui_user_create.json
+
+- name: Create Open WebUI admin user
+  uri:
+    url: https://{{ open_webui_host }}/api/v1/auths/signup
+    method: POST
+    validate_certs: "{{ validate_certs }}"
+    follow_redirects: urllib2
+    src: ~/open_webui_user_create.json
+    body_format: json
+    remote_src: true
+  retries: 10
+  delay: 120
+  when: not (deploy_rancher_only | default(False) | bool)

@@ -1,0 +1,30 @@
+- name: Copy vllm-values.yaml
+  template:
+    src: vllm-values.yaml.j2
+    dest: ~/vllm-values.yaml
+
+- name: Deploy vllm helm chart
+  shell: |
+    if [[ {{ vllm_helm_repo }} == *"dp.apps.rancher.io"* ]]; then
+        helm registry login dp.apps.rancher.io/charts -u {{ application_collection_user_email }} -p {{ application_collection_user_token }}
+        helm upgrade --install {{ vllm_release_name }} {{ vllm_helm_repo }} -n {{ suse_private_ai_namespace }} --create-namespace  --version {{ vllm_helm_version }} -f vllm-values.yaml
+    else
+        helm upgrade --install {{ vllm_release_name }} {{ vllm_chart_name }} --repo {{ vllm_helm_repo }} -n {{ suse_private_ai_namespace }} --create-namespace --version {{ vllm_helm_version }} -f vllm-values.yaml
+    fi
+  register: vllm_deploy_result
+  until: vllm_deploy_result.rc == 0
+  retries: 5
+  delay: 30
+  when: not deploy_rancher_only | default(False) | bool
+
+- name: Wait for vllm to be successfully rolled out
+  shell: >
+    kubectl -n {{ suse_private_ai_namespace }} rollout status deploy/{{ item }}
+  register: rollout_result
+  retries: 30
+  delay: 40
+  until: "'successfully rolled out' in rollout_result.stdout"
+  with_items:
+  - "{{ vllm_release_name }}-deployment-router"
+  - "{{ vllm_release_name }}-{{ vllm_model_name }}-deployment-vllm"
+  when: not deploy_rancher_only | default(False) | bool
