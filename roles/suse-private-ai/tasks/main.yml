@@ -15,6 +15,7 @@
 
 - name: vllm deploy
   include_tasks: vllm.yml
+  when: enable_gpu_operator | default(false)
 
 - name: open-webui deploy
   include_tasks: open-webui.yml
