@@ -244,7 +244,7 @@ suse_observability_license: <your SUSE Observability license>
 #
 # Install openwebui pipelines
 #
-pipelines_enabled: false
+pipelines_enabled: true
 
 #
 # RKE2 Management cluster

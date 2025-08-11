@@ -50,7 +50,8 @@ ollama_helm_version: 1.16.0
 ollama_image_version: 0.6.8
 ollama_release_name: ollama
 
-pipelines_enabled: false
+pipelines_enabled: true
+pipelines_default: "https://raw.githubusercontent.com/SUSE/suse-ai-observability-extension/refs/heads/main/integrations/oi-filter/suse_ai_filter.py"
 
 # helm repo to use for vllm charts
 vllm_chart_name: vllm-stack
