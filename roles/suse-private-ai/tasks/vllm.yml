@@ -1,3 +1,17 @@
+- name: Copy chat template jinja template
+  copy:
+    src: files/template_chatml.jinja
+    dest: ~/template_chatml.jinja
+
+- name: Get GPU node count in the cluster to tweak vllm_config memory utilization
+  shell: |
+    kubectl get nodes -l "nvidia.com/gpu.present=true" -o jsonpath="{.items[*].metadata.name}" --no-headers | wc -w
+  register: get_gnodes
+
+- name: Set GPU present node count in cluster
+  set_fact:
+    gpu_present_node_count: get_gnodes.stdout
+
 - name: Copy vllm-values.yaml
   template:
     src: vllm-values.yaml.j2
@@ -18,7 +32,7 @@
   when: not deploy_rancher_only | default(False) | bool
 
 - name: Wait for vllm to be successfully rolled out
-  shell: >
+  shell: |
     kubectl -n {{ suse_private_ai_namespace }} rollout status deploy/{{ item }}
   register: rollout_result
   retries: 30

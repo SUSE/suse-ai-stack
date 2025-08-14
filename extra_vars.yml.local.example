@@ -202,6 +202,14 @@ private_ai_vm_libvirt_network_params: "--network network={{ private_ai_vm_networ
 #host_device: <device to passthrough>
 
 #
+# Flag to control vllm deployment.
+# Set this flag to true to deploy vllm.
+# The cluster should have at least one GPU node
+# and enable_gpu_operator to be true.
+#
+enable_vllm_deployment: false
+
+#
 # Flag to control milvus deployment. When false, it won't be deployed. Default is true
 #
 enable_milvus: true
@@ -210,7 +218,6 @@ enable_milvus: true
 # Flag to control milvus deployment mode. When false, standalone deployment. When true, cluster deployment
 #
 enable_milvus_cluster_deployment: true
-
 
 #
 # Flag to control minio deployment mode. When false, distributed deployment. When true, standalone deployment

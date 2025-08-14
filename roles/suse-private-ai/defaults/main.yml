@@ -52,11 +52,16 @@ ollama_release_name: ollama
 
 pipelines_enabled: false
 
+openwebui_vllm_openai_enabled: true
+openwebui_vllm_openai_key: "dummy"
+
+enable_vllm_deployment: false
+
 # helm repo to use for vllm charts
 vllm_chart_name: vllm-stack
 #vllm_helm_repo: oci://dp.apps.rancher.io/charts/{{ vllm_chart_name }}
 vllm_helm_repo: https://vllm-project.github.io/production-stack/
-vllm_helm_version: 0.1.5
+vllm_helm_version: 0.1.6
 vllm_core_image_version: 0.9.1
 vllm_cache_image_version: 0.3.2
 vllm_release_name: vllm

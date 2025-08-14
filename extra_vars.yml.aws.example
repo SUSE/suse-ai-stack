@@ -211,6 +211,15 @@ time_slicing_replicas: 4
 #  gpu_operator_chart_version: 24.6.0
 
 #
+# Flag to control vllm deployment.
+# Set this flag to true to deploy vllm.
+# The cluster should have at least one GPU node
+# and enable_gpu_operator to be true.
+# Recommended configuration: Multiple GPU nodes in cluster. For more details please see the cluster: secton.
+#
+enable_vllm_deployment: false
+
+#
 # Flag to control milvus deployment. When false, it won't be deployed. Default is true
 #
 enable_milvus: true
