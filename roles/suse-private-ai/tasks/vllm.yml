@@ -10,7 +10,7 @@
 
 - name: Set GPU present node count in cluster
   set_fact:
-    gpu_present_node_count: get_gnodes.stdout
+    gpu_present_node_count: "{{ get_gnodes.stdout | int }}"
 
 - name: Copy vllm-values.yaml
   template:
