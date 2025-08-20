@@ -68,10 +68,12 @@ pipelines:
   enabled: {{ pipelines_enabled }}
   persistence:
     storageClass: {{ storage_class }}
-{% if enable_suse_observability | default(false) %}
   extraEnvVars:
   - name: PIPELINES_URLS
-    value: {{ pipelines_default }}
+{% if enable_suse_observability | default(false) %}
+    value: "{{ pipelines_observability }};{{ pipelines_default }}"
+{% else %}
+    value: "{{ pipelines_default }}"
 {% endif %}
 ingress:
   enabled: true
