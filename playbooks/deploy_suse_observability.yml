@@ -5,7 +5,7 @@
       import_role:
         name: external-dns
       vars:
-        owner: observability-dev
+        owner: observ-dev-{{ hostvars['localhost']['unique_id'] | default('') }}
       when: enable_external_dns | default(false) and suse_observability_cluster is defined
 
     - name: Deploy Cert-Manager

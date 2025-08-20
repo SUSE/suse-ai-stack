@@ -12,6 +12,10 @@
   set_fact:
     gpu_present_node_count: "{{ get_gnodes.stdout | int }}"
 
+- name: Set Model Name extracted from model url
+  set_fact:
+    vllm_model_name: "{{ vllm_model_url.split('/')[-1][:7] | lower }}"
+
 - name: Copy vllm-values.yaml
   template:
     src: vllm-values.yaml.j2
