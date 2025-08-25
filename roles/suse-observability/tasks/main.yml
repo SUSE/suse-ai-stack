@@ -104,14 +104,21 @@
   delay: 40
   until: "'successfully rolled out' in rollout_result.stdout"
   with_items:
+  - "api"
+  - "checks"
   - "correlate"
   - "e2es"
   - "hbase-console"
+  - "health-sync"
+  - "initializer"
   - "kafkaup-operator-kafkaup"
+  - "notification"
   - "prometheus-elasticsearch-exporter"
   - "receiver"
   - "router"
-  - "server"
+  - "slicing"
+  - "state"
+  - "sync"
   - "ui"
 
 - name: Pause for the API server to respond to requests
