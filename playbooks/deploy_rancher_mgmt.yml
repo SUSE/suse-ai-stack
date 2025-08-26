@@ -9,7 +9,7 @@
       import_role:
         name: external-dns
       vars:
-        owner: mgmt-dev
+        owner: mgmt-dev-{{ hostvars['localhost']['unique_id'] | default('') }}
       when: enable_external_dns | default(false)
 
     - name: Set target when no external-dns
