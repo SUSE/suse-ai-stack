@@ -52,7 +52,7 @@ ollama_release_name: ollama
 
 pipelines_enabled: true
 pipelines_observability: "https://raw.githubusercontent.com/SUSE/suse-ai-observability-extension/refs/heads/main/integrations/oi-filter/suse_ai_filter.py"
-pipelines_default: "https://raw.githubusercontent.com/SUSE/suse-ai-observability-extension/refs/heads/main/integrations/oi-filter/google_translation_filter.py;https://raw.githubusercontent.com/SUSE/suse-ai-observability-extension/refs/heads/main/integrations/oi-filter/conversation_turn_limit_filter.py"
+pipelines_default: "https://raw.githubusercontent.com/SUSE/suse-ai-observability-extension/refs/heads/main/integrations/oi-filter/conversation_turn_limit_filter.py"
 
 openwebui_vllm_openai_enabled: true
 openwebui_vllm_openai_key: "dummy"
