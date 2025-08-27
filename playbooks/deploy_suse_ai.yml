@@ -6,7 +6,7 @@
       import_role:
         name: external-dns
       vars:
-        owner: ai-dev
+        owner: ai-dev-{{ hostvars['localhost']['unique_id'] | default('') }}
       when: enable_external_dns | default(false) and suse_ai_cluster is defined
 
     - name: Deploy Cert-Manager

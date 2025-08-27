@@ -48,7 +48,7 @@ The instructions on this document are for setting it on [AWS][aws].
 By default, we create a management RKE2 cluster where all the services including the AI workloads are deployed and suse observability components are deployed when enable_suse_observability is true. When enable_suse_observability is true, it will need at least 2 instances in the cluster of 2xlarge to handle the workload.
 
 However if you want to seperate deploying AI workload onto its own RKE2 cluster and observability into its own RKE2 cluster, you can update the extra_vars.yml file to add these cluster definitions:
-
+```
 suse_ai_cluster:
   user: "ec2-user"
   user_home: "/home/ec2-user"
@@ -64,7 +64,8 @@ suse_ai_cluster:
   num_worker_nodes_nongpu: 0
   token: "suse-ai-rke2token"
   version: "v1.32.4+rke2r1" #RKE2 channel version. see https://update.rke2.io/v1-release/channels for a complete list
-
+```
+```
 suse_observability_cluster:
   user: "ec2-user"
   user_home: "/home/ec2-user"
@@ -78,6 +79,7 @@ suse_observability_cluster:
   num_worker_nodes: 1
   token: "suse-observability-rke2token"
   version: "v1.32.4+rke2r1" #RKE2 channel version. see https://update.rke2.io/v1-release/channels for a complete list
+```
 
 We support deploying using SLE-Micro and SLES based EC2 instances.
 As a guidance, following scenarios has been validated. 
@@ -148,11 +150,11 @@ Note: arm based deployments are not supported when enable_suse_observability is 
    ```
 
    You /etc/hosts file should look like:
-   ```console
+```console
   35.87.100.210 mgmt-rancher suse-rancher.demo
   35.87.100.210 suse-ai suse-ollama-webui
   35.87.100.210 suse-observability
-   ```
+```
    Since we are not using public DNS by default for the instance (to reduce cost), we'll
    need to manually create the DNS entry every time we create the Private AI
    stack.

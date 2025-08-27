@@ -67,7 +67,6 @@ vllm_helm_version: 0.1.6
 vllm_core_image_version: 0.9.1
 vllm_cache_image_version: 0.3.2
 vllm_release_name: vllm
-vllm_model_name: opt-125m
-vllm_model_url: "facebook/{{ vllm_model_name }}"
+vllm_model_url: "microsoft/Phi-3-mini-4k-instruct"
 
 storage_class: "{% if cloud_provider is defined and cloud_provider == 'aws' and enable_longhorn %}longhorn{% else %}local-path{% endif %}"

@@ -15,16 +15,18 @@ servingEngineSpec:
     imagePullPolicy: "IfNotPresent"
 {% endif %}
     modelURL: "{{ vllm_model_url }}"
+{% if "opt-125" in vllm_model_name  %}
     chatTemplate: "chat.jinja2"
     # chat template for opt-125m
     chatTemplateConfigMap: "{{ lookup('file', 'files/template_chatml.jinja') }}"
+{% endif %}
     replicaCount: 1
 {% if gpu_present_node_count | int < 2 %}
     requestCPU: 1
     requestMemory: "8Gi"
     requestGPU: 1
     vllmConfig:
-      extraArgs: ["--disable-log-requests", "--enforce-eager", "--gpu-memory-utilization", "0.8"]
+      extraArgs: ["--disable-log-requests", "--gpu-memory-utilization", "0.8"]
 {% else %}
     requestCPU: 2
     requestMemory: "16Gi"
