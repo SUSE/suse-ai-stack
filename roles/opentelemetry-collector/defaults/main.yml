@@ -8,3 +8,5 @@ suse_observability_namespace: suse-observability
 endpoint: "{{ otel_endpoint | default('http://suse-observability-otel-collector.' ~ suse_observability_namespace ~ '.svc.cluster.local:4317', true) }}"
 otel_scrape_milvus: true
 otel_milvus_endpoint: milvus.suse-private-ai.svc.cluster.local:9091
+otel_vllm_release_name: vllm
+otel_vllm_namespace: suse-private-ai
