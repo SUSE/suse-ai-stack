@@ -4,15 +4,9 @@ kind: Role
 metadata:
   name: suse-observability-otel-scraper
 rules:
-  - apiGroups:
-      - ""
-    resources:
-      - services
-      - endpoints
-    verbs:
-      - list
-      - watch
-
+- apiGroups: [""]
+  resources: ["services", "pods", "nodes"]
+  verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
