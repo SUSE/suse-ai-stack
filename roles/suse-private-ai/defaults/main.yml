@@ -40,14 +40,14 @@ ollama_deploy_separately: true
 
 openwebui_helm_repo: oci://dp.apps.rancher.io/charts/open-webui
 #openwebui_helm_repo: https://helm.openwebui.com/
-openwebui_helm_version: 6.13.0
-openwebui_image_version: 0.6.9
+openwebui_helm_version: 7.2.0
+openwebui_image_version: 0.6.18
 openwebui_release_name: open-webui
 
 ollama_helm_repo: oci://dp.apps.rancher.io/charts/ollama
 #ollama_helm_repo: https://otwld.github.io/ollama-helm/
-ollama_helm_version: 1.16.0
-ollama_image_version: 0.6.8
+ollama_helm_version: 1.26.0
+ollama_image_version: 0.11.4
 ollama_release_name: ollama
 
 pipelines_enabled: true
