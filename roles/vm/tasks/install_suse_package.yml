@@ -52,7 +52,7 @@
   become: true
   community.general.zypper_repository:
     name: cuda-sle15
-    repo: 'https://developer.download.nvidia.com/compute/cuda/repos/sles15/{{ ansible_architecture }}/'
+    repo: "https://developer.download.nvidia.com/compute/cuda/repos/sles15/{{ 'sbsa' if ansible_architecture == 'aarch64' else ansible_architecture }}/"
     #name: nvidia-sle15sp6-main
     #repo: 'https://download.nvidia.com/suse/sle15sp6/'
     state: present
