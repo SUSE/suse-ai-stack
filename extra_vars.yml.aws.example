@@ -215,7 +215,7 @@ time_slicing_replicas: 4
 # Set this flag to true to deploy vllm.
 # The cluster should have at least one GPU node
 # and enable_gpu_operator to be true.
-# Recommended configuration: Multiple GPU nodes in cluster. For more details please see the cluster: secton.
+# Recommended configuration: Multiple GPU nodes in cluster. For more details please see the cluster: section.
 #
 enable_vllm_deployment: false
 
