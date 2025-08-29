@@ -44,5 +44,5 @@
   until: "'successfully rolled out' in rollout_result.stdout"
   with_items:
   - "{{ vllm_release_name }}-deployment-router"
-  - "{{ vllm_release_name }}-{{ vllm_model_name }}-deployment-vllm"
+  #- "{{ vllm_release_name }}-{{ vllm_model_name }}-deployment-vllm"
   when: not deploy_rancher_only | default(False) | bool

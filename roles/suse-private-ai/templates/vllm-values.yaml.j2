@@ -29,7 +29,7 @@ servingEngineSpec:
       extraArgs: ["--disable-log-requests", "--gpu-memory-utilization", "0.8"]
 {% else %}
     requestCPU: 2
-    requestMemory: "16Gi"
+    requestMemory: "8Gi"
 {% endif %}
 routerSpec:
 {% if "dp.apps.rancher.io" in  vllm_helm_repo  %}

@@ -1,18 +1,68 @@
 ---
 
+- name: Create external-dns namespace
+  shell: |
+    max_retries=10
+    delay=30
+    for retry in $(seq 1 $max_retries); do
+      if ! kubectl get namespaces -o json | jq -r ".items[].metadata.name" | grep {{ external_dns_namespace }};then
+        status=$(kubectl create namespace {{ external_dns_namespace }})
+        if [[ "$status" == *"created"* ]]; then
+          exit 0
+        else
+          sleep $delay
+        fi
+      fi
+    done
+
+- name: Create secret for cloudflare-api-key in external-dns namespace
+  shell: |
+    max_retries=10
+    delay=30
+    SECRET_NAME={{ cf_secret }}
+    for retry in $(seq 1 $max_retries); do
+      if ! kubectl get secrets -n {{ external_dns_namespace }} -o json | jq -r ".items[].metadata.name" | grep $SECRET_NAME;then
+        status=$(kubectl create secret generic {{ cf_secret }} --from-literal=apiKey={{ cloudflare_api_token }} -n {{ external_dns_namespace }})
+        if [[ "$status" == *"created"* ]]; then
+          exit 0
+        else
+          sleep $delay
+        fi
+      fi
+    done
+
+- name: Create secret for application collection in external-dns namespace
+  shell: |
+    max_retries=10
+    delay=30
+    SECRET_NAME={{ appco_secret }}
+    for retry in $(seq 1 $max_retries); do
+      if ! kubectl get secrets -n {{ external_dns_namespace }} -o json | jq -r ".items[].metadata.name" | grep $SECRET_NAME;then
+        status=$(kubectl create secret docker-registry {{ appco_secret }} --docker-server=dp.apps.rancher.io --docker-username={{ application_collection_user_email }} --docker-password={{ application_collection_user_token }} -n {{ external_dns_namespace }})
+        if [[ "$status" == *"created"* ]]; then
+          exit 0
+        else
+          sleep $delay
+        fi
+      fi
+    done
+
+- name: Copy external-dns.yaml
+  template:
+    src: external-dns-values.yaml.j2
+    dest: ~/external-dns-values.yaml
+
 - name: Deploy external-dns
-  shell: >
-    helm upgrade --install {{ external_dns_release_name }} --set txtOwnerId={{ registration_email }}-{{ owner }} \
-    --set log-level=debug \
-    --set provider=cloudflare \
-    --set cloudflare.apiToken={{ cloudflare_api_token }} \
-    --set cloudflare.proxied=false \
-    --set domainFilters[0]={{ external_dns_domain_filter | default("suseclouddev.com") }} \
-    --set policy=sync \
-    --set interval=1m \
-    --set sources[0]=ingress \
-    --set sources[1]=service \
-    oci://registry-1.docker.io/bitnamicharts/external-dns
+  shell: |
+
+    helm registry login dp.apps.rancher.io/charts -u {{ application_collection_user_email }} -p {{ application_collection_user_token }}
+
+    helm upgrade --install {{ external_dns_release_name }} \
+    --version {{ external_dns_chart_version }} \
+    --namespace {{ external_dns_namespace }} \
+    --create-namespace \
+    -f ~/external-dns-values.yaml \
+    oci://dp.apps.rancher.io/charts/external-dns
   register: external_dns_install_result
   retries: 5
   delay: 30
@@ -20,7 +70,7 @@
 
 - name: Wait for external-dns to be rolled out
   shell: >
-    kubectl rollout status deploy/external-dns
+    kubectl rollout status deploy/external-dns -n {{ external_dns_namespace }}
   register: external_dns_rollout_result
   retries: 5
   delay: 10

@@ -1,0 +1,19 @@
+global:
+  imagePullSecrets:
+  - {{ appco_secret }}
+txtOwnerId: {{ registration_email }}-{{ owner }}
+logLevel: debug
+domainFilters[0]: {{ external_dns_domain_filter | default("suseclouddev.com") }}
+policy: sync
+interval: 1m
+sources:
+  - ingress
+  - service
+provider:
+  name: cloudflare
+env:
+  - name: CF_API_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: {{ cf_secret }}
+        key: apiKey
