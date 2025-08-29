@@ -2,4 +2,9 @@
 
 uninstall: false
 external_dns_release_name: external-dns
+external_dns_namespace: external-dns
+external_dns_chart_version: 1.18.0
 owner: dev
+
+appco_secret: application-collection
+cf_secret: cloudflare-api-key
