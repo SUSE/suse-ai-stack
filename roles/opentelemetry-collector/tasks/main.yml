@@ -45,7 +45,7 @@
 
 - name: Add custom RBAC rules for metrics
   shell: >
-    kubectl apply -n gpu-operator -f otel-rbac.yaml
+    kubectl apply -f otel-rbac.yaml
 
 - name: Wait for OpenTelemetry Collector rollout to finish
   shell: |

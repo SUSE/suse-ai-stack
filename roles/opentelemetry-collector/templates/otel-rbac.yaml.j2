@@ -1,23 +1,40 @@
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
-  name: suse-observability-otel-scraper
+  name: otel-scraper-cluster-role
 rules:
-- apiGroups: [""]
-  resources: ["services", "pods", "nodes"]
-  verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services", "pods", "nodes", "endpoints"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: suse-observability-otel-scraper
+  name: otel-scraper-binding
+  namespace: {{ otel_gpu_operator_namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: suse-observability-otel-scraper
+  kind: ClusterRole
+  name: otel-scraper-cluster-role
 subjects:
   - kind: ServiceAccount
     name: {{ otel_collector_release_name }}
     namespace: {{ otel_namespace }}
 ---
+{% if enable_vllm_deployment | default(false) %}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: otel-scraper-binding
+  namespace: {{ otel_vllm_namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: otel-scraper-cluster-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ otel_collector_release_name }}
+    namespace: {{ otel_namespace }}
+---
+{% endif %}
