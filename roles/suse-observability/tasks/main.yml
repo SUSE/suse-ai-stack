@@ -96,13 +96,15 @@
     -n "{{ suse_observability_namespace }}"
   when: "appco_secret not in secret_check.stdout"
 
+
 - name: Wait for SUSE Observability to be successfully rolled out
-  shell: >
-    kubectl -n {{ suse_observability_namespace }} rollout status deploy/{{ suse_observability_helm_chart_name }}-{{ item }}
+  shell: |
+    kubectl -n {{ suse_observability_namespace }} rollout status deploy/{{ suse_observability_helm_chart_name }}-{{ item }} --timeout=180s
   register: rollout_result
-  retries: 8
-  delay: 40
-  until: "'successfully rolled out' in rollout_result.stdout"
+  retries: 5
+  delay: 10
+  failed_when: "'successfully rolled out' not in rollout_result.stdout"
+  until: rollout_result.rc == 0
   with_items:
   - "api"
   - "checks"
