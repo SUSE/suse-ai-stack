@@ -98,8 +98,8 @@
 
 
 - name: Wait for SUSE Observability to be successfully rolled out
-  shell: |
-    kubectl -n {{ suse_observability_namespace }} rollout status deploy/{{ suse_observability_helm_chart_name }}-{{ item }} --timeout=180s
+  shell: >
+    kubectl -n {{ suse_observability_namespace }} rollout status deploy/{{ suse_observability_helm_chart_name }}-{{ item }} --timeout=120s
   register: rollout_result
   retries: 5
   delay: 10
