@@ -10,3 +10,4 @@ otel_scrape_milvus: true
 otel_milvus_endpoint: milvus.suse-private-ai.svc.cluster.local:9091
 otel_vllm_release_name: vllm
 otel_vllm_namespace: suse-private-ai
+otel_gpu_operator_namespace: gpu-operator
