@@ -25,7 +25,7 @@
 
 - name: Wait for Rancher to be rolled out
   shell: >
-    kubectl -n {{ rancher_namespace }} rollout status deploy/{{ item }}
+    kubectl -n {{ rancher_namespace }} rollout status deploy/{{ item }} --timeout=120s
   register: rancher_rollout_result
   retries: 12
   delay: 30

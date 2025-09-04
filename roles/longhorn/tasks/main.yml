@@ -82,7 +82,7 @@
 
 - name: Wait for longhorn to be rolled out
   shell: >
-    kubectl -n {{ longhorn_namespace }} rollout status deploy/{{ item }}
+    kubectl -n {{ longhorn_namespace }} rollout status deploy/{{ item }} --timeout=120s
   register: longhorn_rollout_result
   retries: 10
   delay: 10
