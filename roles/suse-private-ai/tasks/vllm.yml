@@ -37,7 +37,7 @@
 
 - name: Wait for vllm to be successfully rolled out
   shell: |
-    kubectl -n {{ suse_private_ai_namespace }} rollout status deploy/{{ item }}
+    kubectl -n {{ suse_private_ai_namespace }} rollout status deploy/{{ item }} --timeout=120s
   register: rollout_result
   retries: 30
   delay: 40

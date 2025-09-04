@@ -42,3 +42,7 @@ routerSpec:
   tag: "latest" 
   imagePullPolicy: "IfNotPresent"
 {% endif %}
+  resources:
+    requests:
+      cpu: 1
+      memory: "8Gi"
