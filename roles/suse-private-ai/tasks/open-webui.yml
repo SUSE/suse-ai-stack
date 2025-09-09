@@ -19,7 +19,7 @@
 
 - name: Wait for SUSE Private AI (embedded ollama) to be successfully rolled out
   shell: >
-    kubectl -n {{ suse_private_ai_namespace }} rollout status deploy/{{ item }}
+    kubectl -n {{ suse_private_ai_namespace }} rollout status deploy/{{ item }} --timeout=120s
   register: rollout_result
   retries: 6
   delay: 30
@@ -31,7 +31,7 @@
 
 - name: Wait for SUSE Private AI (openwebui) to be successfully rolled out
   shell: >
-    kubectl -n {{ suse_private_ai_namespace }} rollout status statefulset/{{ item }}
+    kubectl -n {{ suse_private_ai_namespace }} rollout status statefulset/{{ item }} --timeout=120s
   register: rollout_result
   retries: 6
   delay: 30

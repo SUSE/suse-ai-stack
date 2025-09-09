@@ -85,7 +85,7 @@
 
 - name: Wait for NVIDIA GPU Operator Deploy to be rolled out
   shell: >
-    kubectl -n {{ gpu_operator_namespace }} rollout status deploy/{{ item }}
+    kubectl -n {{ gpu_operator_namespace }} rollout status deploy/{{ item }} --timeout=120s
   register: gpu_operator_deploy_rollout_result
   retries: 10
   delay: 30
@@ -95,7 +95,7 @@
 
 - name: Wait for NVIDIA GPU Operator NFD Deploy to be rolled out
   shell: >
-    kubectl -n {{ gpu_operator_namespace }} rollout status deploy/{{ item }}
+    kubectl -n {{ gpu_operator_namespace }} rollout status deploy/{{ item }} --timeout=120s
   register: gpu_operator_deploy_rollout_result
   retries: 10
   delay: 30
@@ -119,7 +119,7 @@
 
 - name: Wait for NVIDIA GPU Operator NFD DaemonSet to be rolled out
   shell: >
-    kubectl -n {{ gpu_operator_namespace }} rollout status daemonset/{{ item }}
+    kubectl -n {{ gpu_operator_namespace }} rollout status daemonset/{{ item }} --timeout=120s
   register: gpu_operator_ds_rollout_result
   retries: 10
   delay: 60

@@ -70,7 +70,7 @@
 
 - name: Wait for external-dns to be rolled out
   shell: >
-    kubectl rollout status deploy/external-dns -n {{ external_dns_namespace }}
+    kubectl rollout status deploy/external-dns -n {{ external_dns_namespace }} --timeout=120s
   register: external_dns_rollout_result
   retries: 5
   delay: 10
