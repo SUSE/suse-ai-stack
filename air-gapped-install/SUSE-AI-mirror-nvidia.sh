@@ -1,115 +1,88 @@
 #!/bin/bash
+# A script to download all RPMs from a direct repository URL using command-line arguments.
 
-# =================================================================================
-#  Script to download all .rpm files from a specific web URL.
-#
-#  This script is ideal for web directories that list their files ("Index of...").
-#
-#  Usage: ./SUSE-AI-mirror-nvidia.sh <source_url> <target_directory> [--latest]
-#
-#  Example:
-#  ./SUSE-AI-mirror-nvidia.sh https://developer.download.nvidia.com/compute/cuda/repos/sles15/x86_64/ /mnt/nvidia-rpms
-# =================================================================================
-
-# --- Argument Parsing ---
-if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
-    echo "Error: Invalid number of arguments."
-    echo "Usage: $0 <source_url> <target_directory> [--latest]"
-    exit 1
-fi
-
-# --- Define Variables ---
-SOURCE_URL="$1"
-TARGET_DIR="$2"
+# --- Default Configuration ---
+# These values will be used if not overridden by command-line switches.
+REPO_URL=""
+DOWNLOAD_PATH="/var/www/html/repos"
 LATEST_ONLY=false
 
-if [ "$3" == "--latest" ]; then
-    LATEST_ONLY=true
+# --- Usage Function ---
+# Displays help information.
+usage() {
+  echo "Downloads all RPMs from one or more repository URLs."
+  echo ""
+  echo "Usage: $0 [-p <download_path>] [-l] <url1> [url2] ..."
+  echo "  -p  The base path where repository subdirectories will be created."
+  echo "      (Default: '$DOWNLOAD_PATH')"
+  echo "  -l  Download the latest packages only."
+  echo "  -h  Display this help message."
+  exit 1
+}
+
+# --- Parse Command-Line Options ---
+while getopts ":p:lh" opt; do
+  case ${opt} in
+    p ) DOWNLOAD_PATH=$OPTARG ;;
+    l ) LATEST_ONLY=true ;;
+    h ) usage ;;
+    \? ) echo "Invalid option: -$OPTARG" >&2; usage ;;
+    : ) echo "Option -$OPTARG requires an argument." >&2; usage ;;
+  esac
+done
+# Remove parsed options from the argument list
+shift $((OPTIND -1))
+
+# --- Validate Arguments ---
+if [ "$#" -eq 0 ]; then
+  echo "Error: At least one repository URL must be provided." >&2
+  usage
 fi
 
-# --- Dependency Check ---
-for cmd in wget createrepo_c sort grep sed; do
-  if ! command -v $cmd &> /dev/null; then
-    echo "Error: Command '$cmd' not found. Please ensure core utilities are installed."
+# --- Main Execution ---
+
+# 1. Check for prerequisites
+if ! command -v reposync &> /dev/null; then
+    echo "Error: 'reposync' command not found."
+    echo "Please install it first (e.g., 'sudo zypper install yum-utils')."
     exit 1
+fi
+
+if ! command -v createrepo_c &> /dev/null; then
+    echo "Error: 'createrepo_c' command not found."
+    echo "Please install it first (e.g., 'sudo zypper install createrepo_c')."
+    exit 1
+fi
+
+# 2. Loop through all provided URLs
+for REPO_URL in "$@"; do
+  echo "-----------------------------------------------------"
+  echo "Processing URL: $REPO_URL"
+
+  # 2a. Derive a unique, filesystem-safe name from the URL
+  # Example: https://developer.download.nvidia.com/compute/cuda/repos/sles15/x86_64/
+  # Becomes: developer.download.nvidia.com-compute-cuda/repos-sles15-x86_64
+  REPO_NAME=$(echo "$REPO_URL" | sed -e 's|^https\?://||' -e 's|/$||' -e 's|/|-|g')
+  
+  # 2b. Set up paths and create the directory
+  FULL_DEST_PATH="$DOWNLOAD_PATH/$REPO_NAME"
+  echo "Destination: $FULL_DEST_PATH"
+  mkdir -p "$FULL_DEST_PATH"
+
+  # 2c. Run the reposync command for the current URL
+  if [ "$LATEST_ONLY" = true ]; then
+    reposync --repofrompath="$REPO_NAME,$REPO_URL" --repoid="$REPO_NAME" --download-path="$DOWNLOAD_PATH" --newest-only
+  else
+    reposync --repofrompath="$REPO_NAME,$REPO_URL" --repoid="$REPO_NAME" --download-path="$DOWNLOAD_PATH"
   fi
+
+  # 2d. Completion message for the current repository
+  echo "Download complete for $REPO_NAME."
 done
 
-# --- Check if wget is installed ---
-if ! command -v wget &> /dev/null; then
-    echo "Error: 'wget' command not found. Please install it to use this script."
-    exit 1
-fi
-
-# --- Check if the target directory exists, create if not ---
-if [ ! -d "$TARGET_DIR" ]; then
-    echo "Directory '$TARGET_DIR' does not exist. Creating it..."
-    mkdir -p "$TARGET_DIR"
-    if [ $? -ne 0 ]; then
-        echo "Error: Could not create directory '$TARGET_DIR'."
-        exit 1
-    fi
-fi
-
-# --- Main Logic: Download the RPMs ---
-if [ "$LATEST_ONLY" = true ]; then
-    ### --- LATEST-ONLY LOGIC --- ###
-    echo "Fetching file list to determine latest packages..."
-
-    ALL_FILES=$(wget -q -O- "$SOURCE_URL" | grep -oE '[a-zA-Z0-9._-]+.rpm' | sort -u)
-
-    if [ -z "$ALL_FILES" ]; then
-        echo "Could not retrieve any .rpm files from the URL. Please check the link."
-        exit 1
-    fi
-
-    # Use an associative array to track the latest file for each package.
-    declare -A latest_packages
-
-    echo "Processing files to find the latest versions..."
-
-    # Read the file list, sorted by version, line by line.
-    while IFS= read -r filename; do
-        # Generate a "base name" key by stripping version info. This is just for grouping.
-        basename=$(echo "$filename" | sed -E 's/-[0-9]+.*\.rpm$//')
-
-        # Because the input is version-sorted, the LAST file seen for a given
-        # base name will be the one with the highest version. We simply overwrite
-        # the array entry for that key on each encounter.
-        latest_packages["$basename"]="$filename"
-    done < <(echo "$ALL_FILES" | sort -V)
-
-    # The values of the array are now the list of latest files.
-    FILES_TO_DOWNLOAD=("${latest_packages[@]}")
-
-    echo "Found ${#FILES_TO_DOWNLOAD[@]} unique packages to download."
-    echo "Starting download..."
-    for file in "${FILES_TO_DOWNLOAD[@]}"; do
-        wget --no-clobber --quiet --show-progress -P "$TARGET_DIR" "${SOURCE_URL}${file}"
-    done
-else
-    ### --- STANDARD LOGIC (DOWNLOAD ALL) --- ###
-    echo "Downloading all RPM files from '$SOURCE_URL'..."
-    wget \
-        --recursive \
-        --no-parent \
-        --no-clobber \
-        --no-directories \
-        --accept "*.rpm" \
-        --directory-prefix="$TARGET_DIR" \
-        "$SOURCE_URL"
-fi
-
-# Check if the command was successful
-if [ $? -ne 0 ]; then
-    echo "Error during RPM download. Aborting."
-    exit 1
-fi
-echo "RPM Download successful."
-echo "---"
-
-echo "Creating repository metadata in '$TARGET_DIR'..."
-createrepo_c "$TARGET_DIR"
+# 3. Create the repository metadata
+echo "Creating repository metadata in '$FULL_DEST_PATH'..."
+createrepo_c "$FULL_DEST_PATH"
 
 if [ $? -ne 0 ]; then
     echo "Error creating repository metadata. Aborting."
@@ -120,10 +93,10 @@ echo "---"
 
 echo "-----------------------------------------------------"
 echo "All steps completed successfully!"
-echo "A local repository has been created in '$TARGET_DIR'."
+echo "A local repository has been created in '$FULL_DEST_PATH'."
 echo ""
 echo "You can now add it to zypper manually with a command like:"
-echo "sudo zypper addrepo --no-gpgcheck file://$TARGET_DIR my-custom-repo"
+echo "sudo zypper addrepo --no-gpgcheck file://$FULL_DEST_PATH my-custom-repo"
 echo "-----------------------------------------------------"
 
 exit 0
