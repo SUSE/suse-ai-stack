@@ -33,10 +33,7 @@ servingEngineSpec:
 {% endif %}
 routerSpec:
 {% if "dp.apps.rancher.io" in  vllm_helm_repo  %}
-  registry: dp.apps.rancher.io
-  repository: containers/lmcache-vllm-openai
-  tag: {{ vllm_cache_image_version }}
-  imagePullPolicy: "IfNotPresent"
+  tag: {{ vllm_cache_router_version }}
 {% else %}
   repository: "lmcache/lmstack-router"
   tag: "latest" 
