@@ -1,7 +1,7 @@
 namespace: gpu-operator
 helm:
   releaseName: gpu-operator
-  chart: nvidia/gpu-operator
+  chart: gpu-operator
   repo: https://helm.ngc.nvidia.com/nvidia
   version: 25.3.1
   valuesFrom:
