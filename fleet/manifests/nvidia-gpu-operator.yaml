@@ -1,0 +1,12 @@
+kind: GitRepo
+apiVersion: fleet.cattle.io/v1alpha1
+metadata:
+  name: suse-ai-demo
+  namespace: fleet-local
+spec:
+  repo: https://github.com/SUSE/suse-ai-stack
+  branch: main
+  targetNamespace: gpu-operator
+  paths:
+  - ./fleet/nvidia-gpu-operator
+  forceSyncGeneration: 1
