@@ -6,7 +6,6 @@ metadata:
 spec:
   repo: https://github.com/SUSE/suse-ai-stack
   branch: main
-  targetNamespace: gpu-operator
   paths:
   - ./fleet/nvidia-gpu-operator
   forceSyncGeneration: 1

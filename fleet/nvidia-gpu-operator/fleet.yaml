@@ -1,3 +1,4 @@
+defaultNamespace: gpu-operator
 helm:
   releaseName: gpu-operator
   chart: gpu-operator
