@@ -1,9 +1,0 @@
-namespace: suse-ai
-helm:
-  releaseName: ollama
-  chart: oci://dp.apps.rancher.io/charts/ollama
-  version: 1.26.0
-  valuesFrom:
-    - configMapKeyRef:
-        name: ollama-helm-values
-        key: ollama-values.yaml

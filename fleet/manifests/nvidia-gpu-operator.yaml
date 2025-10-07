@@ -7,5 +7,5 @@ spec:
   repo: https://github.com/SUSE/suse-ai-stack
   branch: main
   paths:
-  - ./fleet/nvidia-gpu-operator
+  - ./fleet/applications/nvidia-gpu-operator
   forceSyncGeneration: 1

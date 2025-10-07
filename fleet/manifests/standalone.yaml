@@ -8,6 +8,9 @@ spec:
   branch: main
   targetNamespace: suse-private-ai
   paths:
-  - ./fleet/standalone
+  - ./fleet/applications/milvus
+  - ./fleet/applications/ollama
+  - ./fleet/applications/open-webui
+  - ./fleet/applications/pytorch
   helmSecretName: appco-helm-secret
   forceSyncGeneration: 1
