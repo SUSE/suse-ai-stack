@@ -47,8 +47,11 @@ The instructions on this document are for setting it on [AWS][aws].
 
 By default, we create a management RKE2 cluster where all the services including the AI workloads are deployed and suse observability components are deployed when enable_suse_observability is true. When enable_suse_observability is true, it will need at least 2 instances in the cluster of 2xlarge to handle the workload.
 
-However if you want to seperate deploying AI workload onto its own RKE2 cluster and observability into its own RKE2 cluster, you can update the extra_vars.yml file to add these cluster definitions:
+However if you want to seperate deploying AI workload onto its own RKE2 cluster and observability into its own RKE2 cluster, you can update the extra_vars.yml file to add these cluster definitions in addition to the ```cluster:``` section as in extra_vars.yml.aws.example which is the main cluster used for deploying rancher.
+
+
 ```
+# For deploying AI workload into its own RKE2 cluster
 suse_ai_cluster:
   user: "ec2-user"
   user_home: "/home/ec2-user"
@@ -65,7 +68,9 @@ suse_ai_cluster:
   token: "suse-ai-rke2token"
   version: "v1.32.4+rke2r1" #RKE2 channel version. see https://update.rke2.io/v1-release/channels for a complete list
 ```
+
 ```
+# For deploying SUSE observability into its own RKE2 cluster
 suse_observability_cluster:
   user: "ec2-user"
   user_home: "/home/ec2-user"

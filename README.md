@@ -24,7 +24,7 @@ hardware resource.
 For information on how to setup the Private AI stack on the local environment,
 please see [Local Setup](./docs/Local_Setup.md).
 
-For information on how to setup the Private AI stack on the local environment,
+For information on how to setup the Private AI stack on the AWS environment,
 please see [AWS Setup](./docs/AWS_Setup.md).
 
 [aws]: https://aws.amazon.com/

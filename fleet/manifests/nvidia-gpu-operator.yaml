@@ -1,0 +1,11 @@
+kind: GitRepo
+apiVersion: fleet.cattle.io/v1alpha1
+metadata:
+  name: nvidia-gpu-operator
+  namespace: fleet-local
+spec:
+  repo: https://github.com/SUSE/suse-ai-stack
+  branch: main
+  paths:
+  - ./fleet/applications/nvidia-gpu-operator
+  forceSyncGeneration: 1
