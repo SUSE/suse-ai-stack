@@ -1,0 +1,10 @@
+defaultNamespace: gpu-operator
+helm:
+  releaseName: gpu-operator
+  chart: gpu-operator
+  repo: https://helm.ngc.nvidia.com/nvidia
+  version: 25.3.1
+  valuesFrom:
+    - configMapKeyRef:
+        name: gpu-operator-values
+        key: gpu-operator-values.yaml
