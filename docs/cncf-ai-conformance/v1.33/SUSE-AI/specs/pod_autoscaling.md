@@ -6,6 +6,9 @@ MUST: If the platform supports the HorizontalPodAutoscaler, it must function cor
 
 ## Setup Configuration
 
+- Setup an end to end SUSE AI instance on AWS using the automated setup at [https://github.com/suse/suse-ai-stack](https://github.com/suse/suse-ai-stack) 
+- Note: the setup requires SUSE AI subcription for the SUSE OS registration, SUSE Application Collection and the SUSE Observability access.
+
 ### Ollama configuration
 
 1. **Multi-Node Scaling (Shared PVC to Avoid Re-Downloading Models)**
@@ -51,15 +54,16 @@ affinity:
                 values:
                   - ollama
 ```
-
 - Ollama helm installation from [AppCo](https://apps.rancher.io/applications/ollama)
 ```
 helm upgrade -i ollama oci://dp.apps.rancher.io/charts/ollama -n suse-private-ai --version 1.26.0 -f ollama-values.yaml
 ```
 
-2. **Single-Node Scaling**
+2. **Single-Node Scaling with MIG**
 
 ## Scaling Configuration
+
+- **The DCGM Exporter** bundled with the NVIDIA **GPU Operator** provides detailed GPU metrics—such as utilization, temperature, and memory usage—through a Prometheus-compatible endpoint. These metrics can be leveraged by an autoscaling solution to make informed scaling decisions. Since **SUSE Observability** includes **VictoriaMetrics**, which is fully compatible with Prometheus for ingesting and querying metrics, there’s no need to deploy a separate Prometheus server. However, GPU metrics are not exposed by default through the **Kubernetes Metrics API**, so to enable autoscaling based on GPU performance data, a **Custom Metrics API adapter** is required to export metrics from VictoriaMetrics to the Kubernetes API for use with the **Horizontal Pod Autoscaler (HPA)**.
 
 1. **Install Prometheus Adapter**
 - Values file (prom-adapter-values.yaml)
