@@ -127,15 +127,15 @@
   ansible.builtin.pause:
     seconds: 30
 
-# - name: Deploy SUSE AI Observability Extension
-#   shell: |
-#     if [[ {{ suse_ai_observability_extension_helm_repo }} == *"dp.apps.rancher.io"* ]]; then
-#         helm registry login dp.apps.rancher.io/charts -u {{ application_collection_user_email }} -p {{ application_collection_user_token }}
-#         helm upgrade --install {{ suse_ai_observability_extension_release_name }} {{ suse_ai_observability_extension_helm_repo }} -n {{ suse_observability_namespace }} --create-namespace --version {{ suse_ai_observability_extension_helm_version }} -f genai-values.yaml
-#     else
-#         helm upgrade --install {{ suse_ai_observability_extension_release_name }} --repo {{ suse_ai_observability_extension_helm_repo }} -n {{ suse_observability_namespace }} --create-namespace --version {{ suse_ai_observability_extension_helm_version }} -f genai-values.yaml
-#     fi
-#   register: suse_ai_observability_extension_deploy_result
-#   until: suse_ai_observability_extension_deploy_result.rc == 0
-#   retries: 3
-#   delay: 40
+- name: Deploy SUSE AI Observability Extension
+  shell: |
+    if [[ {{ suse_ai_observability_extension_helm_repo }} == *"dp.apps.rancher.io"* ]]; then
+        helm registry login dp.apps.rancher.io/charts -u {{ application_collection_user_email }} -p {{ application_collection_user_token }}
+        helm upgrade --install {{ suse_ai_observability_extension_release_name }} {{ suse_ai_observability_extension_helm_repo }} -n {{ suse_observability_namespace }} --create-namespace --version {{ suse_ai_observability_extension_helm_version }} -f genai-values.yaml
+    else
+        helm upgrade --install {{ suse_ai_observability_extension_release_name }} --repo {{ suse_ai_observability_extension_helm_repo }} -n {{ suse_observability_namespace }} --create-namespace --version {{ suse_ai_observability_extension_helm_version }} -f genai-values.yaml
+    fi
+  register: suse_ai_observability_extension_deploy_result
+  until: suse_ai_observability_extension_deploy_result.rc == 0
+  retries: 3
+  delay: 40
