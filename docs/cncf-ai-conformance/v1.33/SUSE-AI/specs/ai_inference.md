@@ -59,10 +59,10 @@ curl --location -X POST "http://localhost:31261/v1/chat/completions" -H "Host: i
 **Test 2: Header-based Routing with APISIX**
 
 **Step 1: Setup SUSE AI Test Environment**
-- the same as the test 1
+- Follow the same setup process described in **Test 1** to initialize the SUSE AI testing environment.
 
 **Step 2: Setup APISIX Gateway with API Gateway enabled**
-- the same as the test 1
+- Use the same deployment configuration from **Test 1** to install and configure the APISIX Gateway.
 
 **Step 3: Create Route and Verify header-based routing**
 
