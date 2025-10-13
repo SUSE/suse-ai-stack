@@ -30,6 +30,7 @@ servingEngineSpec:
 {% else %}
     requestCPU: 2
     requestMemory: "8Gi"
+    requestGPU: 1
 {% endif %}
 routerSpec:
 {% if "dp.apps.rancher.io" in  vllm_helm_repo  %}
