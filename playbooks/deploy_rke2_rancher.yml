@@ -1,0 +1,7 @@
+---
+
+- name: Register, Install Packages, Reboot - Stage1
+  import_playbook: "{{ (current_project_dir, 'external_playbooks/playbooks/stage1.yml') | path_join }}"
+
+- name: Deploy RKE2 and Rancher, gpu-operator - Stage 2
+  import_playbook: "{{ (current_project_dir, 'external_playbooks/playbooks/stage2.yml') | path_join }}"

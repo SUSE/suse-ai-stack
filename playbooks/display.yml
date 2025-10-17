@@ -1,0 +1,48 @@
+---
+
+- name: Read tofu output
+  import_playbook: read_tofu_output.yml
+
+- name: Display Control Plane Master Node IP
+  import_playbook: ssh-access.yml
+
+- name: Display Access URL and credentials
+  hosts: localhost
+  connection: local
+  tasks:
+    - name: Read suse observabiltiy admin password
+      ansible.builtin.slurp:
+        src: "../suse_observability_admin_password.txt"
+      register: suse_observability_admin_password_file_contents
+      when: enable_suse_observability | default(false)
+
+    - name: Set Access URL and credentials
+      set_fact:
+        access_msg: "{{ access_msg | default([]) + [ item.msg | string ] }}"
+      when: item.eval
+      with_items:
+        - msg: "Make sure to update the /etc/hosts file: {{ vm_ip }} mgmt-rancher {{ rancher_host }}"
+          eval: "{{ not (enable_external_dns | default(False)) }}"
+        - msg: "Make sure to update the /etc/hosts file: {{ hostvars['localhost']['suse_ai_vm_ip'] | default(hostvars['localhost']['vm_ip'])}} suse-ai {{ open_webui_host }}"
+          eval: "{{ not (enable_external_dns | default(False)) }}"
+        - msg: "Make sure to update the /etc/hosts file: {{ vm_ip }} {{ longhorn_host }}"
+          eval: "{{ not (enable_external_dns | default(False)) and (enable_longhorn | default(False) | bool) }}"
+        - msg: "Make sure to update the /etc/hosts file: {{ hostvars['localhost']['suse_observability_vm_ip'] | default(hostvars['localhost']['vm_ip'])}} {{ suse_observability_host }}"
+          eval: "{{ not (enable_external_dns | default(False)) and (enable_suse_observability | default(False) | bool) }}"
+        - msg: "To access rancher UI, point your browser to https://{{ rancher_host }} and login with user=admin and password={{ rancher_bootstrap_password | default('rancher')  }}"
+          eval: true
+        - msg: "To access longhorn UI, point your browser to http://{{ longhorn_host }} and login with user={{ longhorn_username | default('admin')}} and password={{  longhorn_password | default('longhorn')}}"
+          eval: "{{ enable_longhorn | default(False) | bool }}"
+        - msg: "To access open-webui, point your browser to https://{{ open_webui_host }} and login with user={{ open_webui_admin_email | default('admin@suse-private-ai.org') }} and password={{ open_webui_admin_password | default('WelcomeToAI') }}"
+          eval: "{{ not deploy_rancher_only | default(False) | bool }}"
+        - msg: "To access suse-observability, point your browser to https://{{ suse_observability_host }} and login with user=admin and password={{ (suse_observability_admin_password_file_contents.content | default('')) | b64decode | trim }}"
+          eval: "{{ enable_suse_observability | default(False) | bool }}"
+
+    - name: Show Access URL and credentials
+      debug:
+        msg: "{{ access_msg }}"
+
+    - name: Output access msg to a file
+      copy:
+        dest: "/tmp/access"
+        content: "{{ access_msg }}"
