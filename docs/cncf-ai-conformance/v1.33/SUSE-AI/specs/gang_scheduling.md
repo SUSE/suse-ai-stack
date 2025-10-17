@@ -98,7 +98,7 @@ Gang scheduling's key feature is **all-or-nothing**: if resources aren't availab
 kubectl delete -f ./volcano/distributed-job.yaml
 ```
 
-2. Create a deployment that blocks the GPUs so that there are not enough GPUs available for the distributed job. Set the replicas in `gpu-blocker.yaml` according to your cluster configuration. For example, if a cluster has 8 GPUs then we want to block 7 of them so there there's only 1 GPU available for the distributed job, which actually needs 2 GPUs.
+2. Create a deployment that blocks most of the GPUs, leaving an insufficient number available for the distributed job. In the gpu-blocker.yaml file, set the number of replicas based on your cluster’s configuration. For example, if the cluster has 8 GPUs, configure the deployment to block 7 of them so that only 1 GPU remains available for the distributed job, which requires 2 GPUs.
 
 ```
 kubectl apply -f ./volcano/gpu-blocker.yaml
