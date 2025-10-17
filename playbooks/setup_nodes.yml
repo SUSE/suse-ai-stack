@@ -1,0 +1,76 @@
+---
+
+- name: Create Resources
+  hosts: localhost
+  connection: local
+  tasks:
+    - name: Create Resources
+      include_role:
+        name: vm
+      when:
+        - (not do_not_install_vm | default(False)) | bool
+      vars:
+        vm_hostname: mgmt-rancher
+        vm_instance_name: mgmt-rancher
+        vm_mac_address: "{{ private_ai_vm_mac_address | default('52:54:00:6C:3C:88') }}"
+        vm_libvirt_network_params: "{{ private_ai_vm_libvirt_network_params | default('') }}"
+
+- name: Display SSH access
+  import_playbook: ssh-access.yml
+
+- name: Setup the right python interpreter based on the distro
+  import_playbook: setup_python_interpreter.yml
+
+- name: Define mgmt cluster nodes
+  import_playbook: define_nodes_mgmt_cluster.yml
+  vars:
+    python_interpreter: "{{ hostvars['localhost']['python_interpreter'] }}"
+
+- name: Define suse ai cluster nodes
+  import_playbook: define_nodes_suse_ai_cluster.yml
+  vars:
+    suse_ai_python_interpreter: "{{ hostvars['localhost']['suse_ai_python_interpreter'] }}"
+  when: suse_ai_cluster is defined
+
+- name: Define suse observability cluster nodes
+  import_playbook: define_nodes_suse_observability_cluster.yml
+  vars:
+    suse_observability_python_interpreter: "{{ hostvars['localhost']['suse_observability_python_interpreter'] }}"
+  when: suse_observability_cluster is defined and enable_suse_observability | default('False') | bool
+
+- name: Display SSH access
+  import_playbook: ssh-access.yml
+
+- name: Setup
+  hosts: mgmt_cluster:suse_ai_cluster:suse_observability_cluster
+  become: true
+  tasks:
+    - name: Upload additional SSH pubkeys
+      ansible.posix.authorized_key:
+        user: "{{ vm_ansible_user | default('ai') }}"
+        key: "{{ item }}"
+      loop: "{{ additional_public_keys | default([]) }}"
+
+    - name: Set the hostname
+      shell: >
+        hostnamectl set-hostname "{{ inventory_hostname }}"
+
+    - name: Add SUSE internal CA certificate
+      import_role:
+        name: suse-ca-certificate
+
+    - name: Install Packages
+      include_role:
+        name: vm
+        tasks_from: install_suse_package
+
+    - block:
+      - name: Add Ingress host to /etc/hosts
+        lineinfile:
+          path: /etc/hosts
+          line: "{{ item }}"
+        loop:
+          - "{{ hostvars['localhost']['vm_ip'] }} mgmt-rancher {{ hostvars['localhost']['rancher_host'] }}"
+          - "{{ hostvars['localhost']['suse_ai_vm_ip'] | default(hostvars['localhost']['vm_ip']) }} {{ hostvars['localhost']['open_webui_host'] }}"
+          - "{{ hostvars['localhost']['suse_observability_vm_ip'] | default(hostvars['localhost']['vm_ip']) }} {{ hostvars['localhost']['suse_observability_otel_host'] }}"
+      when: not (enable_external_dns | default(False))
