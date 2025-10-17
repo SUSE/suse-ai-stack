@@ -4,7 +4,7 @@ MUST: If the platform supports the HorizontalPodAutoscaler, it must function cor
 
 **Step 1: Setup SUSE AI Test Environment**
 
-- Setup an end to end SUSE AI instance on AWS using the automated setup at [https://github.com/suse/suse-ai-stack](https://github.com/suse/suse-ai-stack) 
+- You can use the automated setup  available at [https://github.com/suse/suse-ai-stack](https://github.com/suse/suse-ai-stack) to spin up a SUSE AI instance.
 - Note: the setup requires SUSE AI subcription for the SUSE OS registration, SUSE Application Collection and the SUSE Observability access.
 
 **Step 2: Install Ollama**

@@ -4,30 +4,9 @@
 
 **Step 1: Setup SUSE AI Test Environment**
 
-Setup an end to end SUSE AI instance on AWS using the automated setup at [https://github.com/suse/suse-ai-stack](https://github.com/suse/suse-ai-stack) 
-
-This test requires a multi node cluster with 1 control plane node (CPU) and 2 worker nodes (GPU). For example, You can use below cluster config in the suse-ai-stack extra-vars.yaml file.
-
-```
-cluster: 
-  user: "ec2-user"
-  user_home: "/home/ec2-user"
-  root_volume_size: 350
-  image_arch: "x86_64" # options supported "x86_64" and "arm64". Please update the instance type based on the chosen image_arch.
-  #image_arch: "arm64" # options supported "x86_64" and "arm64". Please update the instance type based on the chosen image_arch.
-  image_distro: "sle-micro" # options supported are "sles" and "sle-micro"
-  image_distro_version: "6.0" # "15-sp6" for sles and "6.0" for sle-micro as example
-  instance_type_cp: "m5d.2xlarge"
-  instance_type_gpu: "g4dn.2xlarge" #g4dn instance type has GPU
-  instance_type_nongpu: "m5d.2xlarge"
-  num_cp_nodes: 1
-  num_worker_nodes_gpu: 2
-  num_worker_nodes_nongpu: 0
-  token: "mgmt-rke2token"
-  version: "v1.32.4+rke2r1" #RKE2 channel version. see https://update.rke2.io/v1-release/channels for a complete list
-```
-
-Note that the setup requires SUSE AI subcription for the SUSE OS registration, SUSE Application Collection and the SUSE Observability access.
+- You can use the automated setup  available at [https://github.com/suse/suse-ai-stack](https://github.com/suse/suse-ai-stack) to spin up a SUSE AI instance.
+- Note 1: This test requires a multi node cluster with 1 control plane node (CPU) and 2 worker nodes (GPU).
+- Note 2: The setup requires SUSE AI subcription for the SUSE OS registration, SUSE Application Collection and the SUSE Observability access.
 
 **Step 2: Deploy Volcano**
 
