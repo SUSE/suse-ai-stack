@@ -4,7 +4,7 @@ MUST: Support the Kubernetes Gateway API with an implementation for advanced tra
 
 **Step 1: Setup SUSE AI Test Environment**
 
-- Setup an end to end SUSE AI instance on AWS using the automated setup at [https://github.com/suse/suse-ai-stack](https://github.com/suse/suse-ai-stack) 
+- You can use the automated setup  available at [https://github.com/suse/suse-ai-stack](https://github.com/suse/suse-ai-stack) to spin up a SUSE AI instance.
 - Note 1: the setup requires SUSE AI subcription for the SUSE OS registration, SUSE Application Collection and the SUSE Observability access.
 - Note 2: it was deployed 2 ollamas releases (ollama and ollama-1) for the purpose of using load balancing through APISIX.
 - Note 3: APISIX has support for Gateway API but is not enabled by default and you should install Gateway API CRDs manually checking gateway api version, for example: apisix ingress controller is 1.8.4-14.5 from helm chart v2.11.3 and it uses gateway api v1.3.0.

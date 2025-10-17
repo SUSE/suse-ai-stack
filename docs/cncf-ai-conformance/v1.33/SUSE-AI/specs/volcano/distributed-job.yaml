@@ -1,0 +1,170 @@
+apiVersion: batch.volcano.sh/v1alpha1
+kind: Job
+metadata:
+  name: distributed-job
+spec:
+  minAvailable: 3
+  schedulerName: volcano
+  maxRetry: 1
+  plugins:
+    env: []
+    svc: []
+  tasks:
+  - name: coordinator
+    replicas: 1
+    template:
+      spec:
+        containers:
+        - name: coordinator
+          image: python:3.11-slim
+          imagePullPolicy: IfNotPresent
+          command: ["bash", "-c"]
+          args:
+          - |
+            python3 - <<'PY'
+            import socket
+            import time
+            from http.server import HTTPServer, BaseHTTPRequestHandler
+
+            # Read worker hostnames provided by Volcano
+            def read_hosts(path):
+                with open(path) as f:
+                    return [line.strip() for line in f if line.strip()]
+
+            workers = read_hosts("/etc/volcano/worker.host")
+            print(f"Coordinator started. Expecting {len(workers)} workers: {workers}")
+
+            # Simple HTTP server that counts worker check-ins
+            checkins = []
+
+            class Handler(BaseHTTPRequestHandler):
+                def do_GET(self):
+                    if self.path == "/checkin":
+                        worker_name = self.headers.get('X-Worker-Name', 'unknown')
+                        checkins.append(worker_name)
+                        print(f"✓ Worker checked in: {worker_name} ({len(checkins)}/{len(workers)})")
+                        self.send_response(200)
+                        self.end_headers()
+                        self.wfile.write(f"Welcome {worker_name}!".encode())
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
+
+                def log_message(self, format, *args):
+                    pass  # Suppress default logs
+
+            # Start server and wait for all workers
+            server = HTTPServer(('0.0.0.0', 8080), Handler)
+            server.timeout = 1
+
+            print("Coordinator listening on port 8080...")
+            start_time = time.time()
+            while len(checkins) < len(workers) and time.time() - start_time < 120:
+                server.handle_request()
+
+            if len(checkins) == len(workers):
+                print(f"\n✓ All {len(workers)} workers connected successfully!")
+                print("Coordinator job complete.")
+            else:
+                print(f"\n✗ Timeout: only {len(checkins)}/{len(workers)} workers connected")
+                exit(1)
+            PY
+          ports:
+          - containerPort: 8080
+            name: http
+        restartPolicy: Never
+
+  - name: worker
+    replicas: 2
+    policies:
+    - event: TaskCompleted
+      action: CompleteJob
+    template:
+      spec:
+        runtimeClassName: nvidia
+        containers:
+        - name: worker
+          image: nvidia/cuda:12.3.1-base-ubuntu22.04
+          imagePullPolicy: IfNotPresent
+          command: ["bash", "-c"]
+          args:
+          - |
+            # Install python
+            apt-get update -qq && apt-get install -y -qq python3 python3-pip > /dev/null 2>&1
+
+            python3 - <<'PY'
+            import os
+            import time
+            import socket
+            import subprocess
+            import urllib.request
+
+            # Read coordinator hostname provided by Volcano
+            def read_hosts(path):
+                with open(path) as f:
+                    return [line.strip() for line in f if line.strip()]
+
+            coordinator = read_hosts("/etc/volcano/coordinator.host")[0]
+            task_index = int(os.environ.get("VK_TASK_INDEX", "0"))
+            worker_name = socket.gethostname()
+
+            print(f"Worker {task_index} ({worker_name}) started")
+            print(f"Coordinator address: {coordinator}")
+
+            # Check GPU access
+            print("\n=== GPU Check ===")
+            try:
+                result = subprocess.run(['nvidia-smi', '--query-gpu=index,name,memory.total',
+                                       '--format=csv,noheader'],
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode == 0 and result.stdout.strip():
+                    print("✓ GPU detected:")
+                    for line in result.stdout.strip().split('\n'):
+                        print(f"  {line}")
+                else:
+                    print("✗ No GPU found or nvidia-smi failed")
+                    exit(1)
+            except FileNotFoundError:
+                print("✗ nvidia-smi not found")
+                exit(1)
+            except Exception as e:
+                print(f"✗ GPU check failed: {e}")
+                exit(1)
+
+            # Wait for coordinator to be ready
+            print("\n=== Coordinator Connection ===")
+            print("Waiting for coordinator...")
+            for attempt in range(30):
+                try:
+                    sock = socket.create_connection((coordinator, 8080), timeout=2)
+                    sock.close()
+                    print("✓ Coordinator is ready")
+                    break
+                except OSError:
+                    time.sleep(1)
+            else:
+                print("✗ Coordinator timeout")
+                exit(1)
+
+            # Check in with coordinator
+            url = f"http://{coordinator}:8080/checkin"
+            req = urllib.request.Request(url, headers={'X-Worker-Name': worker_name})
+
+            try:
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    message = response.read().decode()
+                    print(f"✓ Checked in successfully: {message}")
+            except Exception as e:
+                print(f"✗ Check-in failed: {e}")
+                exit(1)
+
+            # Simulate some work
+            print(f"\nWorker {task_index} doing work...")
+            time.sleep(5)
+
+            print(f"✓ Worker {task_index} finished")
+            PY
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+        restartPolicy: Never

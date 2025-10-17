@@ -1,0 +1,30 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: qwen-llm
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: huggingface
+      runtimeVersion: v0.15.2-gpu
+      args:
+        - --model_name=qwen
+        - --model_id=Qwen/Qwen2.5-0.5B-Instruct
+        - --backend=huggingface        
+      env:
+        - name: HF_HOME
+          value: /tmp/hf
+        - name: HF_HUB_CACHE
+          value: /tmp/hf/hub
+        - name: TRANSFORMERS_CACHE
+          value: /tmp/hf/transformers
+      resources:
+        requests:
+          cpu: "1"
+          memory: 6Gi
+          nvidia.com/gpu: "1"
+        limits:
+          cpu: "2"
+          memory: 10Gi
+          nvidia.com/gpu: "1"
