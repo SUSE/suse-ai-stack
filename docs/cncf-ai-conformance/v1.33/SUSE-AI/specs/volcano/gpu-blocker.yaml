@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpu-blocker
+  labels:
+    app: gpu-blocker
+spec:
+  replicas: 7
+  selector:
+    matchLabels:
+      app: gpu-blocker
+  template:
+    metadata:
+      labels:
+        app: gpu-blocker
+    spec:
+      runtimeClassName: nvidia
+      containers:
+      - name: blocker
+        image: nvidia/cuda:12.3.1-base-ubuntu22.04
+        command: ["bash", "-c"]
+        args:
+        - |
+          echo "GPU Blocker started - consuming 1 GPU"
+          nvidia-smi
+          echo "Sleeping indefinitely to hold GPU..."
+          sleep infinity
+        resources:
+          requests:
+            nvidia.com/gpu: 1        
+          limits:
+            nvidia.com/gpu: 1
+      restartPolicy: Always
