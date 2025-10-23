@@ -9,7 +9,7 @@ suse_observability_storage_class: "{% if cloud_provider is defined and cloud_pro
 suse_observability_release_name: suse-observability-values
 suse_observability_api_token: suseobservability
 suse_ai_observability_extension_helm_repo: oci://dp.apps.rancher.io/charts/suse-ai-observability-extension
-suse_ai_observability_extension_helm_version: 1.0.2
+suse_ai_observability_extension_helm_version: 1.2.0
 suse_ai_observability_extension_release_name: suse-ai-observability-extension
 appco_secret: application-collection
 suse_observability_server_url: http://suse-observability-router.{{ suse_observability_namespace }}.svc.cluster.local:8080
