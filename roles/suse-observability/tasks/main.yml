@@ -11,6 +11,8 @@
     values:
       license: "{{ suse_observability_license }}"
       baseUrl: "http://{{ suse_observability_host }}"
+      k8sAuthorization:
+        enable: false
       sizing:
         profile: "{{ suse_observability_sizing_profile }}"
     output_dir: "."
@@ -45,6 +47,7 @@
       global:
         storageClass: "{{ suse_observability_storage_class }}"
     values_files:
+      - "{{ suse_observability_release_name }}/templates/affinity_values.yaml"
       - "{{ suse_observability_release_name }}/templates/baseConfig_values.yaml"
       - "{{ suse_observability_release_name }}/templates/sizing_values.yaml"
       - "{{ suse_observability_release_name }}/templates/ingress_values.yaml"
