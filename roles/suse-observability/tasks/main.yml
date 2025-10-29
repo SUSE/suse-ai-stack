@@ -11,8 +11,6 @@
     values:
       license: "{{ suse_observability_license }}"
       baseUrl: "http://{{ suse_observability_host }}"
-      k8sAuthorization:
-        enable: false
       sizing:
         profile: "{{ suse_observability_sizing_profile }}"
     output_dir: "."
