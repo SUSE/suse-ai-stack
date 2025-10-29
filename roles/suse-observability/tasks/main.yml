@@ -109,21 +109,14 @@
   failed_when: "'successfully rolled out' not in rollout_result.stdout"
   until: rollout_result.rc == 0
   with_items:
-  - "api"
-  - "checks"
   - "correlate"
   - "e2es"
   - "hbase-console"
-  - "health-sync"
-  - "initializer"
   - "kafkaup-operator-kafkaup"
-  - "notification"
   - "prometheus-elasticsearch-exporter"
+  - "rbac-agent"
   - "receiver"
   - "router"
-  - "slicing"
-  - "state"
-  - "sync"
   - "ui"
 
 - name: Pause for the API server to respond to requests
