@@ -7,7 +7,7 @@ longhorn_release: longhorn
 longhorn_chart_version: 1.7.2
 longhorn_username: admin
 longhorn_password: longhorn
-longhorn_hostname: longhorn-private-ai
+longhorn_hostname: suse-longhorn
 
 longhorn_additional_disk_mount_path: "/opt/longhorn"
 
