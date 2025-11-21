@@ -38,6 +38,12 @@ milvus_release_name: milvus
 #Flag to indicate whether ollama should be installed seperately or part of the open-webui
 ollama_deploy_separately: true
 
+
+openwebui_mcpo_helm_repo: oci://dp.apps.rancher.io/charts/open-webui-mcpo
+openwebui_mcpo_helm_version: 1.0.0
+openwebui_mcpo_image_version: 0.0.17
+openwebui_mcpo_release_name: open-webui-mcpo
+
 openwebui_helm_repo: oci://dp.apps.rancher.io/charts/open-webui
 #openwebui_helm_repo: https://helm.openwebui.com/
 openwebui_helm_version: 7.2.0
