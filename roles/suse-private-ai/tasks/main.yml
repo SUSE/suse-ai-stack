@@ -17,5 +17,9 @@
   include_tasks: vllm.yml
   when: enable_gpu_operator | default(false) and enable_vllm_deployment | default(false)
 
+- name: open-webui-mcpo deploy
+  include_tasks: open-webui-mcpo.yml
+
 - name: open-webui deploy
   include_tasks: open-webui.yml
+
