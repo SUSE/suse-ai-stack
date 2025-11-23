@@ -1,0 +1,28 @@
+---
+
+- name: extract id
+  set_fact:
+    # extract first 4 characters after ingress-lb and append the character a
+    unique_id: "{{ (tofu_outputs.mgmt_ingress_fqdn.value | default('ingress-lb-asdfqwerty') | regex_search('ingress-lb-(.{4})', '\\1'))[0] ~ 'a' }}"
+
+- name: Set ingress host when external-dns
+  set_fact:
+    rancher_host: rancher-{{ github_username }}-{{ unique_id }}.{{ external_dns_domain_filter | default('suseclouddev.com') }}
+    longhorn_host: longhorn-{{ github_username }}-{{ unique_id }}.{{ external_dns_domain_filter | default('suseclouddev.com') }}
+    suse_ai_longhorn_host: ai-longhorn-{{ github_username }}-{{ unique_id }}.{{ external_dns_domain_filter | default('suseclouddev.com') }}
+    observ_longhorn_host: observ-longhorn-{{ github_username }}-{{ unique_id }}.{{ external_dns_domain_filter | default('suseclouddev.com') }}
+    open_webui_host: open-webui-{{ github_username }}-{{ unique_id }}.{{ external_dns_domain_filter | default('suseclouddev.com') }}
+    suse_observability_host: suse-observability-{{ github_username }}-{{ unique_id }}.{{ external_dns_domain_filter | default('suseclouddev.com') }}
+    suse_observability_otel_host: suse-observability-otel-collector-{{ github_username }}-{{ unique_id }}.{{ external_dns_domain_filter | default('suseclouddev.com') }}
+  when: enable_external_dns | default(false)
+
+- name: Set ingress host when no external-dns
+  set_fact:
+    rancher_host: "{{ rancher_hostname | default('suse-rancher.demo') }}"
+    longhorn_host: "{{ longhorn_hostname | default('suse-longhorn') }}"
+    suse_ai_longhorn_host: ai-{{ longhorn_hostname | default('suse-longhorn') }}
+    observ_longhorn_host: observ-{{ longhorn_hostname | default('suse-longhorn') }}
+    open_webui_host: "{{ open_webui_hostname | default('suse-ollama-webui') }}"
+    suse_observability_host: "{{ suse_observability_hostname | default('suse-observability') }}"
+    suse_observability_otel_host: "{{ suse_observability_otel_hostname |  default('suse-observability-otel-collector') }}"
+  when: not (enable_external_dns | default(false))

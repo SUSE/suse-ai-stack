@@ -81,24 +81,20 @@
   debug:
     msg: "{{ shell_result }}"
 
-- name: Set VM IP
+- name: Set libvirt VM facts IP
   set_fact:
     vm_ip: "{{ private_ai_vm_ip | default('192.168.122.100') }}"
-
-- name: Setup kubeapi_fqdn
-  set_fact:
-    kubeapi_fqdn: "{{ vm_ip  }}"
-
-- name: Setup ingress_fqdn
-  set_fact:
-    ingress_fqdn: "{{ vm_ip  }}"
-
-- name: Setup cluster control plane master node
-  set_fact:
+    kubeapi_fqdn: "{{ private_ai_vm_ip | default('192.168.122.100')  }}"
+    ingress_fqdn: "{{ private_ai_vm_ip | default('192.168.122.100') }}"
     mgmt_cp_master:
-    - {"name": "mgmt-rancher", "hostname": "mgmt-rancher", "ip": "{{ vm_ip }}" }
+    - {"name": "mgmt-rancher", "hostname": "mgmt-rancher", "ip": "{{ private_ai_vm_ip | default('192.168.122.100') }}" }
 
-- name: Setup cluster nodes
+- name: Set libvirt VM mgmt_cluster_nodes
   set_fact:
-    mgmt_cluster_nodes: "{{ mgmt_cp_master + mgmt_cp_others | default([]) + mgmt_worker_gpu | default([]) + mgmt_worker_nongpu | default([])  }}"
+    mgmt_cluster_nodes: "{{ mgmt_cp_master + mgmt_cp_others | default([]) + mgmt_worker_gpu | default([]) + mgmt_worker_nongpu | default([]) }}"
 
+- name: Parse tofu output for the mgmt cluster
+  include_tasks: mgmt_cluster_output.yml
+
+- name: Include ingress_ouput
+  include_tasks: ingress_output.yml
