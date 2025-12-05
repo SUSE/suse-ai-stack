@@ -98,6 +98,13 @@ config:
           - resource.attributes["k8s.pod.uid"] == nil
           - resource.attributes["k8s.namespace.name"] == nil
           - resource.attributes["k8s.pod.name"] == nil
+{% if enable_vllm_deployment | default(false) %}
+    transform:
+      metric_statements:
+        - context: metric
+          statements:
+            - replace_pattern(name, "^vllm:", "vllm_")
+{% endif %}
   connectors:
     spanmetrics:
       metrics_expiration: 5m
@@ -125,5 +132,9 @@ config:
         exporters: [debug, otlp]
       metrics:
         receivers: [otlp, spanmetrics, prometheus]
+{% if enable_vllm_deployment | default(false) %}
+        processors: [transform, memory_limiter, resource, batch]
+{% else %}
         processors: [memory_limiter, resource, batch]
+{% endif %}
         exporters: [debug, otlp]
