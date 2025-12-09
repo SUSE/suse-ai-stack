@@ -3,7 +3,7 @@ helm:
   releaseName: gpu-operator
   chart: gpu-operator
   repo: https://helm.ngc.nvidia.com/nvidia
-  version: 25.3.4
+  version: 25.10.1
   valuesFrom:
     - configMapKeyRef:
         name: gpu-operator-values
