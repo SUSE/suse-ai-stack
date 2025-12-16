@@ -104,7 +104,21 @@ extraEnvVars:
 - name: VECTOR_DB
   value: "milvus"
 - name: MILVUS_URI
-  value: http://milvus.{{ suse_private_ai_namespace}}.svc.cluster.local:19530
+  value: http://milvus.{{ suse_private_ai_namespace }}.svc.cluster.local:19530
+{% endif %}
+{% if enable_opensearch %}
+- name: VECTOR_DB
+  value: "opensearch"
+- name: OPENSEARCH_SSL
+  value: "false"
+- name: OPENSEARCH_URI
+  value: http://opensearch-cluster-master.{{ suse_private_ai_namespace }}.svc.cluster.local:9200
+- name: OPENSEARCH_USERNAME
+  value: admin
+- name: OPENSEARCH_PASSWORD
+  value: {{ opensearch_admin_password }}
+- name: OPENSEARCH_CERT_VERIFY
+  value: "false"
 {% endif %}
 {% if enable_vllm_deployment | default(false) and enable_gpu_operator | default(false) and openwebui_vllm_openai_enabled and pipelines_enabled %}
 - name: OPENAI_API_BASE_URLS
