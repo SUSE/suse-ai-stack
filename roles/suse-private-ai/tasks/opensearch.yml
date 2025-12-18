@@ -14,23 +14,12 @@
   shell: |
     if [[ {{ opensearch_helm_repo }} == *"dp.apps.rancher.io"* ]]; then
         helm registry login dp.apps.rancher.io/charts -u {{ application_collection_user_email }} -p {{ application_collection_user_token }}
-        helm upgrade --install {{ opensearch_release_name }} {{ opensearch_helm_repo }} -n {{ suse_private_ai_namespace }} --create-namespace  --version {{ opensearch_helm_version }} -f opensearch-values.yaml
+        helm upgrade --install {{ opensearch_release_name }} {{ opensearch_helm_repo }} -n {{ suse_private_ai_namespace }} --create-namespace  --version {{ opensearch_helm_version }} -f opensearch-values.yaml --wait
     else
-        helm upgrade --install {{ opensearch_release_name }} opensearch --repo {{ opensearch_helm_repo }} -n {{ suse_private_ai_namespace }} --create-namespace --version {{ opensearch_helm_version }} -f opensearch-values.yaml
+        helm upgrade --install {{ opensearch_release_name }} opensearch --repo {{ opensearch_helm_repo }} -n {{ suse_private_ai_namespace }} --create-namespace --version {{ opensearch_helm_version }} -f opensearch-values.yaml --wait
     fi
   register: opensearch_deploy_result
   until: opensearch_deploy_result.rc == 0
   retries: 5
   delay: 20
-  when: enable_opensearch | default(true) and (not deploy_rancher_only | default(False) | bool)
-
-- name: Wait for SUSE Private AI (OpenSearch) to be successfully rolled out
-  shell: >
-    kubectl -n {{ suse_private_ai_namespace }} rollout status deploy/{{ item }} --timeout=120s
-  register: rollout_result
-  retries: 6
-  delay: 30
-  until: "'successfully rolled out' in rollout_result.stdout"
-  with_items:
-  - "opensearch-cluster-master-0"
   when: enable_opensearch | default(true) and (not deploy_rancher_only | default(False) | bool)
