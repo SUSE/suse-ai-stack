@@ -4,7 +4,7 @@
     dest: ~/opensearch-values.yaml
   when: enable_opensearch | default(true) and not opensearch_cluster_deployment | default(false)
 
-- name: Copy opensearch-values.yaml for single cluster
+- name: Copy opensearch-values.yaml for multi-cluster
   template:
     src: opensearch-cluster-values.yaml.j2
     dest: ~/opensearch-values.yaml
