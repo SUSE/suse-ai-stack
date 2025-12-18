@@ -2,13 +2,13 @@
   template:
     src: opensearch-values.yaml.j2
     dest: ~/opensearch-values.yaml
-  when: enable_opensearch | default(true) and not opensearch_cluster_deployment | default(false)
+  when: enable_opensearch | default(true) and not enable_opensearch_cluster_deployment | default(false)
 
 - name: Copy opensearch-values.yaml for multi-cluster
   template:
     src: opensearch-cluster-values.yaml.j2
     dest: ~/opensearch-values.yaml
-  when: enable_opensearch | default(true) and opensearch_cluster_deployment | default(true)
+  when: enable_opensearch | default(true) and enable_opensearch_cluster_deployment | default(true)
 
 - name: Deploy OpenSearch helm chart
   shell: |
