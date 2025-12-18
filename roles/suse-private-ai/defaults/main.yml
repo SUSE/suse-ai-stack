@@ -36,7 +36,7 @@ milvus_image_version: 2.4.6
 milvus_release_name: milvus
 
 # helm repo to use for opensearch charts
-opensearch_helm_repo: oci://dp.apps.rancher.io/charts/milvus
+opensearch_helm_repo: oci://dp.apps.rancher.io/charts/opensearch
 opensearch_helm_version: 3.3.2
 opensearch_release_name: opensearch
 opensearch_cluster_deployment: false

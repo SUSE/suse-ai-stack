@@ -2,13 +2,13 @@
   template:
     src: opensearch-values.yaml.j2
     dest: ~/opensearch-values.yaml
-  when: enable_opensearch and not opensearch_cluster_mode
+  when: enable_opensearch | default(true) and not opensearch_cluster_deployment | default(false)
 
 - name: Copy opensearch-values.yaml for single cluster
   template:
     src: opensearch-cluster-values.yaml.j2
     dest: ~/opensearch-values.yaml
-  when: enable_opensearch and opensearch_cluster_mode
+  when: enable_opensearch | default(true) and opensearch_cluster_deployment | default(true)
 
 - name: Deploy OpenSearch helm chart
   shell: |
@@ -22,7 +22,7 @@
   until: opensearch_deploy_result.rc == 0
   retries: 5
   delay: 20
-  when: enable_opensearch and (not deploy_rancher_only | default(False) | bool)
+  when: enable_opensearch | default(true) and (not deploy_rancher_only | default(False) | bool)
 
 - name: Wait for SUSE Private AI (OpenSearch) to be successfully rolled out
   shell: >
@@ -32,5 +32,5 @@
   delay: 30
   until: "'successfully rolled out' in rollout_result.stdout"
   with_items:
-  - "opensearch-cluster-master"
-  when: enable_opensearch and (not deploy_rancher_only | default(False) | bool)
+  - "opensearch-cluster-master-0"
+  when: enable_opensearch | default(true) and (not deploy_rancher_only | default(False) | bool)

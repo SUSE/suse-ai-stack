@@ -106,7 +106,7 @@ extraEnvVars:
 - name: MILVUS_URI
   value: http://milvus.{{ suse_private_ai_namespace }}.svc.cluster.local:19530
 {% endif %}
-{% if enable_opensearch %}
+{% if enable_opensearch | default(true) %}
 - name: VECTOR_DB
   value: "opensearch"
 - name: OPENSEARCH_SSL
