@@ -8,6 +8,11 @@ resource "aws_instance" "suse_ai_cp_master" {
   key_name 			= var.aws["key_pair_name"]
   vpc_security_group_ids = ["${aws_security_group.sg.id}"]
   associate_public_ip_address	= true
+  user_data = <<-EOF
+    #!/bin/bash
+    sysctl -w vm.max_map_count=262144
+    echo "vm.max_map_count=262144" >> /etc/sysctl.conf
+  EOF
   root_block_device {
     volume_size = var.suse_ai_cluster["root_volume_size"]
   }
@@ -27,6 +32,11 @@ resource "aws_instance" "suse_ai_cp_other" {
   key_name 			= var.aws["key_pair_name"]
   vpc_security_group_ids = ["${aws_security_group.sg.id}"]
   associate_public_ip_address	= true
+  user_data = <<-EOF
+    #!/bin/bash
+    sysctl -w vm.max_map_count=262144
+    echo "vm.max_map_count=262144" >> /etc/sysctl.conf
+  EOF
   root_block_device {
     volume_size = var.suse_ai_cluster["root_volume_size"]
   }
@@ -47,6 +57,11 @@ resource "aws_instance" "suse_ai_worker_nongpu" {
   key_name 			= var.aws["key_pair_name"]
   vpc_security_group_ids = ["${aws_security_group.sg.id}"]
   associate_public_ip_address	= true
+  user_data = <<-EOF
+    #!/bin/bash
+    sysctl -w vm.max_map_count=262144
+    echo "vm.max_map_count=262144" >> /etc/sysctl.conf
+  EOF
   root_block_device {
     volume_size = var.suse_ai_cluster["root_volume_size"]
   }
@@ -66,6 +81,11 @@ resource "aws_instance" "suse_ai_worker_gpu" {
   key_name 			= var.aws["key_pair_name"]
   vpc_security_group_ids = ["${aws_security_group.sg.id}"]
   associate_public_ip_address	= true
+  user_data = <<-EOF
+    #!/bin/bash
+    sysctl -w vm.max_map_count=262144
+    echo "vm.max_map_count=262144" >> /etc/sysctl.conf
+  EOF
   root_block_device {
     volume_size = var.suse_ai_cluster["root_volume_size"]
   }
