@@ -225,6 +225,16 @@ enable_milvus_cluster_deployment: true
 enable_minio_standalone_deployment: false
 
 #
+# Flag to control opensearch deployment. When false, it won't be deployed. Default is true
+#
+enable_opensearch: true
+
+#
+# Flag to control opensearch deployment mode. When false, standalone deployment. When true, cluster deployment
+#
+enable_opensearch_cluster_deployment: true
+
+#
 # Install SUSE Observability
 #
 enable_suse_observability: false
