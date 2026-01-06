@@ -35,6 +35,13 @@ milvus_helm_version: 4.2.2
 milvus_image_version: 2.4.6
 milvus_release_name: milvus
 
+# helm repo to use for opensearch charts
+opensearch_helm_repo: oci://dp.apps.rancher.io/charts/opensearch
+opensearch_helm_version: 3.3.2
+opensearch_release_name: opensearch
+opensearch_cluster_deployment: false
+opensearch_admin_password: "MySecurePass123"
+
 #Flag to indicate whether ollama should be installed seperately or part of the open-webui
 ollama_deploy_separately: true
 

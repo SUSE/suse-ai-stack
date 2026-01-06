@@ -9,6 +9,11 @@
 
 - name: milvus deploy
   include_tasks: milvus.yml
+  when: enable_milvus | default(false)
+
+- name: opensearch deploy
+  include_tasks: opensearch.yml
+  when: enable_opensearch | default(true)
 
 - name: ollama deploy
   include_tasks: ollama.yml

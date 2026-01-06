@@ -1,0 +1,28 @@
+global:
+  imagePullSecrets:
+  - {{ appco_secret }}
+singleNode: true
+replicas: 1
+persistence:
+  enabled: true
+  storageClass: {{ storage_class }}
+
+
+extraEnvs:
+  - name: OPENSEARCH_INITIAL_ADMIN_PASSWORD
+    value: {{ opensearch_admin_password }}
+
+service:
+  type: NodePort
+  httpPort: 9200
+  transportPort: 9300
+  metricsPort: 9600
+
+resources:
+  limits:
+    memory: "6Gi"
+    cpu: "2"
+
+config:
+  opensearch.yml: |
+    plugins.security.disabled: true

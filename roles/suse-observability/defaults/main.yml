@@ -2,7 +2,7 @@ suse_observability_helm_repo_url: https://charts.rancher.com/server-charts/prime
 suse_observability_helm_repo_name: suse-observability
 suse_observability_helm_chart_name: suse-observability
 suse_observability_helm_chart_ref: "{{ suse_observability_helm_repo_name }}/{{ suse_observability_helm_chart_name }}"
-suse_observability_helm_chart_version: 2.6.2
+suse_observability_helm_chart_version: 2.6.3
 suse_observability_namespace: suse-observability
 suse_observability_sizing_profile: trial
 suse_observability_storage_class: "{% if cloud_provider is defined and cloud_provider == 'aws' and enable_longhorn %}longhorn{% else %}local-path{% endif %}"

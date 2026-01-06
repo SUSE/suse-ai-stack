@@ -11,6 +11,7 @@
     values:
       license: "{{ suse_observability_license }}"
       baseUrl: "http://{{ suse_observability_host }}"
+      allowedOrigins: ["http://{{ suse_observability_host }}", "https://{{ suse_observability_host }}"]
       sizing:
         profile: "{{ suse_observability_sizing_profile }}"
     output_dir: "."
