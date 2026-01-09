@@ -1,3 +1,7 @@
+global:
+  customCertificates:
+    enabled: true
+    configMapName: "{{ suse_observability_cm_name_tls }}"
 stackstate:
   apiKey: "{{ suse_observability_api_token }}"
   cluster:

@@ -1,0 +1,14 @@
+- name: Create suse-observability namespace
+  shell: |
+    max_retries=10
+    delay=30
+    for retry in $(seq 1 $max_retries); do
+      if ! kubectl get namespaces -o json | jq -r ".items[].metadata.name" | grep {{ suse_observability_namespace }};then
+        status=$(kubectl create namespace {{ suse_observability_namespace }})
+        if [[ "$status" == *"created"* ]]; then
+          exit 0
+        else
+          sleep $delay
+        fi
+      fi
+    done
