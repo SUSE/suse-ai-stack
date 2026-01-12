@@ -16,3 +16,5 @@ suse_observability_server_url: http://suse-observability-router.{{ suse_observab
 suse_observability_host: "{{ suse_observability_host | default('suse-observability') }}"
 suse_observability_otel_host: "{{ suse_observability_otel_host | default('suse-observability-otel-collector') }}"
 clusterName: "{{ cluster_name | default('local') }}"
+suse_observability_tls_secret_name: suse-observability-tls
+suse_observability_tls_root_secret_name: suse-observability-root-secret

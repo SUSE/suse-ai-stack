@@ -28,8 +28,14 @@
 
 - name: Install SUSE packages "{{ suse_packages }}" sles
   become: true
-  shell: |
-    zypper --non-interactive install {{ suse_packages | join(' ') }}
+  community.general.zypper:
+    name: "{{ suse_packages }}"
+    state: latest
+    update_cache: true
+  register: install_suse_packages_result
+  until: "'rc' not in install_suse_packages_result or install_suse_packages_result.rc == 0"
+  retries: 10
+  delay: 60
   when:
     - suse_packages | length > 0
     - ansible_distribution == 'SLES'
