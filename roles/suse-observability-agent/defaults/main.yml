@@ -7,3 +7,4 @@ suse_observability_api_token: suseobservability
 appco_secret: application-collection
 stackstate_cluster_name: "{{ cluster_name | default('local', true) }}"
 stackstate_url: "{{ ss_url | default('http://suse-observability-router.' ~ suse_observability_namespace ~ '.svc.cluster.local:8080/receiver/stsAgent', true) }}"
+suse_observability_cm_name_tls: suse-observability-tls-config

@@ -39,6 +39,18 @@
 #         skipKubeletTLSVerify: true
 #     state: present
 
+- name: Copy suse-observability TLS cert
+  copy:
+    src: ../suse-observability-tls.crt
+    dest: suse-observability-tls.crt
+
+#https://documentation.suse.com/cloudnative/suse-observability/latest/en/use/security/self-signed-certificates.html#_method_2_configmap_reference
+- name: Create configmap from the suse-observability TLS cert
+  shell: |
+    kubectl create configmap {{ suse_observability_cm_name_tls }} \
+      --from-file=tls.crt=suse-observability-tls.crt \
+      --namespace {{ suse_observability_namespace }}
+
 - name: Copy suse-observability-agent.yaml
   template:
     src: suse-observability-agent.yaml.j2

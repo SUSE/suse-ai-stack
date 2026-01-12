@@ -1,0 +1,57 @@
+global:
+  imagePullSecrets:
+  - {{ appco_secret }}
+singleNode: false
+replicas: 3
+persistence:
+  enabled: true
+  storageClass: {{ storage_class }}
+
+
+extraEnvs:
+  - name: OPENSEARCH_INITIAL_ADMIN_PASSWORD
+    value: {{ opensearch_admin_password }}
+  - name: ES_JAVA_OPTS
+    value: "-Xms3g -Xmx3g"
+
+service:
+  type: NodePort
+  httpPort: 9200
+  transportPort: 9300
+  metricsPort: 9600
+
+resources:
+  limits:
+    memory: "6Gi"
+    cpu: "2"
+  requests:
+    memory: "4Gi"
+    cpu: "1"
+
+startupProbe:
+  tcpSocket:
+    port: 9200
+  initialDelaySeconds: 60
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 12
+
+readinessProbe:
+  tcpSocket:
+    port: 9200
+  initialDelaySeconds: 60
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+
+livenessProbe:
+  tcpSocket:
+    port: 9200
+  initialDelaySeconds: 120
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+config:
+  opensearch.yml: |
+    plugins.security.disabled: true

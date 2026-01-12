@@ -7,5 +7,5 @@
       vars:
         suse_observability_api_key: "{{ api_key }}"
         cluster_name: "{{ 'suse-ai' if suse_ai_cluster is defined }}"
-        ss_url: "{% if suse_observability_cluster is defined %}http://{{ hostvars['localhost']['suse_observability_host'] }}/receiver/stsAgent{% endif %}"
+        ss_url: "{% if suse_observability_cluster is defined %}https://{{ hostvars['localhost']['suse_observability_host'] }}/receiver/stsAgent{% endif %}"
         suse_observabiltity_host: "{{ hostvars['localhost']['suse_observability_host'] }}"

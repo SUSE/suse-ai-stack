@@ -1,0 +1,113 @@
+# https://documentation.suse.com/cloudnative/suse-observability/latest/en/use/security/self-signed-certificates.html
+
+- name: Create self-signed issuer
+  shell: |
+    cat <<'EOF' | kubectl apply -f -
+    apiVersion: cert-manager.io/v1
+    kind: Issuer
+    metadata:
+      name: suse-observability-selfsigned
+      namespace: "{{ suse_observability_namespace }}"
+    spec:
+      selfSigned: {}
+    EOF
+
+- name: Create self-signed certificate
+  shell: |
+    cat <<'EOF' | kubectl apply -f -
+    apiVersion: cert-manager.io/v1
+    kind: Certificate
+    metadata:
+      name: suse-observability-selfsigned-ca
+      namespace: "{{ suse_observability_namespace }}"
+    spec:
+      isCA: true
+      commonName: suse-observability-selfsigned-ca
+      secretName: {{ suse_observability_tls_root_secret_name }}
+      duration: 87600h
+      renewBefore: 720h
+      subject:
+        organizations:
+        - Suse
+        countries:
+        - US
+        organizationalUnits:
+        - DEV
+      privateKey:
+        algorithm: ECDSA
+        size: 256
+        rotationPolicy: Never
+      issuerRef:
+        name: suse-observability-selfsigned
+        kind: Issuer
+        group: cert-manager.io
+    EOF
+
+- name: Create issuer suse-observability
+  shell: |
+    cat <<'EOF' | kubectl apply -f -
+    apiVersion: cert-manager.io/v1
+    kind: Issuer
+    metadata:
+      name: suse-observability
+      namespace: "{{ suse_observability_namespace }}"
+    spec:
+      ca:
+        secretName: suse-observability-root-secret
+    EOF
+
+- name: Create certificate suse-observability
+  shell: |
+    cat <<'EOF' | kubectl apply -f -
+    apiVersion: cert-manager.io/v1
+    kind: Certificate
+    metadata:
+      name: suse-observability
+      namespace: "{{ suse_observability_namespace }}"
+    spec:
+      isCA: false
+      commonName: suse-observability
+      secretName: {{ suse_observability_tls_secret_name }}
+      duration: 2160h # 90d
+      renewBefore: 360h
+      subject:
+        organizations:
+        - Suse
+        countries:
+        - US
+        organizationalUnits:
+        - DEV
+      privateKey:
+        algorithm: ECDSA
+        size: 256
+        rotationPolicy: Always
+      issuerRef:
+        name: suse-observability
+        kind: Issuer
+        group: cert-manager.io
+      dnsNames:
+        - "{{ suse_observability_host }}"
+        - "{{ suse_observability_otel_host }}"
+    EOF
+
+- name: Extract the {{ suse_observability_tls_secret_name }} cert and save it to a file
+  shell: |
+    kubectl get secret {{ suse_observability_tls_secret_name }} -n {{ suse_observability_namespace }} -o jsonpath='{.data.tls\.crt}' | base64 --decode > suse-observability-tls.crt
+
+- name: Extract the {{ suse_observability_tls_secret_name }} private key and save it to a file
+  shell: |
+    kubectl get secret {{ suse_observability_tls_secret_name }} -n {{ suse_observability_namespace }} -o jsonpath='{.data.tls\.key}' | base64 --decode > suse-observability-tls.key
+
+- name: Extract the {{ suse_observability_tls_root_secret_name }} cert and save it to a file
+  shell: |
+    kubectl get secret {{ suse_observability_tls_root_secret_name }} -n {{ suse_observability_namespace }} -o jsonpath='{.data.tls\.crt}' | base64 --decode > suse-observability-tls-root.crt
+
+- name: Extract the {{ suse_observability_tls_root_secret_name }} private key and save it to a file
+  shell: |
+    kubectl get secret {{ suse_observability_tls_root_secret_name }} -n {{ suse_observability_namespace }} -o jsonpath='{.data.tls\.key}' | base64 --decode > suse-observability-tls-root.key
+
+- name: Save the suse-observability cert on the local machine
+  fetch:
+    src: suse-observability-tls.crt
+    dest: ../suse-observability-tls.crt
+    flat: yes

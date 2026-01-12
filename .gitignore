@@ -52,3 +52,4 @@ extra_vars.yml.aws
 *.swo
 *.backup
 
+suse-observability-tls.crt
