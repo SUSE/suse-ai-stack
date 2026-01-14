@@ -1,0 +1,13 @@
+kind: GitRepo
+apiVersion: fleet.cattle.io/v1alpha1
+metadata:
+  name: suse-ai-kubeflow-demo
+  namespace: fleet-local
+spec:
+  repo: https://github.com/SUSE/suse-ai-stack
+  branch: main
+  targetNamespace: suse-private-ai
+  paths:
+  - ./fleet/applications/kubeflow
+  helmSecretName: appco-helm-secret
+  forceSyncGeneration: 1
