@@ -1,0 +1,35 @@
+- name: Read tofu outputs
+  hosts: localhost
+  tasks:
+    - name: Display resource creation output
+      shell: |
+        tofu output --json
+      args:
+        chdir: "{{ (current_project_dir, 'roles/vm/terraform') | path_join }}"
+      register: aws_ec2_create_result
+
+    - name: Set parsed tofu output
+      set_fact:
+        tofu_outputs: "{{ aws_ec2_create_result.stdout | from_json }}"
+
+    - name: Get mgmt_cluster_output
+      include_role:
+        name: vm
+        tasks_from: mgmt_cluster_output
+
+    - name: Get suse_ai_cluster_output
+      include_role:
+        name: vm
+        tasks_from: suse_ai_cluster_output
+      when: suse_ai_cluster is defined
+
+    - name: Get suse_observability_cluster_output
+      include_role:
+        name: vm
+        tasks_from: suse_observability_cluster_output
+      when: suse_observability_cluster is defined and enable_suse_observability | default('False') | bool
+
+    - name: Include ingress_ouput
+      include_role:
+        name: vm
+        tasks_from: ingress_output.yml

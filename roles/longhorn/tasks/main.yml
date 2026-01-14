@@ -1,4 +1,7 @@
 ---
+- name: set arch
+  set_fact:
+    image_arch: "{{ 'arm64' if ansible_facts.architecture == 'aarch64' else 'amd64' }}"
 
 - name: Enable and start iscsid
   become: true

@@ -6,6 +6,7 @@
     ingress_fqdn: "{{ tofu_outputs.mgmt_ingress_fqdn.value }}"
     mgmt_cp_master:
     - {"name": "mgmt-rancher", "hostname": "mgmt-rancher", "ip": "{{ tofu_outputs.mgmt_instance_public_ip.value }}" }
+  when: cloud_provider | default('local') == 'aws'
 
 - name: Setup cluster control plane other nodes mgmt cluster
   set_fact:
@@ -15,6 +16,7 @@
   loop: "{{ tofu_outputs.mgmt_instance_public_ip_cp_other.value }}"
   loop_control:
     extended: true
+  when: cloud_provider | default('local') == 'aws'
 
 - name: Setup cluster worker gpu nodes mgmt cluster
   set_fact:
@@ -24,6 +26,7 @@
   loop: "{{ tofu_outputs.instance_public_ip_worker_gpu.value }}"
   loop_control:
     extended: true
+  when: cloud_provider | default('local') == 'aws'
 
 - name: Setup cluster worker nongpu nodes
   set_fact:
@@ -33,6 +36,21 @@
   loop: "{{ tofu_outputs.instance_public_ip_worker_nongpu.value }}"
   loop_control:
     extended: true
+  when: cloud_provider | default('local') == 'aws'
+
+- name: Display AMI id for mgmt cluster
+  debug:
+    msg: "{{ ami_id_mgmt }}"
+  when: cloud_provider | default('local') == 'aws'
+
+- name: Set libvirt VM facts
+  set_fact:
+    vm_ip: "{{ private_ai_vm_ip | default('192.168.122.100') }}"
+    kubeapi_fqdn: "{{ private_ai_vm_ip | default('192.168.122.100')  }}"
+    ingress_fqdn: "{{ private_ai_vm_ip | default('192.168.122.100') }}"
+    mgmt_cp_master:
+    - {"name": "mgmt-rancher", "hostname": "mgmt-rancher", "ip": "{{ private_ai_vm_ip | default('192.168.122.100') }}" }
+  when: cloud_provider | default('local') == 'local'
 
 - name: Setup cluster nodes mgmt cluster
   set_fact:
@@ -41,8 +59,3 @@
 - name: Display all cluster nodes mgmt cluster
   debug:
     msg: "{{ mgmt_cluster_nodes }}"
-
-- name: Display AMI id for mgmt cluster
-  debug:
-    msg: "{{ ami_id_mgmt }}"
-

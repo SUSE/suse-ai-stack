@@ -40,6 +40,16 @@ terraform.rc
 extra_vars.yml
 extra_vars.yml.local
 extra_vars.yml.aws
+mgmt_extra_vars.yml
+suse-ai_extra_vars.yml
+suse-observability_extra_vars.yml
+
+# ini files
+inventory.ini
+inventory.yaml
+mgmt_inventory.ini
+suse-ai_inventory.ini
+suse-observability_inventory.ini
 
 # venv and associated scripts
 .venv/
@@ -53,3 +63,8 @@ extra_vars.yml.aws
 *.backup
 
 suse-observability-tls.crt
+suse-observability-tls-root.crt
+suse_observability_api_key.txt
+suse_observability_admin_password.txt
+
+external_playbooks

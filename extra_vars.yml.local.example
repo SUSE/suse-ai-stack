@@ -130,9 +130,9 @@ time_slicing_replicas: 4
 #
 # Rancher version to use
 #
-# Default to 2.11.1
+# Default to 2.13.1
 #
-#rancher_version: 2.11.1
+#rancher_version: 2.13.1
 
 #
 # VM user plain text password (not hash)

@@ -1,0 +1,57 @@
+- name: Read tofu output
+  import_playbook: read_tofu_output.yml
+
+- name: Display SSH access
+  import_playbook: ssh-access.yml
+
+- name: Deploy dns and storage services
+  hosts: rke2_servers[0]
+  tasks:
+    - name: Deploy external-dns
+      import_role:
+        name: external-dns
+      vars:
+        owner: "{{ cluster | default('mgmt') }}-dev-{{ hostvars['localhost']['unique_id'] }}"
+      when: enable_external_dns | default(false)
+
+    - name: Set target when no external-dns
+      set_fact:
+        target: "{{ ansible_host }}"
+      when: not ( enable_external_dns | default(false))
+
+    - name: Set target when external-dns
+      set_fact:
+        target: >-
+          {% if suse_ai_cluster is defined and cluster == "suse-ai"%}
+          {{ hostvars['localhost']['suse_ai_ingress_fqdn'] }}
+          {% elif suse_observability_cluster is defined and cluster == "suse-observability" %}
+          {{ hostvars['localhost']['suse_observability_ingress_fqdn'] }}
+          {% else %}
+          {{ hostvars['localhost']['ingress_fqdn'] }}
+          {% endif %}
+      when: enable_external_dns | default(false)
+
+    - name: Set lhost
+      set_fact:
+        lhost: >-
+          {% if suse_ai_cluster is defined and cluster == "suse-ai" %}
+          {{ hostvars['localhost']['suse_ai_longhorn_host'] }}
+          {% elif suse_observability_cluster is defined and cluster == "suse-observability" %}
+          {{ hostvars['localhost']['observ_longhorn_host'] }}
+          {% else %}
+          {{ hostvars['localhost']['longhorn_host'] }}
+          {% endif %}
+      when: (cloud_provider | default('local')) == "aws" and enable_longhorn
+
+    - name: Install Longhorn
+      import_role:
+        name: longhorn
+      vars:
+        target: "{{ target }}"
+        lhost: "{{ lhost }}"
+      when: (cloud_provider | default('local')) == "aws" and enable_longhorn
+
+    - name: Deploy local-path provisioner
+      import_role:
+        name: local-path
+      when: not (enable_longhorn | default(false) | bool)

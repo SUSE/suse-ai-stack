@@ -37,3 +37,56 @@
         - suse_observability_agents
         - suse_observability_cluster
     loop: "{{ suse_observability_worker | default([]) }}"
+
+  - name: Save dynamic inventory to inventories/suse-observability_inventory.ini
+    copy:
+      dest: "../inventories/suse-observability_inventory.ini"
+      content: |
+        [rke2_servers]
+        {% for host in groups['suse_observability_cp_master'] %}
+        suse-observability ansible_host={{ hostvars[host].ansible_host }}
+        {% endfor %}
+        {% for host in groups['suse_observability_cp_others'] | default([]) %}
+        suse-observability-cp{{ loop.index }} ansible_host={{ hostvars[host].ansible_host }}
+        {% endfor %}
+        [rke2_agents]
+        {% for host in groups['suse_observability_agents'] | default([]) %}
+        suse-observability-wkr{{ loop.index }} ansible_host={{ hostvars[host].ansible_host }}
+        {% endfor %}
+        [all:vars]
+        ansible_user="{{ vm_ansible_user | default('ai') }}"
+
+  - name: Save cp extra vars for suse observaiblity cluster
+    copy:
+      dest: "../suse-observability_extra_vars.yml"
+      content: |
+        ---
+        # SCC
+        scc_registration:
+          server: {{ registration_server | default("https://scc.suse.com") }}
+          email: {{ registration_email }}
+        {% if suse_observability_cluster.image_distro == 'sle-micro' %}
+          sles_code: ""
+          sle_micro_code: "{{ registration_code }}"
+        {% else %}
+          sles_code: "{{ registration_code }}"
+          sle_micro_code: ""
+        {% endif %}
+
+        # Nvidia
+        nvidia:
+          driver_install: false
+          gpu_operator_deploy: false
+
+        # RKE2
+        rke2:
+          version:  {{ suse_observability_cluster.version | default('v1.32.4+rke2r1') }}
+          token: {{ suse_observability_cluster.token | default('suse-observability-rke2token') }}
+          lb_address: "{{ hostvars['localhost']['suse_observability_kubeapi_fqdn'] }}"
+
+        cert_manager_deploy: true
+        # Rancher
+        rancher:
+          enabled: false
+        suse_packages: {{ (["open-iscsi", "nfs-client", "cryptsetup", "device-mapper"] + ["jq", "python311-PyYAML", "curl", "git", "pciutils"])
+         if enable_longhorn | default(false) else ["jq", "python311-PyYAML", "curl", "git", "pciutils"] }}
