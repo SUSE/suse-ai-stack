@@ -176,9 +176,9 @@ aws_image_ami_account_number: amazon
 #
 # Rancher version to use
 #
-# Default to 2.11.1
+# Default to 2.13.1
 #
-#rancher_version: 2.11.1
+#rancher_version: 2.13.1
 
 #####################################################
 # DO NOT modify there, period! These are immutable. #
@@ -283,3 +283,4 @@ cluster:
   num_worker_nodes_nongpu: 0
   token: "mgmt-rke2token"
   version: "v1.32.4+rke2r1" #RKE2 channel version. see https://update.rke2.io/v1-release/channels for a complete list
+

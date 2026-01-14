@@ -51,3 +51,72 @@
         - mgmt_agents
         - mgmt_cluster
     loop: "{{ mgmt_worker_nongpu | default([]) }}"
+
+  - name: Save dynamic inventory to inventories/mgmt_inventory.ini
+    copy:
+      dest: "../inventories/mgmt_inventory.ini"
+      content: |
+        [rke2_servers]
+        {% for host in groups['mgmt_cp_master'] %}
+        mgmt-rancher ansible_host={{ hostvars[host].ansible_host }}
+        {% endfor %}
+        {% for host in groups['mgmt_cp_others'] | default([]) %}
+        mgmt-rancher-cp{{ loop.index }} ansible_host={{ hostvars[host].ansible_host }}
+        {% endfor %}
+        [rke2_agents]
+        {% for host in groups['mgmt_agents_gpu'] | default([]) %}
+        mgmt-rancher-wkrgpu{{ loop.index }} ansible_host={{ hostvars[host].ansible_host }}
+        {% endfor %}
+        {% for host in groups['mgmt_agents_nongpu'] | default([]) %}
+        mgmt-rancher-wkr{{ loop.index }} ansible_host={{ hostvars[host].ansible_host }}
+        {% endfor %}
+        [all:vars]
+        ansible_user="{{ vm_ansible_user | default('ai') }}"
+
+  - name: Build mgmt extra_vars content
+    set_fact:
+      mgmt_extra_vars_content: |
+        ---
+        # SCC
+        scc_registration:
+          server: {{ registration_server | default("https://scc.suse.com") }}
+          email: {{ registration_email }}
+        {% if cluster.image_distro == 'sle-micro' %}
+          sles_code: "" # can be empty since we are not using BYOL image
+          sle_micro_code: "{{ registration_code }}"
+        {% endif %}
+
+        # Nvidia
+        nvidia:
+          driver_install: {{ (true if not (use_nvidia_driver_installer | default(false)) else false) | lower }}
+          gpu_operator_deploy: {{ (false if (use_nvidia_driver_installer | default(false)) else (enable_gpu_operator | default(false))) | lower }}
+
+        # RKE2
+        rke2:
+          version:  {{ cluster.version | default('v1.32.4+rke2r1') }}
+          token: {{ cluster.token | default('mgmt-rke2token') }}
+          lb_address: "{{ hostvars['localhost']['kubeapi_fqdn'] }}"
+
+        # Rancher
+        rancher:
+          enabled: true
+          version: {{ rancher_version | default('2.13.1') }} #version should be compatible with rke2.version
+          replicas: {{ rancher_replicas | default(1) }}
+          hostname: {{ hostvars['localhost']['rancher_host'] }}
+          bootstrap_password: {{ rancher_bootstrap_password | default('rancher')}}
+          use_prime: {{ use_rancher_prime | default(false) }}
+          prime_helm_repo_url: "{{ rancher_prime_helm_repo_url | default('') }}"
+          {% if cloud_provider is defined and cloud_provider == "aws" and enable_external_dns | default(false) %}
+          extraAnnotations:
+            external-dns.alpha.kubernetes.io/target: {{ hostvars['localhost']['ingress_fqdn'] }}
+            external-dns.alpha.kubernetes.io/ttl: "60"
+          {% endif %}
+        
+        suse_packages: {{ (["open-iscsi", "nfs-client", "cryptsetup", "device-mapper"] + ["jq", "python311-PyYAML", "curl", "git", "pciutils"])
+         if enable_longhorn | default(false) else ["jq", "python311-PyYAML", "curl", "git", "pciutils"] }}
+
+
+  - name: Save mgmt_extra_vars.yml
+    copy:
+      dest: "../mgmt_extra_vars.yml"
+      content: "{{ mgmt_extra_vars_content }}"

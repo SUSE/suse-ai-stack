@@ -51,3 +51,62 @@
         - suse_ai_agents
         - suse_ai_cluster
     loop: "{{ suse_ai_worker_nongpu | default([]) }}"
+
+  - name: Save dynamic inventory to inventories/suse-ai_inventory.ini
+    copy:
+      dest: "../inventories/suse-ai_inventory.ini"
+      content: |
+        [rke2_servers]
+        {% for host in groups['suse_ai_cp_master'] %}
+        suse-ai ansible_host={{ hostvars[host].ansible_host }}
+        {% endfor %}
+        {% for host in groups['suse_ai_cp_others'] | default([]) %}
+        suse-ai-cp{{ loop.index }} ansible_host={{ hostvars[host].ansible_host }}
+        {% endfor %}
+        [rke2_agents]
+        {% for host in groups['suse_ai_agents_gpu'] | default([]) %}
+        suse-ai-wkrgpu{{ loop.index }} ansible_host={{ hostvars[host].ansible_host }}
+        {% endfor %}
+        {% for host in groups['suse_ai_agents_nongpu'] | default([]) %}
+        suse-ai-wkr{{ loop.index }} ansible_host={{ hostvars[host].ansible_host }}
+        {% endfor %}
+        [all:vars]
+        ansible_user="{{ vm_ansible_user | default('ai') }}"
+
+
+  - name: Save cp extra vars for suse ai cluster
+    copy:
+      dest: "../suse-ai_extra_vars.yml"
+      content: |
+        ---
+        # SCC
+        scc_registration:
+          server: {{ registration_server | default("https://scc.suse.com") }}
+          email: {{ registration_email }}
+        {% if suse_ai_cluster.image_distro == 'sle-micro' %}
+          sles_code: ""
+          sle_micro_code: "{{ registration_code }}"
+        {% else %}
+          sles_code: "{{ registration_code }}"
+          sle_micro_code: ""
+        {% endif %}
+
+        # Nvidia
+        nvidia:
+          driver_install: {{ (true if not (use_nvidia_driver_installer | default(false)) else false) | lower }}
+          gpu_operator_deploy: {{ (false if (use_nvidia_driver_installer | default(false)) else (enable_gpu_operator | default(false))) | lower }}
+
+        # RKE2
+        rke2:
+          version:  {{ suse_ai_cluster.version  | default('v1.32.4+rke2r1') }}
+          token: {{ suse_ai_cluster.token | default('suse-ai-rke2token') }}
+          lb_address: "{{ hostvars['localhost']['suse_ai_kubeapi_fqdn'] }}"
+
+        cert_manager_deploy: true
+
+        # Rancher
+        rancher:
+          enabled: false
+
+        suse_packages: {{ (["open-iscsi", "nfs-client", "cryptsetup", "device-mapper"] + ["jq", "python311-PyYAML", "curl", "git", "pciutils"])
+         if enable_longhorn | default(false) else ["jq", "python311-PyYAML", "curl", "git", "pciutils"] }}

@@ -5,11 +5,11 @@ nvidia_driver_sles_version: "575.57.08"
 
 nvidia_driver_installer_namespace: kube-system
 nvidia_driver_installer_name: nvidia-driver-installer
-nvidia_driver_installer_chart_version: "0.1.0"
+nvidia_driver_installer_chart_version: "0.1.2"
 nvidia_driver_installer_helm_repo_url: oci://ghcr.io/suse/chart
 nvidia_driver_installer_helm_chart_name: nvidia-driver-installer
 nvidia_driver_installer_helm_chart_ref: "{{ nvidia_driver_installer_helm_repo_url }}/{{  nvidia_driver_installer_helm_chart_name }}"
 
 nvidia_driver_installer_image_registry: "ghcr.io"
 nvidia_driver_installer_image_repository: "suse/nvidia-driver-installer"
-nvidia_driver_installer_image_tag: "0.1.0"
+nvidia_driver_installer_image_tag: "0.1.2"

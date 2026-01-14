@@ -1,0 +1,22 @@
+- name: Copy get_rancher_admin_token.sh script
+  copy:
+    src: files/get_rancher_admin_token.sh
+    dest: ~/get_rancher_admin_token.sh
+    mode: "0755"
+
+- name: Generate Rancher admin token
+  shell: |
+    bash ~/get_rancher_admin_token.sh https://{{ rancher_host }} admin {{ rancher_bootstrap_password}}
+  register: rancher_token_result
+
+- name: print rancher admin token
+  debug:
+    msg: "{{ rancher_token_result.stdout }}"
+
+- name: set rancher token
+  set_fact:
+    rancher_token: "{{ rancher_token_result.stdout }}"
+
+- name: Display Rancher URL
+  debug:
+    msg: "https://{{ rancher_host }}"

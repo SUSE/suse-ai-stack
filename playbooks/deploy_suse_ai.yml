@@ -1,25 +1,28 @@
+- name: Read tofu output
+  import_playbook: read_tofu_output.yml
+
+- name: Display SSH access
+  import_playbook: ssh-access.yml
+
 - name: Deploy SUSE AI
-  hosts: "{{ allowed_hg }}"
+  hosts: rke2_servers[0]
   tasks:
-
-    - name: Deploy external-dns
-      import_role:
-        name: external-dns
-      vars:
-        owner: ai-dev-{{ hostvars['localhost']['unique_id'] | default('') }}
-      when: enable_external_dns | default(false) and suse_ai_cluster is defined
-
-    - name: Deploy Cert-Manager
-      import_role:
-        name: cert-manager
-      when: suse_ai_cluster is defined
-
-    - name: Set AI facts
+    - name: Set AI and Observabilty IP
       set_fact:
-        lh_username: "{{ longhorn_username }}"
-        lh_password: "{{ longhorn_password }}"
-        oi_admin_email: "{{ open_webui_admin_email }}"
-        oi_admin_password: "{{ open_webui_admin_password }}"
+        suse_ai_vm_ip: "{{ hostvars['localhost']['suse_ai_vm_ip'] | default(hostvars['localhost']['vm_ip']) }}"
+        suse_observability_vm_ip: "{{ hostvars['localhost']['suse_observability_vm_ip'] | default(hostvars['localhost']['vm_ip']) }}"
+
+    - name: Update core dns entries on suse-ai cluster
+      import_role: 
+        name: update-coredns
+      vars:
+        host_entries: |
+          {{
+            [hostvars['localhost']['vm_ip'] ~ ' ' ~ hostvars['localhost']['rancher_host'] ]
+            + ([suse_observability_vm_ip ~ ' ' ~ hostvars['localhost']['suse_observability_host']] if enable_suse_observability | default(false) else [])
+            + ([suse_observability_vm_ip ~ ' ' ~ hostvars['localhost']['suse_observability_otel_host']] if enable_suse_observability | default(false) else [])
+          }}
+      when: not (enable_external_dns | default(false)) and suse_ai_cluster is defined
 
     - name: Set target when no external-dns
       set_fact:
@@ -31,18 +34,40 @@
         suse_ai_target: "{{ hostvars['localhost']['suse_ai_ingress_fqdn'] | default(hostvars['localhost']['ingress_fqdn']) }}"
       when: enable_external_dns | default(false)
 
-    - name: Install Longhorn
-      import_role:
-        name: longhorn
-      vars:
-        target: "{{ suse_ai_target }}"
-        lhost: "ai-{{ hostvars['localhost']['longhorn_host'] }}"
-      when: (cloud_provider | default('local')) == "aws" and enable_longhorn and suse_ai_cluster is defined
+    - name: Read suse observability api key
+      ansible.builtin.slurp:
+        src: "../suse_observability_api_key.txt"
+      delegate_to: localhost
+      register: suse_observability_api_key_file_contents
+      when: enable_suse_observability | default(false)
 
-    - name: Install NVIDIA GPU Operator
+    - name: set fact api key
+      set_fact:
+        api_key:  "{{ suse_observability_api_key_file_contents['content'] | b64decode | trim }}"
+      when: enable_suse_observability | default(false)
+
+    - name: Print suse observability api key
+      debug:
+        msg: "{{ api_key }}"
+      when: enable_suse_observability | default(false)
+
+    - name: Deploy OTEL Collector
       import_role:
-        name: nvidia-gpu-operator
-      when: enable_gpu_operator | default(false)
+        name: opentelemetry-collector
+      vars:
+        suse_observability_api_key: "{{ api_key }}"
+        otel_endpoint: "{% if suse_observability_cluster is defined %}http://{{ hostvars['localhost']['suse_observability_otel_host'] }}:80{% endif %}"
+      when: enable_suse_observability | default(false)
+
+    - name: Deploy SUSE Observability Agent on suse ai cluster
+      import_role:
+        name: suse-observability-agent
+      vars:
+        suse_observability_api_key: "{{ api_key }}"
+        cluster_name: "{{ 'suse-ai' if suse_ai_cluster is defined }}"
+        ss_url: "{% if suse_observability_cluster is defined %}https://{{ hostvars['localhost']['suse_observability_host'] }}/receiver/stsAgent{% endif %}"
+        suse_observabiltity_host: "{{ hostvars['localhost']['suse_observability_host'] }}"
+      when: enable_suse_observability | default(false)
 
     - name: Deploy SUSE AI
       import_role:
@@ -50,18 +75,26 @@
       vars:
         open_webui_host: "{{ hostvars['localhost']['open_webui_host'] }}"
 
-    - name: Show SUSE AI kubeapi_fqdn
-      debug:
-        msg: "{{ hostvars['localhost']['suse_ai_kubeapi_fqdn'] | default(hostvars['localhost']['kubeapi_fqdn']) }}"
+    - name: Get rancher token
+      import_role:
+        name: rancher-token
+      vars:
+        rancher_host: "{{ hostvars['localhost']['rancher_host'] }}"
+        rancher_bootstrap_password: "{{ rancher_boostrap_password | default('rancher') }}"
+      when: suse_ai_cluster is defined
 
-    - name: Show SUSE AI ingress_fqdn
-      debug:
-        msg: "{{ hostvars['localhost']['suse_ai_ingress_fqdn'] | default(hostvars['localhost']['ingress_fqdn'])}}"
+    - name: Import suse_ai_cluster
+      import_role:
+        name: import-cluster
+      vars:
+        rancher_url: "https://{{ hostvars['localhost']['rancher_host'] }}"
+        rancher_token: "{{ hostvars['mgmt-rancher']['rancher_token'] }}"
+        cluster_name: suse-ai
+      when: suse_ai_cluster is defined
 
-    - name: Show ansible_host
+    - name: Show SUSE AI VM login
       debug:
-        msg: "{{ ansible_host }}"
-
-    - name: Show SUSE AI Stack VM IP
-      debug:
-        msg: "Login to the suse-ai vm with 'ssh {{ hostvars['localhost']['vm_ansible_user'] | default('ai') }}@{{ hostvars['localhost']['suse_ai_vm_ip'] | default(hostvars['localhost']['vm_ip'])}}'"
+        msg: |
+          "SUSE AI kubeapi: {{ hostvars['localhost']['suse_ai_kubeapi_fqdn'] | default(hostvars['localhost']['kubeapi_fqdn']) }}"
+          "SUSE AI ingress: {{ hostvars['localhost']['suse_ai_ingress_fqdn'] | default(hostvars['localhost']['ingress_fqdn'])}}"
+          "Login to the suse-ai vm with 'ssh {{ hostvars['localhost']['vm_ansible_user'] | default('ai') }}@{{ hostvars['localhost']['suse_ai_vm_ip'] | default(hostvars['localhost']['vm_ip'])}}'"

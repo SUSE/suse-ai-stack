@@ -114,3 +114,6 @@
 - name: Parse tofu output for the suse-observability cluster
   include_tasks: suse_observability_cluster_output.yml
   when: suse_observability_cluster is defined and enable_suse_observability | default('False') | bool
+
+- name: Include ingress_ouput
+  include_tasks: ingress_output.yml
