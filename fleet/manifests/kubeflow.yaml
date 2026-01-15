@@ -8,5 +8,5 @@ spec:
   branch: master
   targetNamespace: suse-private-ai
   paths:
-  - ./example
+  - ./
   forceSyncGeneration: 1
