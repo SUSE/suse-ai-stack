@@ -4,10 +4,9 @@ metadata:
   name: suse-ai-kubeflow-demo
   namespace: fleet-local
 spec:
-  repo: https://github.com/SUSE/suse-ai-stack
+  repo: https://github.com/guangyee/manifests
   branch: main
   targetNamespace: suse-private-ai
   paths:
-  - ./fleet/applications/kubeflow
-  helmSecretName: appco-helm-secret
+  - ./example
   forceSyncGeneration: 1
