@@ -80,8 +80,13 @@ EXT_REPO_BRANCH="main"
 DEST_DIR="${PROJECT_DIR}/external_playbooks"
 if [ -d "$DEST_DIR/.git" ]; then
     # Updating existing repo at $DEST_DIR
-    git -C "$DEST_DIR" fetch --depth 1 origin $EXT_REPO_BRANCH > /dev/null 2>&1
-    git -C "$DEST_DIR" reset --hard origin/$EXT_REPO_BRANCH > /dev/null 2>&1
+    git -C "$DEST_DIR" fetch --depth 1 origin \
+        "+refs/heads/$EXT_REPO_BRANCH:refs/remotes/origin/$EXT_REPO_BRANCH" \
+        > /dev/null 2>&1
+
+    git -C "$DEST_DIR" checkout -B "$EXT_REPO_BRANCH" \
+        "origin/$EXT_REPO_BRANCH" \
+        > /dev/null 2>&1
 else
     #Cloning repo into $DEST_DIR
     git clone --depth 1 --branch "$EXT_REPO_BRANCH" "$EXT_REPO_URL" "$DEST_DIR" > /dev/null 2>&1
