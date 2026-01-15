@@ -66,11 +66,8 @@
           server: {{ registration_server | default("https://scc.suse.com") }}
           email: {{ registration_email }}
         {% if suse_observability_cluster.image_distro == 'sle-micro' %}
-          sles_code: ""
+          sles_code: "" # can be empty since we are not using BYOL image
           sle_micro_code: "{{ registration_code }}"
-        {% else %}
-          sles_code: "{{ registration_code }}"
-          sle_micro_code: ""
         {% endif %}
 
         # Nvidia
