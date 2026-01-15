@@ -5,7 +5,7 @@ metadata:
   namespace: fleet-local
 spec:
   repo: https://github.com/guangyee/manifests
-  branch: main
+  branch: master
   targetNamespace: suse-private-ai
   paths:
   - ./example
