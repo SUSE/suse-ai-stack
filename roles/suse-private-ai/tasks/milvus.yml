@@ -59,7 +59,8 @@
   until: "'successfully rolled out' in rollout_result.stdout"
   with_items:
   - "milvus-datanode"
-  - "milvus-indexnode"
+  - "milvus-mixcoord"
   - "milvus-proxy"
   - "milvus-querynode"
+  - "milvus-streamingnode"
   when: enable_milvus and enable_milvus_cluster_deployment and (not deploy_rancher_only | default(False) | bool)
