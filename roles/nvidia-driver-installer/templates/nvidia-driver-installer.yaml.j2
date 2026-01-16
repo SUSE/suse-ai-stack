@@ -9,12 +9,12 @@ os:
   sles:
     # We use PAYG instance for SLES in AWS. So no need for registration
 {% if cloud_provider != 'aws' %}
-    regcode: "{{ registration_code }}"
+    regcode: "{{ sles_registration_code }}"
     regemail: "{{ registration_email }}"
 {% endif %}
     driverVersion: "{{ nvidia_driver_sles_version }}"
   slem:
-    regcode: "{{ registration_code }}"
+    regcode: "{{ sle_micro_registration_code }}"
     regemail: "{{ registration_email }}"
     driverVersion: "{{ nvidia_driver_sle_micro_version }}"
 

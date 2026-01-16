@@ -83,8 +83,8 @@
         scc_registration:
           server: {{ registration_server | default("https://scc.suse.com") }}
           email: {{ registration_email }}
-          sles_code: "" # can be empty since we are not using BYOL image
-          sle_micro_code: "{{ registration_code }}"
+          sles_code: "{{ sles_registration_code }}"
+          sle_micro_code: "{{ sle_micro_registration_code }}"
 
         # Nvidia
         nvidia:

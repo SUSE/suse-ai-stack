@@ -11,7 +11,12 @@
 #
 # SLE Micro product registration code
 #
-#registration_code: INTERNAL-USE-ONLY-blah-blah
+#sle_micro_registration_code: INTERNAL-USE-ONLY-blah-blah
+
+#
+# SLES product registration code
+#
+#sles_registration_code: INTERNAL-USE-ONLY-yada-yada
 
 #
 # Your github username
