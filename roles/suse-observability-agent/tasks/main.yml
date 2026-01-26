@@ -49,7 +49,8 @@
   shell: |
     kubectl create configmap {{ suse_observability_cm_name_tls }} \
       --from-file=tls.crt=suse-observability-tls.crt \
-      --namespace {{ suse_observability_namespace }}
+      --namespace {{ suse_observability_namespace }} \
+      --dry-run=client -o yaml | kubectl apply -f -
 
 - name: Copy suse-observability-agent.yaml
   template:

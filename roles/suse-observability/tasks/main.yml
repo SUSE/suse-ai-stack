@@ -72,6 +72,13 @@
   set_fact:
     suse_observability_admin_password: "{{ suse_observability_admin_password_result.stdout }}"
 
+- name: Save the admin password to a file
+  copy:
+    dest: "../suse_observability_admin_password.txt"
+    content: |
+      {{ suse_observability_admin_password }}
+  delegate_to: localhost
+
 - name: Retrieve API Key from baseConfig_values file
   shell: |
     grep -A2 "apiKey:" {{ suse_observability_release_name }}/templates/baseConfig_values.yaml | awk '/key:/ {print $2}' | tr -d '"'
@@ -84,6 +91,13 @@
 - name: Print SUSE Observability API key
   debug:
     msg: "The API key for SUSE Observability is: {{ suse_observability_api_key }}"
+
+- name: Save suse_observability_api_key to a file
+  copy:
+    dest: "../suse_observability_api_key.txt"
+    content: |
+      {{ suse_observability_api_key }}
+  delegate_to: localhost
 
 - name: Copy genai-values.yaml
   template:

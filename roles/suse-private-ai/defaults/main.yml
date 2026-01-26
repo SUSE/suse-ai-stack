@@ -31,8 +31,8 @@ appco_secret: application-collection
 # helm repo to use for milvus charts
 milvus_helm_repo: oci://dp.apps.rancher.io/charts/milvus
 #milvus_helm_repo: https://zilliztech.github.io/milvus-helm/
-milvus_helm_version: 4.2.2
-milvus_image_version: 2.4.6
+milvus_helm_version: 5.0.12
+milvus_image_version: 2.6.9
 milvus_release_name: milvus
 
 # helm repo to use for opensearch charts

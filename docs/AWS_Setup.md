@@ -88,7 +88,7 @@ suse_observability_cluster:
 
 We support deploying using SLE-Micro and SLES based EC2 instances.
 As a guidance, following scenarios has been validated. 
-Based on the image_arch chosen, update the product registration_code.
+Based on the image_arch chosen, update the product sle_micro_registration_code and sles_registration_code.
 Instance types configured for a specific arch should be supported in the chosen AWS region.
 For example, the instance types mentioned in the table below is supported in us-west-2 region.
 Not all instance types in this table are supported in other AWS regions. 

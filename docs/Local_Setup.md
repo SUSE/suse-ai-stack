@@ -123,8 +123,10 @@ into `/etc/hosts`. For example:
 
 1. Copy `extra_vars.yml.local.example` to `extra_vars.yml`.
 2. You must uncomment and specify both `registration_email` and
-   `registration_code` in `extra_vars.yml` to registry the
-   [SUSE Linux Enterprise Micro][sle-micro] VM.
+   `sle_micro_registration_code` in `extra_vars.yml` to register the
+   [SUSE Linux Enterprise Micro][sle-micro] VM and `sles_registration_code`
+   to register SUSE Linux Enterprise Server VM. The registration code is
+   architecture dependent.
 3. Go through the optional configurations in `extra_vars.yml` to make
    additional adjustments if necessary. Make sure `ssh_authorized_keys`
    in `extra_vars.yml` has *your SSH key* so you can SSH into the VM without

@@ -30,13 +30,13 @@ fi
 # Redirect output to the console
 exec > >(exec tee -a /dev/tty0) 2>&1
 
-{% if registration_code is defined %}
+{% if sle_micro_registration_code is defined %}
 # Registration
 if ! which SUSEConnect > /dev/null 2>&1; then
     zypper --non-interactive install suseconnect-ng
 fi
 #product="Base_Product"
-#SUSEConnect --email {{ registration_email }} --url {{ registration_server | default("https://scc.suse.com") }} --regcode "{{ registration_code }}"
+#SUSEConnect --email {{ registration_email }} --url {{ registration_server | default("https://scc.suse.com") }} --regcode "{{ sle_micro_registration_code }}"
 {% endif %}
 
 zypper --non-interactive install vim-small

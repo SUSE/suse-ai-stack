@@ -1,0 +1,4 @@
+---
+
+- name: Kick off site.yml
+  import_playbook: "{{ (current_project_dir, 'external_playbooks/playbooks/site.yml') | path_join }}"

@@ -2,16 +2,16 @@
   hosts: localhost
   connection: local
   tasks:
-    - name: Show Mgmt Cluster VM IP
+    - name: Show Mgmt Cluster Master VM IP
       debug:
         msg: "Login to the mgmt-rancher vm with 'ssh {{ vm_ansible_user | default('ai') }}@{{ vm_ip }}'"
 
-    - name: Show SUSE AI Cluster VM IP
+    - name: Show SUSE AI Cluster Master VM IP
       debug:
         msg: "Login to the suse-ai vm with 'ssh {{ vm_ansible_user | default('ai') }}@{{ suse_ai_vm_ip }}'"
       when: suse_ai_cluster is defined
 
-    - name: Show SUSE Observability Cluster VM IP
+    - name: Show SUSE Observability Cluster Master VM IP
       debug:
         msg: "Login to the suse-observability vm with 'ssh {{ vm_ansible_user | default('ai') }}@{{ suse_observability_vm_ip }}'"
       when: suse_observability_cluster is defined and enable_suse_observability | default('False') | bool
