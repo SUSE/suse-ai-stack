@@ -8,7 +8,7 @@ spec:
   branch: main
   targetNamespace: suse-private-ai
   paths:
-  - ./fleet/applications/milvus
+  #  - ./fleet/applications/milvus
   - ./fleet/applications/ollama
   - ./fleet/applications/open-webui
   helmSecretName: appco-helm-secret
