@@ -22,16 +22,14 @@ EOF
 }
 
 charts=()
-charts+=("milvus")
-charts+=("ollama")
-charts+=("open-webui")
+charts+=("suse-ai-deployer")
 charts+=("open-webui-pipelines")
-charts+=("pytorch")
 charts+=("suse-ai-observability-extension")
 charts+=("cert-manager")
 default=0
 
-helm_chart_archive=$(realpath "$dir/..")
+helm_chart_archive=""
+version="1.1.0"
 
 function getCharts() {
   mkdir "charts"
@@ -42,7 +40,7 @@ function getCharts() {
 }
 
 # Parse options
-while getopts ":f:h" opt; do
+while getopts "f:h" opt; do
   case ${opt} in
     f)
       helm_chart_archive=${OPTARG}
@@ -70,27 +68,46 @@ while getopts ":f:h" opt; do
   esac
 done
 
-if [ $OPTIND -eq 1 ]
-then
+if [[ -z "$helm_chart_archive" ]]; then
   echo -e "${GREEN}Using default charts.${NO_COLOR}"
   getCharts
 fi
 
-helm_release=release
 
 images=()
 function listImages() {
-  tmp_file=/tmp/suse-ai-tenant-get-images
   cd "charts"
-  helm_values="serverUrl=http://dummy.stackstate.io,clusterName=dummy,apiKey=dummy,apiToken=dummy"
   for chart in *; do
     echo -e "${GREEN}Evaluating ${chart}${NO_COLOR}"
-    helm template "$helm_release" "$chart" --set "$helm_values" | grep image: | sed -E 's/^.*image: ['\''"]?([^'\''"]*)['\''"]?.*$/\1/' > "$tmp_file"
-    while IFS='' read -r line; do images+=("$line"); done < "$tmp_file"
+    TMP_DIR=$(mktemp -d)
+    echo "Unpack chart ${chart} to: $TMP_DIR"
+    tar -xzf "$chart" -C $TMP_DIR
 
-    # Remove duplicates
-    IFS=" " read -r -a images <<< "$(echo "${images[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
-    rm -f "$tmp_file"
+    image_list=$(find "$TMP_DIR" -name "Chart.yaml" -exec awk '
+    # look for the line "helm.sh/images:" and flag it
+    /helm.sh\/images:/ { in_images_block = 1; next }
+
+    in_images_block && /^[[:space:]]*- image:/ {
+        img = $0
+        sub(/^[[:space:]]*- image:[[:space:]]*/, "", img) # Remove "- image: "
+        sub(/[[:space:]]*$/, "", img)                    # Remove spaces
+        print img
+    }
+
+    in_images_block && /^[a-zA-Z]/ && !/helm.sh\/images:/ { in_images_block = 0 }
+' {} +)
+
+    local -A unique_images_map
+    while read -r line; do
+      if [[ -n "$line" ]]; then
+        clean_img=$(echo "$line" | tr -d '"' | tr -d "'")
+        unique_images_map["$clean_img"]=1
+      fi
+    done <<< "$image_list"
+
+    images=("${!unique_images_map[@]}")
+
+    rm -rf "$TMP_DIR"
   done
 
   # Add MLflow to the list which does not come with a helm-chart
