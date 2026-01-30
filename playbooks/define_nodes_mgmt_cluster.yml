@@ -104,11 +104,11 @@
           bootstrap_password: {{ rancher_bootstrap_password | default('rancher')}}
           use_prime: {{ use_rancher_prime | default(false) }}
           prime_helm_repo_url: "{{ rancher_prime_helm_repo_url | default('') }}"
-          {% if cloud_provider is defined and cloud_provider == "aws" and enable_external_dns | default(false) %}
+        {% if cloud_provider is defined and cloud_provider == "aws" and enable_external_dns | default(false) %}
           extraAnnotations:
             external-dns.alpha.kubernetes.io/target: {{ hostvars['localhost']['ingress_fqdn'] }}
             external-dns.alpha.kubernetes.io/ttl: "60"
-          {% endif %}
+        {% endif %}
         
         suse_packages: {{ (["open-iscsi", "nfs-client", "cryptsetup", "device-mapper"] + ["jq", "python311-PyYAML", "curl", "git", "pciutils"])
          if enable_longhorn | default(false) else ["jq", "python311-PyYAML", "curl", "git", "pciutils"] }}
