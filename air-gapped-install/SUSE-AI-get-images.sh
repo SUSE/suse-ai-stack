@@ -13,34 +13,29 @@ function usage() {
 Get the list of Docker images used by the SUSE AI stack
 
 Usage:
-  $0 [-f suse-ai-stack-X.Y.Z.tgz]
+  $0 [-f suse-ai-stack-X.Y.Z.tgz] [-i charts.txt]
 
 Arguments:
     -f : TGZ archive with the SUSE AI-Stack (optional)
+    -i : File which lists all needed charts (optional)	
     -h : Show this help text
 EOF
 }
 
-charts=()
-charts+=("suse-ai-deployer")
-charts+=("open-webui-pipelines")
-charts+=("suse-ai-observability-extension")
-charts+=("cert-manager")
-default=0
+CHARTS_FILE="charts.txt"
 
 helm_chart_archive=""
-version="1.1.0"
 
 function getCharts() {
   mkdir "charts"
   for chart in "${charts[@]}"
   do
-    helm fetch -d charts 'oci://dp.apps.rancher.io/charts/'"$chart"
+    helm fetch -d charts "$chart"
   done
 }
 
 # Parse options
-while getopts "f:h" opt; do
+while getopts "f:i:h" opt; do
   case ${opt} in
     f)
       helm_chart_archive=${OPTARG}
@@ -50,6 +45,9 @@ while getopts "f:h" opt; do
         echo -e "${RED}Helm chart archive not found${NO_COLOR}: ${helm_chart_archive}" >&2
         exit 1
       fi
+      ;;
+    i)
+      CHARTS_FILE=${OPTARG}
       ;;
     h)
       usage
@@ -68,11 +66,18 @@ while getopts "f:h" opt; do
   esac
 done
 
+if [[ ! -f "$CHARTS_FILE" ]]; then
+  echo -e "${RED}File '$CHARTS_FILE' is not valid.${NO_COLOR}"
+  exit 1
+fi
+
+readarray -t charts < "$CHARTS_FILE"
+echo -e "${GREEN} Read in '${CHARTS_FILE}'. Number of entries: ${#charts[@]}"
+
 if [[ -z "$helm_chart_archive" ]]; then
   echo -e "${GREEN}Using default charts.${NO_COLOR}"
   getCharts
 fi
-
 
 images=()
 function listImages() {
