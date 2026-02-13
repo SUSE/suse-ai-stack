@@ -47,9 +47,6 @@
       aws = {
         access_key = "{{ aws_access_key }}"
         secret_key = "{{ aws_secret_key }}"
-        {% if aws_session_token is defined %}
-        session_token = "{{ aws_session_token }}"
-        {% endif %}
         region = "{{ aws_region }}"
       }
       rancher_url = "{{ rancher_url }}"
