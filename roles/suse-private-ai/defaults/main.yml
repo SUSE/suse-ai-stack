@@ -31,8 +31,8 @@ appco_secret: application-collection
 # helm repo to use for milvus charts
 milvus_helm_repo: oci://dp.apps.rancher.io/charts/milvus
 #milvus_helm_repo: https://zilliztech.github.io/milvus-helm/
-milvus_helm_version: 5.0.12
-milvus_image_version: 2.6.9
+milvus_helm_version: 5.0.13
+milvus_image_version: 2.6.10
 milvus_release_name: milvus
 
 # helm repo to use for opensearch charts
@@ -47,19 +47,19 @@ ollama_deploy_separately: true
 
 
 openwebui_mcpo_helm_repo: oci://dp.apps.rancher.io/charts/open-webui-mcpo
-openwebui_mcpo_helm_version: 1.0.0
+openwebui_mcpo_helm_version: 1.0.2
 openwebui_mcpo_image_version: 0.0.17
 openwebui_mcpo_release_name: open-webui-mcpo
 
 openwebui_helm_repo: oci://dp.apps.rancher.io/charts/open-webui
 #openwebui_helm_repo: https://helm.openwebui.com/
-openwebui_helm_version: 8.19.0
+openwebui_helm_version: 8.19.1
 openwebui_image_version: 0.6.41
 openwebui_release_name: open-webui
 
 ollama_helm_repo: oci://dp.apps.rancher.io/charts/ollama
 #ollama_helm_repo: https://otwld.github.io/ollama-helm/
-ollama_helm_version: 1.33.0
+ollama_helm_version: 1.33.2
 ollama_image_version: 0.12.9
 ollama_release_name: ollama
 
