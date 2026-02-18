@@ -50,6 +50,11 @@ aws_access_key: <Your AWS access key here>
 #
 aws_secret_key: <You AWS secret key here>
 
+# Optional (Use only for AWS SSO User)
+# AWS Session Token
+#
+# aws_session_token: <You AWS session token here>
+
 #
 # AWS availability zone 1, for the primary subnet. (i.e. "us-west-2a")
 #
