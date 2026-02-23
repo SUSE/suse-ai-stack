@@ -50,7 +50,7 @@ aws_access_key: <Your AWS access key here>
 #
 aws_secret_key: <You AWS secret key here>
 
-# Optional (Use only for AWS SSO User)
+# Optional (Use only for AWS SSO User but not supported in multi-cluster setup)
 # AWS Session Token
 #
 # aws_session_token: <You AWS session token here>
