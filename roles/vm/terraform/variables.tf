@@ -2,6 +2,7 @@ variable "aws" {
   type = object({
     access_key = string #AWS access key
     secret_key = string #AWS secret key
+    session_token = optional(string) #AWS session token
     region = string  #AWS region to launch resources
     az1 = string  #AWS availability zone 1 for the aws_region
     az2 = string #AWS availability zone 2 for the aws_region

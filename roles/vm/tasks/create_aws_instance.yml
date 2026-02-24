@@ -14,6 +14,9 @@
       aws = {
         access_key = "{{ aws_access_key }}"
         secret_key = "{{ aws_secret_key }}"
+        {% if aws_session_token is defined %}
+        session_token = "{{ aws_session_token }}"
+        {% endif %}
         region = "{{ aws_region }}"
         az1 = "{{ aws_az1 }}"
         az2 = "{{ aws_az2 }}"
