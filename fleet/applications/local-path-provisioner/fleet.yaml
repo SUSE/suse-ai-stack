@@ -1,0 +1,8 @@
+namespace: suse-ai
+helm:
+  releaseName: ollama
+  chart: oci://dp.apps.rancher.io/charts/local-path-provisioner
+  version: 0.0.34
+  values:
+    storageClass:
+      defaultClass: false
