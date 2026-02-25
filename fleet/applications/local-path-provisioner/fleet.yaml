@@ -1,4 +1,4 @@
-defaultNamespace: local-path
+defaultNamespace: default
 helm:
   releaseName: ollama
   chart: oci://dp.apps.rancher.io/charts/local-path-provisioner
