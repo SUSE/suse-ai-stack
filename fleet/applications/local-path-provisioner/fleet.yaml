@@ -1,4 +1,3 @@
-namespace: suse-ai
 helm:
   releaseName: ollama
   chart: oci://dp.apps.rancher.io/charts/local-path-provisioner

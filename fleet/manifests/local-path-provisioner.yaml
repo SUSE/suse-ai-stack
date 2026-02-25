@@ -6,7 +6,6 @@ metadata:
 spec:
   repo: https://github.com/SUSE/suse-ai-stack
   branch: main
-  targetNamespace: suse-private-ai
   paths:
   - ./fleet/applications/local-path-provisioner
   helmSecretName: appco-helm-secret
