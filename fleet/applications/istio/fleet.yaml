@@ -9,3 +9,8 @@ helm:
         - application-collection
     cni:
       enabled: true
+    gateway:
+      enabled: true
+      profile: "stable"
+    istiod:
+      profile: "stable"
