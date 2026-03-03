@@ -1,0 +1,11 @@
+defaultNamespace: local-path
+helm:
+  releaseName: local-path
+  chart: oci://dp.apps.rancher.io/charts/local-path-provisioner
+  version: 0.0.34
+  values:
+    global:
+      imagePullSecrets:
+        - application-collection
+    storageClass:
+      defaultClass: true

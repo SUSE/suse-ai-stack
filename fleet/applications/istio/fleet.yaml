@@ -1,0 +1,16 @@
+defaultNamespace: istio-system
+helm:
+  releaseName: istio
+  chart: oci://dp.apps.rancher.io/charts/istio
+  version: 1.1.3
+  values:
+    global:
+      imagePullSecrets:
+        - application-collection
+    cni:
+      enabled: true
+    gateway:
+      enabled: true
+      profile: "stable"
+    istiod:
+      profile: "stable"

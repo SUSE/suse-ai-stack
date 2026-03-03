@@ -1,15 +1,12 @@
 kind: GitRepo
 apiVersion: fleet.cattle.io/v1alpha1
 metadata:
-  name: suse-ai-standalone
+  name: suse-ai-demo-istio
   namespace: fleet-local
 spec:
   repo: https://github.com/SUSE/suse-ai-stack
   branch: main
-  targetNamespace: suse-private-ai
   paths:
-  #  - ./fleet/applications/milvus
-  - ./fleet/applications/ollama
-  - ./fleet/applications/open-webui
+  - ./fleet/applications/istio
   helmSecretName: appco-helm-secret
   forceSyncGeneration: 1
