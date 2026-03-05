@@ -86,12 +86,13 @@
 
         # Nvidia
         nvidia:
-          driver_install: {{ (true if not (use_nvidia_driver_installer | default(false)) else false) | lower }}
+          driver_install: {{ (false if (use_nvidia_driver_installer | default(false)) else (enable_nvidia_driver_pkg_install | default(true))) | lower }}
           gpu_operator_deploy: {{ (false if (use_nvidia_driver_installer | default(false)) else (enable_gpu_operator | default(false))) | lower }}
+          gpu_operator_version: {{  gpu_operator_chart_version | default('25.10.1')}}
 
         # RKE2
         rke2:
-          version:  {{ cluster.version | default('v1.32.4+rke2r1') }}
+          version:  {{ cluster.version | default('v1.34.4+rke2r1') }}
           token: {{ cluster.token | default('mgmt-rke2token') }}
           lb_address: "{{ hostvars['localhost']['kubeapi_fqdn'] }}"
 

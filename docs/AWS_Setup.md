@@ -66,7 +66,7 @@ suse_ai_cluster:
   num_worker_nodes_gpu: 0
   num_worker_nodes_nongpu: 0
   token: "suse-ai-rke2token"
-  version: "v1.32.4+rke2r1" #RKE2 channel version. see https://update.rke2.io/v1-release/channels for a complete list
+  version: "v1.34.4+rke2r1" #RKE2 channel version. see https://update.rke2.io/v1-release/channels for a complete list
 ```
 
 ```
@@ -83,7 +83,7 @@ suse_observability_cluster:
   num_cp_nodes: 1
   num_worker_nodes: 1
   token: "suse-observability-rke2token"
-  version: "v1.32.4+rke2r1" #RKE2 channel version. see https://update.rke2.io/v1-release/channels for a complete list
+  version: "v1.34.4+rke2r1" #RKE2 channel version. see https://update.rke2.io/v1-release/channels for a complete list
 ```
 
 We support deploying using SLE-Micro and SLES based EC2 instances.

@@ -72,10 +72,11 @@
         nvidia:
           driver_install: false
           gpu_operator_deploy: false
+          gpu_operator_version: {{  gpu_operator_chart_version | default('25.10.1')}}
 
         # RKE2
         rke2:
-          version:  {{ suse_observability_cluster.version | default('v1.32.4+rke2r1') }}
+          version:  {{ suse_observability_cluster.version | default('v1.34.4+rke2r1') }}
           token: {{ suse_observability_cluster.token | default('suse-observability-rke2token') }}
           lb_address: "{{ hostvars['localhost']['suse_observability_kubeapi_fqdn'] }}"
 

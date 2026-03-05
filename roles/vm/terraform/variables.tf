@@ -45,7 +45,7 @@ variable "cluster" {
     num_worker_nodes_gpu = 0
     num_worker_nodes_nongpu = 0
     token = "ai-rke2token"
-    version = "v1.32.4+rke2r1"
+    version = "v1.34.4+rke2r1"
   }
 }
 
