@@ -216,9 +216,9 @@ enable_time_slicing: true
 time_slicing_replicas: 4
 
 #
-# set the NVIDIA GPU Operator chart version defaults to 24.6.0
+# set the NVIDIA GPU Operator chart version defaults to 25.10.1
 #
-#  gpu_operator_chart_version: 24.6.0
+#  gpu_operator_chart_version: 25.10.1
 
 #
 # Flag to control vllm deployment.
@@ -292,5 +292,5 @@ cluster:
   num_worker_nodes_gpu: 0
   num_worker_nodes_nongpu: 0
   token: "mgmt-rke2token"
-  version: "v1.32.4+rke2r1" #RKE2 channel version. see https://update.rke2.io/v1-release/channels for a complete list
+  version: "v1.34.4+rke2r1" #RKE2 channel version. see https://update.rke2.io/v1-release/channels for a complete list
 
