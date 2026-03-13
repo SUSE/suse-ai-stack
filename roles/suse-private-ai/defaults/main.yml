@@ -59,8 +59,8 @@ openwebui_release_name: open-webui
 
 ollama_helm_repo: oci://dp.apps.rancher.io/charts/ollama
 #ollama_helm_repo: https://otwld.github.io/ollama-helm/
-ollama_helm_version: 1.33.2
-ollama_image_version: 0.12.9
+ollama_helm_version: 1.38.0
+ollama_image_version: 0.14.2
 ollama_release_name: ollama
 
 pipelines_enabled: true
