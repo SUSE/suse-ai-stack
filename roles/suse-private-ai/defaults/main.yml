@@ -77,8 +77,8 @@ vllm_chart_name: vllm-stack
 appco_vllm_chart_name: vllm
 vllm_helm_repo: oci://dp.apps.rancher.io/charts/{{ appco_vllm_chart_name }}
 #vllm_helm_repo: https://vllm-project.github.io/production-stack/
-vllm_helm_version: 0.1.6
-vllm_core_image_version: 0.9.1
+vllm_helm_version: 0.1.9
+vllm_core_image_version: 0.13.0
 vllm_cache_image_version: 0.3.2
 vllm_cache_router_version: 0.1.6
 vllm_release_name: vllm
