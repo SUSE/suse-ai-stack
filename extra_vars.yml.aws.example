@@ -284,7 +284,7 @@ cluster:
   root_volume_size: 350
   image_arch: "x86_64" # options supported "x86_64" and "arm64". Please update the instance type based on the chosen image_arch.
   image_distro: "sles" # options supported are "sles" and "sle-micro"
-  image_distro_version: "15-sp6" # "15-sp6" for sles and "6.0" for sle-micro as example
+  image_distro_version: "15-sp7" # "15-sp7" for sles and "6.0" for sle-micro as example
   instance_type_cp: "g4dn.2xlarge"
   instance_type_gpu: "g4dn.2xlarge" #g4dn instance type has GPU
   instance_type_nongpu: "m5d.2xlarge"

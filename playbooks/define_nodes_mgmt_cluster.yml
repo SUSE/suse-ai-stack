@@ -73,6 +73,17 @@
         [all:vars]
         ansible_user="{{ vm_ansible_user | default('ai') }}"
 
+  - name: Set python-PyYAML package name
+    set_fact:
+      mgmt_pyyaml_package_name: "{{ 'python313-PyYAML' if cluster.image_distro == 'sles' and cluster.image_distro_version.startswith('16')  else 'python311-PyYAML' }}"
+    when: cluster is defined
+
+  - name: Set python-PyYAML package name
+    set_fact:
+      mgmt_pyyaml_package_name: 'python311-PyYAML'
+    when: cluster is not defined
+
+
   - name: Build mgmt extra_vars content
     set_fact:
       mgmt_extra_vars_content: |
@@ -110,10 +121,13 @@
             external-dns.alpha.kubernetes.io/target: {{ hostvars['localhost']['ingress_fqdn'] }}
             external-dns.alpha.kubernetes.io/ttl: "60"
         {% endif %}
-        
-        suse_packages: {{ (["open-iscsi", "nfs-client", "cryptsetup", "device-mapper"] + ["jq", "python311-PyYAML", "curl", "git", "pciutils"])
-         if enable_longhorn | default(false) else ["jq", "python311-PyYAML", "curl", "git", "pciutils"] }}
-
+        suse_packages: {{
+          (["open-iscsi", "nfs-client", "cryptsetup", "device-mapper"]
+          if enable_longhorn | default(false) else [])
+          + ["jq",
+            mgmt_pyyaml_package_name,
+            "curl", "git", "pciutils"]
+        }}
 
   - name: Save mgmt_extra_vars.yml
     copy:
