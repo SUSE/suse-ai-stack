@@ -1,10 +1,26 @@
 global:
   imagePullSecrets:
   - {{ appco_secret }}
+extraEnvs:
+  - name: K8S_CLUSTER_NAME
+    value: "{{ otel_cluster_name }}"
+  - name: SUSE_AI_NAMESPACE
+    value: "{{ otel_suse_ai_namespace }}"
 extraEnvsFrom:
   - secretRef:
       name: {{ otel_secret }}
 mode: deployment
+clusterRole:
+  create: true
+  rules:
+    - apiGroups: [""]
+      resources: ["pods", "nodes", "endpoints", "services"]
+      verbs: ["get", "list", "watch"]
+image:
+  registry: {{ otel_collector_image_registry }}
+  repository: {{ otel_collector_image_repository }}
+  tag: {{ otel_collector_image_tag }}
+  pullPolicy: Always
 ports:
   metrics:
     enabled: true
@@ -14,6 +30,20 @@ presets:
     extractAllPodLabels: true
 config:
   receivers:
+{% if otel_scrape_opensearch %}
+    elasticsearch:
+      endpoint: "{{ otel_opensearch_endpoint }}"
+      username: "{{ otel_opensearch_username }}"
+      password: "{{ otel_opensearch_password }}"
+      tls:
+        insecure_skip_verify: true
+      collection_interval: 10s
+      metrics:
+        elasticsearch.node.fs.disk.total:
+          enabled: true
+        elasticsearch.node.fs.disk.available:
+          enabled: true
+{% endif %}
     prometheus:
       config:
         scrape_configs:
@@ -24,7 +54,7 @@ config:
               - role: endpoints
                 namespaces:
                   names:
-                    - gpu-operator
+                    - {{ otel_gpu_operator_namespace }}
 {% if otel_scrape_milvus %}
           - job_name: 'milvus'
             scrape_interval: 15s
@@ -32,6 +62,13 @@ config:
 
             static_configs:
               - targets: ['{{ otel_milvus_endpoint }}']
+{% endif %}
+{% if otel_scrape_qdrant %}
+          - job_name: 'qdrant'
+            scrape_interval: 10s
+            metrics_path: '/metrics'
+            static_configs:
+              - targets: ['{{ otel_qdrant_endpoint }}']
 {% endif %}
 {% if enable_vllm_deployment | default(false) %}
           - job_name: 'vllm'
@@ -49,6 +86,13 @@ config:
                 regex: '.*{{ otel_vllm_release_name }}.*'
 {% endif %}
   exporters:
+    topology:
+      endpoint: {{ otel_topology_endpoint }}
+      api_key: ${env:API_KEY}
+      instance_url: ${env:K8S_CLUSTER_NAME}
+      namespace: ${env:SUSE_AI_NAMESPACE}
+      tls:
+        insecure_skip_verify: true
     otlp:
       endpoint: {{ endpoint }}
       headers:
@@ -56,6 +100,62 @@ config:
       tls:
         insecure: true
   processors:
+{% if otel_scrape_opensearch %}
+    resource/elasticsearch:
+      attributes:
+        - key: suse.ai.managed
+          value: "true"
+          action: insert
+        - key: suse.ai.component.name
+          value: "opensearch"
+          action: insert
+        - key: suse.ai.component.type
+          value: "search-engine"
+          action: insert
+        - key: service.name
+          value: "opensearch"
+          action: insert
+        - key: service.namespace
+          value: ${env:SUSE_AI_NAMESPACE}
+          action: insert
+        - key: k8s.namespace.name
+          value: ${env:SUSE_AI_NAMESPACE}
+          action: upsert
+        - key: service.instance.id
+          value: "opensearch-cluster"
+          action: insert
+{% endif %}
+    transform/vllm:
+      error_mode: ignore
+      metric_statements:
+        - context: resource
+          statements:
+            - set(attributes["suse.ai.managed"], "true") where attributes["service.name"] == "vllm"
+            - set(attributes["suse.ai.component.name"], "vllm") where attributes["service.name"] == "vllm"
+            - set(attributes["suse.ai.component.type"], "inference-engine") where attributes["service.name"] == "vllm"
+            - set(attributes["service.instance.id"], "vllm") where attributes["service.name"] == "vllm"
+            - set(attributes["k8s.namespace.name"], attributes["service.namespace"]) where attributes["service.name"] == "vllm" and attributes["service.namespace"] != nil
+            - set(attributes["k8s.namespace.name"], "${env:SUSE_AI_NAMESPACE}") where attributes["service.name"] == "vllm" and attributes["service.namespace"] == nil
+    transform/qdrant:
+      error_mode: ignore
+      metric_statements:
+        - context: resource
+          statements:
+            - set(attributes["suse.ai.managed"], "true") where attributes["service.name"] == "qdrant"
+            - set(attributes["suse.ai.component.name"], "qdrant") where attributes["service.name"] == "qdrant"
+            - set(attributes["suse.ai.component.type"], "vectordb") where attributes["service.name"] == "qdrant"
+            - set(attributes["k8s.namespace.name"], attributes["service.namespace"]) where attributes["service.name"] == "qdrant" and attributes["service.namespace"] != nil
+            - set(attributes["k8s.namespace.name"], "${env:SUSE_AI_NAMESPACE}") where attributes["service.name"] == "qdrant" and attributes["service.namespace"] == nil
+    transform/milvus:
+      error_mode: ignore
+      metric_statements:
+        - context: resource
+          statements:
+            - set(attributes["suse.ai.managed"], "true") where attributes["service.name"] == "milvus"
+            - set(attributes["suse.ai.component.name"], "milvus") where attributes["service.name"] == "milvus"
+            - set(attributes["suse.ai.component.type"], "vectordb") where attributes["service.name"] == "milvus"
+            - set(attributes["k8s.namespace.name"], attributes["service.namespace"]) where attributes["service.name"] == "milvus" and attributes["service.namespace"] != nil
+            - set(attributes["k8s.namespace.name"], "${env:SUSE_AI_NAMESPACE}") where attributes["service.name"] == "milvus" and attributes["service.namespace"] == nil
     tail_sampling:
       decision_wait: 10s
       policies:
@@ -85,11 +185,84 @@ config:
     resource:
       attributes:
       - key: k8s.cluster.name
-        action: upsert
-        value: local
+        action: insert
+        value: ${env:K8S_CLUSTER_NAME}
       - key: service.instance.id
         from_attribute: k8s.pod.uid
         action: insert
+    filter/genai-metrics-only:
+      error_mode: ignore
+      metrics:
+        metric:
+          - not(IsMatch(name, "gen_ai\\..*"))
+    groupbyattrs/infer-providers:
+      keys:
+        - gen_ai.provider.name
+    transform/infer-providers:
+      error_mode: ignore
+      metric_statements:
+        - context: resource
+          statements:
+            - set(attributes["service.name"], attributes["gen_ai.provider.name"]) where attributes["gen_ai.provider.name"] != nil
+            - set(attributes["service.instance.id"], attributes["gen_ai.provider.name"]) where attributes["gen_ai.provider.name"] != nil
+            - set(attributes["suse.ai.managed"], "true") where attributes["gen_ai.provider.name"] != nil
+            - set(attributes["suse.ai.component.name"], attributes["gen_ai.provider.name"]) where attributes["gen_ai.provider.name"] != nil
+            - set(attributes["suse.ai.component.type"], "inference-engine") where attributes["gen_ai.provider.name"] != nil
+            - set(attributes["k8s.namespace.name"], attributes["service.namespace"]) where attributes["gen_ai.provider.name"] != nil and attributes["service.namespace"] != nil
+            - set(attributes["k8s.namespace.name"], "${env:SUSE_AI_NAMESPACE}") where attributes["gen_ai.provider.name"] != nil and attributes["service.namespace"] == nil
+    groupbyattrs/infer-models:
+      keys:
+        - gen_ai.request.model
+        - gen_ai.provider.name
+    transform/infer-models:
+      error_mode: ignore
+      metric_statements:
+        - context: resource
+          statements:
+            - set(attributes["service.name"], attributes["gen_ai.request.model"]) where attributes["gen_ai.request.model"] != nil
+            - set(attributes["service.instance.id"], attributes["gen_ai.request.model"]) where attributes["gen_ai.request.model"] != nil
+            - set(attributes["suse.ai.managed"], "true") where attributes["gen_ai.request.model"] != nil
+            - set(attributes["suse.ai.component.name"], attributes["gen_ai.request.model"]) where attributes["gen_ai.request.model"] != nil
+            - set(attributes["suse.ai.component.type"], "llm-model") where attributes["gen_ai.request.model"] != nil
+            - set(attributes["k8s.namespace.name"], attributes["service.namespace"]) where attributes["gen_ai.request.model"] != nil and attributes["service.namespace"] != nil
+            - set(attributes["k8s.namespace.name"], "${env:SUSE_AI_NAMESPACE}") where attributes["gen_ai.request.model"] != nil and attributes["service.namespace"] == nil
+    filter/exclude-already-tagged:
+      error_mode: ignore
+      metrics:
+        resource:
+          - attributes["suse.ai.component.name"] != nil
+    transform/infer-applications:
+      error_mode: ignore
+      metric_statements:
+        - context: resource
+          statements:
+            - set(attributes["suse.ai.managed"], "true")
+            - set(attributes["suse.ai.component.type"], "application")
+            - set(attributes["suse.ai.component.name"], attributes["service.name"])
+    filter/genai-spans:
+      error_mode: ignore
+      traces:
+        span:
+          - attributes["gen_ai.request.model"] == nil
+    groupbyattrs/model-relations:
+      keys:
+        - gen_ai.provider.name
+    transform/model-relations:
+      error_mode: ignore
+      trace_statements:
+        - context: resource
+          statements:
+            - set(attributes["service.name"], attributes["gen_ai.provider.name"]) where attributes["gen_ai.provider.name"] != nil
+            - set(attributes["service.instance.id"], attributes["gen_ai.provider.name"]) where attributes["gen_ai.provider.name"] != nil
+        - context: span
+          statements:
+            - set(attributes["peer.service"], attributes["gen_ai.request.model"]) where attributes["gen_ai.request.model"] != nil
+    transform/provider-relations:
+      error_mode: ignore
+      trace_statements:
+        - context: span
+          statements:
+            - set(attributes["peer.service"], resource.attributes["gen_ai.provider.name"]) where resource.attributes["gen_ai.provider.name"] != nil
     filter/dropMissingK8sAttributes:
       error_mode: ignore
       traces:
@@ -98,13 +271,6 @@ config:
           - resource.attributes["k8s.pod.uid"] == nil
           - resource.attributes["k8s.namespace.name"] == nil
           - resource.attributes["k8s.pod.name"] == nil
-{% if enable_vllm_deployment | default(false) %}
-    transform:
-      metric_statements:
-        - context: metric
-          statements:
-            - replace_pattern(name, "^vllm:", "vllm_")
-{% endif %}
   connectors:
     spanmetrics:
       metrics_expiration: 5m
@@ -113,7 +279,7 @@ config:
       error_mode: ignore
       table:
       - statement: route()
-        pipelines: [traces/sampling, traces/spanmetrics]
+        pipelines: [traces/sampling, traces/spanmetrics, traces/model-relations, traces/provider-relations, traces/topology]
   service:
     extensions:
       - health_check
@@ -132,9 +298,35 @@ config:
         exporters: [debug, otlp]
       metrics:
         receivers: [otlp, spanmetrics, prometheus]
-{% if enable_vllm_deployment | default(false) %}
-        processors: [transform, memory_limiter, resource, batch]
-{% else %}
-        processors: [memory_limiter, resource, batch]
-{% endif %}
+        processors: [memory_limiter, transform/qdrant, transform/milvus, transform/vllm, resource, batch]
         exporters: [debug, otlp]
+      metrics/infer-providers:
+        receivers: [otlp]
+        processors: [filter/genai-metrics-only, groupbyattrs/infer-providers, transform/infer-providers, resource, batch]
+        exporters: [otlp]
+      metrics/infer-models:
+        receivers: [otlp]
+        processors: [filter/genai-metrics-only, groupbyattrs/infer-models, transform/infer-models, resource, batch]
+        exporters: [otlp]
+      metrics/infer-applications:
+        receivers: [otlp]
+        processors: [filter/genai-metrics-only, filter/exclude-already-tagged, transform/infer-applications, resource, batch]
+        exporters: [otlp]
+      traces/model-relations:
+        receivers: [routing/traces]
+        processors: [filter/genai-spans, groupbyattrs/model-relations, transform/model-relations, batch]
+        exporters: [otlp]
+      traces/provider-relations:
+        receivers: [routing/traces]
+        processors: [filter/genai-spans, transform/provider-relations, batch]
+        exporters: [otlp]
+      traces/topology:
+        receivers: [routing/traces]
+        processors: [batch]
+        exporters: [topology]
+{% if otel_scrape_opensearch %}
+      metrics/elasticsearch:
+        receivers: [elasticsearch]
+        processors: [memory_limiter, resource/elasticsearch, resource, batch]
+        exporters: [debug, otlp]
+{% endif %}

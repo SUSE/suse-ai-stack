@@ -29,7 +29,9 @@
   shell: |
     if [[ {{ otel_collector_helm_repo }} == *"dp.apps.rancher.io"* ]]; then
         helm registry login dp.apps.rancher.io/charts -u {{ application_collection_user_email }} -p {{ application_collection_user_token }}
-        helm upgrade --install {{ otel_collector_release_name }} {{ otel_collector_helm_repo }} -n {{ otel_namespace }} --create-namespace  --version {{ otel_collector_helm_version }} -f otel-values.yaml
+    fi
+    if [[ {{ otel_collector_helm_repo }} == oci://* ]]; then
+        helm upgrade --install {{ otel_collector_release_name }} {{ otel_collector_helm_repo }} -n {{ otel_namespace }} --create-namespace --version {{ otel_collector_helm_version }} -f otel-values.yaml
     else
         helm upgrade --install {{ otel_collector_release_name }} --repo {{ otel_collector_helm_repo }} -n {{ otel_namespace }} --create-namespace --version {{ otel_collector_helm_version }} -f otel-values.yaml
     fi
@@ -37,15 +39,6 @@
   until: otel_collector_deploy_result.rc == 0
   retries: 3
   delay: 20
-
-- name: Copy otel-rbac.yaml
-  template:
-    src: otel-rbac.yaml.j2
-    dest: ~/otel-rbac.yaml
-
-- name: Add custom RBAC rules for metrics
-  shell: >
-    kubectl apply -f otel-rbac.yaml
 
 - name: Wait for OpenTelemetry Collector rollout to finish
   shell: |
