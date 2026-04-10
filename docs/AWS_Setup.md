@@ -58,7 +58,7 @@ suse_ai_cluster:
   root_volume_size: 350
   image_arch: "x86_64" # options supported "x86_64" and "arm64". Please update the instance type based on the chosen image_arch.
   image_distro: "sles" # options supported are "sles" and "sle-micro"
-  image_distro_version: "15-sp6" # "15-sp6" for sles and "6.0" for sle-micro as example
+  image_distro_version: "15-sp7" # "15-sp7" for sles and "6.0" for sle-micro as example
   instance_type_cp: "g4dn.2xlarge"
   instance_type_gpu: "g4dn.2xlarge" #g4dn instance type has GPU
   instance_type_nongpu: "m5d.2xlarge"
@@ -77,7 +77,7 @@ suse_observability_cluster:
   root_volume_size: 350
   image_arch: "x86_64" # options supported "x86_64" and "arm64". Please update the instance type based on the chosen image_arch.
   image_distro: "sles" # options supported are "sles" and "sle-micro"
-  image_distro_version: "15-sp6" # "15-sp6" for sles and "6.0" for sle-micro as example
+  image_distro_version: "15-sp7" # "15-sp7" for sles and "6.0" for sle-micro as example
   instance_type_cp: "t3a.2xlarge"
   instance_type_worker: "t3a.2xlarge"
   num_cp_nodes: 1
@@ -100,10 +100,10 @@ Note: arm based deployments are not supported when enable_suse_observability is 
 | ---------------------  | ---------------------- | -------------------- | ------------------------------------------- |
 | x86_64                 | sle-micro              | 6.0                  | g4dn for GPU, m5d for non-GPU               |
 | x86_64                 | sle-micro              | 6.1                  | g4dn for GPU, m5d for non-GPU               |
-| x86_64                 | sles                   | 15-sp6               | g4dn for GPU, m5d for non-GPU               |
+| x86_64                 | sles                   | 15-sp7               | g4dn for GPU, m5d for non-GPU               |
 | arm64                  | sle-micro              | 6.0                  | g5g for GPU, m6gd for non-GPU               |
 | arm64                  | sle-micro              | 6.1                  | g5g for GPU, m6gd for non-GPU               |
-| arm64                  | sles                   | 15-sp6               | g5g for GPU, m6gd for non-GPU               |
+| arm64                  | sles                   | 15-sp7               | g5g for GPU, m6gd for non-GPU               |
 
 4. Run `setup_private_ai_stack.sh`
 

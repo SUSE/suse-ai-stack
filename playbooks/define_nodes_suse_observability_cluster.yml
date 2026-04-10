@@ -56,6 +56,10 @@
         [all:vars]
         ansible_user="{{ vm_ansible_user | default('ai') }}"
 
+  - name: Set python-PyYAML package name
+    set_fact:
+      suse_observ_pyyaml_package_name: "{{ 'python313-PyYAML' if suse_observability_cluster.image_distro == 'sles' and suse_observability_cluster.image_distro_version.startswith('16') else 'python311-PyYAML' }}"
+
   - name: Save cp extra vars for suse observaiblity cluster
     copy:
       dest: "../suse-observability_extra_vars.yml"
@@ -84,5 +88,10 @@
         # Rancher
         rancher:
           enabled: false
-        suse_packages: {{ (["open-iscsi", "nfs-client", "cryptsetup", "device-mapper"] + ["jq", "python311-PyYAML", "curl", "git", "pciutils"])
-         if enable_longhorn | default(false) else ["jq", "python311-PyYAML", "curl", "git", "pciutils"] }}
+        suse_packages: {{
+          (["open-iscsi", "nfs-client", "cryptsetup", "device-mapper"]
+          if enable_longhorn | default(false) else [])
+          + ["jq",
+            suse_observ_pyyaml_package_name,
+            "curl", "git", "pciutils"]
+        }}
