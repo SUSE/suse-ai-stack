@@ -3,7 +3,7 @@ otel_namespace: observability
 otel_collector_helm_repo: oci://registry.suse.com/ai/charts/suse-ai-opentelemetry-collector
 otel_collector_release_name: opentelemetry-collector
 otel_collector_helm_version: 0.149.0
-appco_secret: application-collection
+suse_ai_registry_secret: suse-ai-registry
 suse_observability_namespace: suse-observability
 endpoint: "{{ otel_endpoint | default('http://suse-observability-otel-collector.' ~ suse_observability_namespace ~ '.svc.cluster.local:4317', true) }}"
 otel_topology_endpoint: "{{ otel_topology_ep | default('http://suse-observability-router.' ~ suse_observability_namespace ~ '.svc.cluster.local:8080', true) }}"

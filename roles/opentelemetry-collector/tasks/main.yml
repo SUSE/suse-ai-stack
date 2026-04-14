@@ -6,19 +6,19 @@
       kubectl create secret generic {{ otel_secret }} --from-literal=API_KEY='{{ suse_observability_api_key }}' -n {{ otel_namespace }}
     fi
 
-- name: Check if AppCo secret exists in OTEL Namespace
-  command: kubectl get secret "{{ appco_secret }}" -n "{{ otel_namespace }}" --ignore-not-found
+- name: Check if SUSE AI registry secret exists in OTEL Namespace
+  command: kubectl get secret "{{ suse_ai_registry_secret }}" -n "{{ otel_namespace }}" --ignore-not-found
   register: secret_check_otel
   changed_when: false
 
-- name: Create AppCo registry secret for OTEL Namespace
+- name: Create SUSE AI registry secret for OTEL Namespace
   command: >
-    kubectl create secret docker-registry "{{ appco_secret }}"
-    --docker-server=dp.apps.rancher.io
-    --docker-username="{{ application_collection_user_email }}"
-    --docker-password="{{ application_collection_user_token }}"
+    kubectl create secret docker-registry "{{ suse_ai_registry_secret }}"
+    --docker-server=registry.suse.com
+    --docker-username=regcode
+    --docker-password="{{ suse_ai_registration_code }}"
     -n "{{ otel_namespace }}"
-  when: "appco_secret not in secret_check_otel.stdout"
+  when: "suse_ai_registry_secret not in secret_check_otel.stdout"
 
 - name: Copy otel-values.yaml
   template:
@@ -29,6 +29,8 @@
   shell: |
     if [[ {{ otel_collector_helm_repo }} == *"dp.apps.rancher.io"* ]]; then
         helm registry login dp.apps.rancher.io/charts -u {{ application_collection_user_email }} -p {{ application_collection_user_token }}
+    elif [[ {{ otel_collector_helm_repo }} == *"registry.suse.com"* ]]; then
+        helm registry login registry.suse.com -u regcode -p {{ suse_ai_registration_code }}
     fi
     if [[ {{ otel_collector_helm_repo }} == oci://* ]]; then
         helm upgrade --install {{ otel_collector_release_name }} {{ otel_collector_helm_repo }} -n {{ otel_namespace }} --create-namespace --version {{ otel_collector_helm_version }} -f otel-values.yaml

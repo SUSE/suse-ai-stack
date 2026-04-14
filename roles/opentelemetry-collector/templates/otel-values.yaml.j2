@@ -1,6 +1,6 @@
 global:
   imagePullSecrets:
-  - {{ appco_secret }}
+  - {{ suse_ai_registry_secret }}
 extraEnvs:
   - name: K8S_CLUSTER_NAME
     value: "{{ otel_cluster_name }}"
