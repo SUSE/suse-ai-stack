@@ -2,8 +2,7 @@ global:
   imagePullSecrets:
   - {{ appco_secret }}
 serverUrl: {{ suse_observability_server_url }}
-apiKey: {{ suse_observability_api_key }}
 apiToken: {{ suse_observability_api_token }}
 tokenType: service
-clusterName: {{ clusterName }}
-schedule: '* * * * *'
+kubernetesClusters:
+- {{ clusterName }}

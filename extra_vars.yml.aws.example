@@ -19,6 +19,11 @@
 #sles_registration_code: INTERNAL-USE-ONLY-yada-yada
 
 #
+# SUSE AI registry (registry.suse.com) registration code
+#
+#suse_ai_registration_code: INTERNAL-USE-ONLY-xxxx-xxxx
+
+#
 # Your github username
 #
 github_username: <your github username>
