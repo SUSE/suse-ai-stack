@@ -29,8 +29,8 @@
   shell: |
     if [[ {{ otel_collector_helm_repo }} == *"dp.apps.rancher.io"* ]]; then
         helm registry login dp.apps.rancher.io/charts -u {{ application_collection_user_email }} -p {{ application_collection_user_token }}
-    elif [[ {{ otel_collector_helm_repo }} == *"registry.suse.com"* ]]; then
-        helm registry login registry.suse.com -u regcode -p {{ suse_ai_registration_code }}
+    elif [[ {{ otel_collector_helm_repo }} == *"{{ suse_ai_registry_server }}"* ]]; then
+        helm registry login {{ suse_ai_registry_server }} -u {{ suse_ai_registry_username }} -p {{ suse_ai_registration_code }}
     fi
     if [[ {{ otel_collector_helm_repo }} == oci://* ]]; then
         helm upgrade --install {{ otel_collector_release_name }} {{ otel_collector_helm_repo }} -n {{ otel_namespace }} --create-namespace --version {{ otel_collector_helm_version }} -f otel-values.yaml
