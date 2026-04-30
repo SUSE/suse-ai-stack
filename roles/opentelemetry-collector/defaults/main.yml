@@ -9,9 +9,9 @@ endpoint: "{{ otel_endpoint | default('http://suse-observability-otel-collector.
 otel_topology_endpoint: "{{ otel_topology_ep | default('http://suse-observability-router.' ~ suse_observability_namespace ~ '.svc.cluster.local:8080', true) }}"
 otel_cluster_name: local
 otel_suse_ai_namespace: suse-private-ai
-otel_collector_image_registry: ghcr.io
-otel_collector_image_repository: suse/suse-ai-opentelemetry-collector
-otel_collector_image_tag: latest
+otel_collector_image_registry: registry.suse.com
+otel_collector_image_repository: ai/containers/suse-ai-opentelemetry-collector
+otel_collector_image_tag: 0.149.0
 otel_scrape_milvus: true
 otel_milvus_endpoint: milvus.suse-private-ai.svc.cluster.local:9091
 otel_scrape_qdrant: true
