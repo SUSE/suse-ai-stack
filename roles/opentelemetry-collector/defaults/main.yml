@@ -1,6 +1,6 @@
 otel_secret: open-telemetry-collector
 otel_namespace: observability
-otel_collector_helm_repo: oci://registry.suse.com/ai/charts/suse-ai-opentelemetry-collector
+otel_collector_helm_repo: oci://dp.apps.rancher.io/charts/opentelemetry-collector
 otel_collector_release_name: opentelemetry-collector
 otel_collector_helm_version: 0.149.0
 suse_ai_registry_secret: suse-ai-registry
