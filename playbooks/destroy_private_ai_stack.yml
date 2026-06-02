@@ -13,47 +13,57 @@
 
     - name: Set tofu output
       set_fact:
-        tofuoutput: "{{ tfstate.stdout | from_json }}"
+        tofu_outputs: "{{ tfstate.stdout | from_json }}"
       when: cloud_provider | default('local') != "local"
 
     - name: Display tofu output
       debug:
-        msg: "{{ tofuoutput }}"
+        msg: "{{ tofu_outputs }}"
       when: cloud_provider | default('local') != "local"
 
-    - name: Set python_interpreter sle-micro
-      set_fact:
-        python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3') }}"
-      when: (cluster is defined and cluster.image_distro == "sle-micro") or cluster is not defined
+    - name: Extract mgmt cluster tofu output
+      include_role:
+        name: vm
+        tasks_from: mgmt_cluster_output
 
-    - name: Set python_interpreter sles
-      set_fact:
-        python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3.11') }}"
-      when: (cluster is defined and cluster.image_distro == "sles")   
+    - name: Extract suse-ai cluster tofu output
+      include_role:
+        name: vm
+        tasks_from: suse_ai_cluster_output
+      when: suse_ai_cluster is defined
 
-    - name: Define mgmt-rancher node (master node) local
-      ansible.builtin.add_host:
-        ansible_python_interpreter: "{{ python_interpreter }}"
-        name: mgmt-rancher
-        hostname: mgmt-rancher
-        ansible_user: "{{ vm_ansible_user | default('ai') }}"
-        ansible_host: "{{ private_ai_vm_ip | default('192.168.122.100') }}"
-        groups:
-          - mgmt_cp_master
-      when: cloud_provider | default('local') == "local"
+    - name: Extract suse-observability cluster tofu output
+      include_role:
+        name: vm
+        tasks_from: suse_observability_cluster_output
+      when: suse_observability_cluster is defined and enable_suse_observability | default('False') | bool
 
-    - name: Define mgmt-rancher node (master node) non-local
-      ansible.builtin.add_host:
-        ansible_python_interpreter: "{{ python_interpreter }}"
-        name: mgmt-rancher
-        hostname: mgmt-rancher
-        ansible_user: "{{ vm_ansible_user | default('ai') }}"
-        ansible_host: "{{ tofuoutput.instance_public_ip.value }}"
-        groups:
-          - mgmt_cp_master
-      when: cloud_provider | default('local') != "local" and tofuoutput.instance_public_ip is defined
+    - name: Include ingress_ouput
+      include_role:
+        name: vm
+        tasks_from: ingress_output.yml
 
-- hosts: cp_master
+- name: Setup the right python interpreter based on the distro
+  import_playbook: setup_python_interpreter.yml
+
+- name: Define mgmt cluster nodes
+  import_playbook: define_nodes_mgmt_cluster.yml
+  vars:
+    python_interpreter: "{{ hostvars['localhost']['python_interpreter'] }}"
+
+- name: Define suse ai cluster nodes
+  import_playbook: define_nodes_suse_ai_cluster.yml
+  vars:
+    suse_ai_python_interpreter: "{{ hostvars['localhost']['suse_ai_python_interpreter'] }}"
+  when: suse_ai_cluster is defined
+
+- name: Define suse observability cluster nodes
+  import_playbook: define_nodes_suse_observability_cluster.yml
+  vars:
+    suse_observability_python_interpreter: "{{ hostvars['localhost']['suse_observability_python_interpreter'] }}"
+  when: suse_observability_cluster is defined and enable_suse_observability | default('False') | bool
+
+- hosts: mgmt_master:suse_ai_master:suse_observability_master
   gather_facts: false
   tasks:
     # We want to cleanup the DNS records before deleting the stack.
@@ -79,6 +89,15 @@
       vars:
         uninstall: true
       when: enable_external_dns | default(false)
+      ignore_errors: true
+
+- hosts: mgmt_cluster:suse_ai_cluster:suse_observability_cluster
+  gather_facts: true
+  tasks:
+    # deregister from SCC
+    - name: De-register
+      import_role:
+        name: deregister
       ignore_errors: true
 
 - name: Destroy Resources
