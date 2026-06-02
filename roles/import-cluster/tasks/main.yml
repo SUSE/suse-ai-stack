@@ -1,4 +1,18 @@
 ---
+
+# Since unzip is not available in sle-micro, this is a workaround.
+- name: Install unzip package required to install opentofu on sle-micro
+  become: true
+  shell: |
+    transactional-update --continue -n pkg install --auto-agree-with-licenses https://download.opensuse.org/distribution/leap/15.6/repo/oss/{{ ansible_facts.architecture }}/unzip-6.00-150000.4.11.1.{{ ansible_facts.architecture }}.rpm
+  when: ansible_distribution == 'SL-Micro'
+
+- name: Install unzip package on SLES
+  become: true
+  shell: |
+    zypper install -y unzip
+  when: ansible_distribution == 'SLES'
+
 - name: Check AWS configuration
   fail:
     msg: |-

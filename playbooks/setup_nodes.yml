@@ -59,11 +59,6 @@
       import_role:
         name: suse-ca-certificate
 
-    - name: Install Packages
-      include_role:
-        name: vm
-        tasks_from: install_suse_package
-
     - block:
       - name: Add Ingress host to /etc/hosts
         lineinfile:
