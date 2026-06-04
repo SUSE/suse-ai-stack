@@ -19,16 +19,16 @@
     - name: Set suse-ai cluster python_interpreter sle-micro
       set_fact:
         suse_ai_python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3') }}"
-      when:
-        - suse_ai_cluster is not defined and cluster is defined and cluster.image_distro == "sle-micro"
-        - suse_ai_cluster is defined and suse_ai_cluster.image_distro == "sle-micro"
+      when: >
+        (suse_ai_cluster is not defined and cluster is defined and cluster.image_distro == "sle-micro") or
+        (suse_ai_cluster is defined and suse_ai_cluster.image_distro == "sle-micro")
 
     - name: Set suse-observability cluster python_interpreter sle-micro
       set_fact:
         suse_observability_python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3') }}"
-      when:
-        - suse_observability_cluster is not defined and cluster is defined and cluster.image_distro == "sle-micro"
-        - suse_observability_cluster is defined and suse_observability_cluster.image_distro == "sle-micro"
+      when: >
+        (suse_observability_cluster is not defined and cluster is defined and cluster.image_distro == "sle-micro") or
+        (suse_observability_cluster is defined and suse_observability_cluster.image_distro == "sle-micro")
 
     - name: Set mgmt cluster python_interpreter sles
       set_fact:
@@ -39,13 +39,13 @@
     - name: Set suse-ai cluster python_interpreter sles
       set_fact:
         suse_ai_python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3.11') }}"
-      when:
-        - suse_ai_cluster is not defined and cluster is defined and cluster.image_distro == "sles"
-        - suse_ai_cluster is defined and suse_ai_cluster.image_distro == "sles"
+      when: >
+        (suse_ai_cluster is not defined and cluster is defined and cluster.image_distro == "sles") or
+        (suse_ai_cluster is defined and suse_ai_cluster.image_distro == "sles")
 
     - name: Set suse-observability cluster python_interpreter sles
       set_fact:
         suse_observability_python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3.11') }}"
-      when:
-        - suse_observability_cluster is not defined and cluster is defined and cluster.image_distro == "sles"
-        - suse_observability_cluster is defined and suse_observability_cluster.image_distro == "sles"
+      when: >
+        (suse_observability_cluster is not defined and cluster is defined and cluster.image_distro == "sles") or
+        (suse_observability_cluster is defined and suse_observability_cluster.image_distro == "sles")
