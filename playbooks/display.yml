@@ -16,19 +16,52 @@
       register: suse_observability_admin_password_file_contents
       when: enable_suse_observability | default(false)
 
+    - name: Prepare /etc/hosts entries (short hostnames)
+      set_fact:
+        hosts_entries: "{{ hosts_entries | default([]) + [ item.entry ] }}"
+      when: item.eval
+      with_items:
+        - entry: "{{ vm_ip }} mgmt-rancher"
+          eval: true
+        - entry: "{{ hostvars['localhost']['suse_ai_vm_ip'] | default(hostvars['localhost']['vm_ip'])}} suse-ai"
+          eval: true
+        - entry: "{{ vm_ip }} longhorn"
+          eval: "{{ enable_longhorn | default(False) | bool }}"
+        - entry: "{{ hostvars['localhost']['suse_observability_vm_ip'] | default(hostvars['localhost']['vm_ip'])}} suse-observability"
+          eval: "{{ enable_suse_observability | default(False) | bool }}"
+
+    - name: Prepare URL entries (FQDNs)
+      set_fact:
+        url_entries: "{{ url_entries | default([]) + [ item.entry ] }}"
+      when: item.eval
+      with_items:
+        - entry: "{{ vm_ip }} {{ rancher_host }}"
+          eval: "{{ not (enable_external_dns | default(False)) }}"
+        - entry: "{{ hostvars['localhost']['suse_ai_vm_ip'] | default(hostvars['localhost']['vm_ip'])}} {{ open_webui_host }}"
+          eval: "{{ not (enable_external_dns | default(False)) }}"
+        - entry: "{{ vm_ip }} {{ longhorn_host }}"
+          eval: "{{ not (enable_external_dns | default(False)) and (enable_longhorn | default(False) | bool) }}"
+        - entry: "{{ hostvars['localhost']['suse_observability_vm_ip'] | default(hostvars['localhost']['vm_ip'])}} {{ suse_observability_host }}"
+          eval: "{{ not (enable_external_dns | default(False)) and (enable_suse_observability | default(False) | bool) }}"
+
+    - name: Display /etc/hosts entries
+      debug:
+        msg: 
+        - "Add these items to /etc/hosts as line entries:"
+        - "{{ (hosts_entries | default([]) + url_entries | default([])) | join(', ') }}"
+      when: (hosts_entries is defined and hosts_entries | length > 0) or (url_entries is defined and url_entries | length > 0)
+
+    - name: Write host entries to suse_ai_stack_host_entries
+      copy:
+        dest: "/tmp/suse_ai_stack_host_entries"
+        content: "{{ (hosts_entries | default([]) + url_entries | default([])) | join('\n') }}\n"
+      when: (hosts_entries is defined and hosts_entries | length > 0) or (url_entries is defined and url_entries | length > 0)
+
     - name: Set Access URL and credentials
       set_fact:
         access_msg: "{{ access_msg | default([]) + [ item.msg | string ] }}"
       when: item.eval
       with_items:
-        - msg: "Make sure to update the /etc/hosts file: {{ vm_ip }} mgmt-rancher {{ rancher_host }}"
-          eval: "{{ not (enable_external_dns | default(False)) }}"
-        - msg: "Make sure to update the /etc/hosts file: {{ hostvars['localhost']['suse_ai_vm_ip'] | default(hostvars['localhost']['vm_ip'])}} suse-ai {{ open_webui_host }}"
-          eval: "{{ not (enable_external_dns | default(False)) }}"
-        - msg: "Make sure to update the /etc/hosts file: {{ vm_ip }} {{ longhorn_host }}"
-          eval: "{{ not (enable_external_dns | default(False)) and (enable_longhorn | default(False) | bool) }}"
-        - msg: "Make sure to update the /etc/hosts file: {{ hostvars['localhost']['suse_observability_vm_ip'] | default(hostvars['localhost']['vm_ip'])}} {{ suse_observability_host }}"
-          eval: "{{ not (enable_external_dns | default(False)) and (enable_suse_observability | default(False) | bool) }}"
         - msg: "To access rancher UI, point your browser to https://{{ rancher_host }} and login with user=admin and password={{ rancher_bootstrap_password | default('rancher')  }}"
           eval: true
         - msg: "To access longhorn UI, point your browser to http://{{ longhorn_host }} and login with user={{ longhorn_username | default('admin')}} and password={{  longhorn_password | default('longhorn')}}"
@@ -44,5 +77,12 @@
 
     - name: Output access msg to a file
       copy:
-        dest: "/tmp/access"
+        dest: "/tmp/suse_ai_stack_access"
         content: "{{ access_msg }}"
+
+    - name: Display note
+      debug:
+        msg:
+          - "Note: the terminal output shown above is no longer accessible once exited,"
+          - "but the same information is saved in /tmp/suse_ai_stack_host_entries and"
+          - "/tmp/suse_ai_stack_access for later reference."

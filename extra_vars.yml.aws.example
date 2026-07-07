@@ -24,6 +24,11 @@
 #suse_ai_registration_code: INTERNAL-USE-ONLY-xxxx-xxxx
 
 #
+# NVIDIA credentials
+#
+#nvidia_token: nvapi-xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+#
 # Your github username
 #
 github_username: <your github username>
@@ -279,6 +284,17 @@ suse_observability_license: <your SUSE Observability license>
 # Install openwebui pipelines
 #
 pipelines_enabled: true
+
+#
+# SUSE AI Factory - Deployed to the main/mgmt cluster
+#
+suse_ai_factory:
+  enabled: true
+  # version: defaults to the latest aif-operator chart published to
+  # oci://ghcr.io/suse/chart/aif-operator. Uncomment to pin a specific version.
+  # version: 2.0.0
+  ai_extension:
+    enabled: true
 
 #
 # RKE2 Management cluster

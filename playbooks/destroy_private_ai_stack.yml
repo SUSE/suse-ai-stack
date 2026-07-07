@@ -21,27 +21,47 @@
         msg: "{{ tofu_outputs }}"
       when: cloud_provider | default('local') != "local"
 
+    # For local deployments the facts come from static defaults, so resources are
+    # always treated as present. For cloud deployments, empty tofu outputs mean the
+    # resources have already been destroyed - skip fact extraction / node setup and
+    # go straight to the (idempotent) destroy step below.
+    - name: Determine whether cloud resources still exist
+      set_fact:
+        cloud_resources_present: "{{ cloud_provider | default('local') == 'local' or ((tofu_outputs | default({})) | length > 0) }}"
+
+    - name: Report that resources are already destroyed
+      debug:
+        msg: "No tofu outputs found - the cloud resources appear to be already destroyed. Skipping resource fact extraction and node setup."
+      when: not cloud_resources_present
+
     - name: Extract mgmt cluster tofu output
       include_role:
         name: vm
         tasks_from: mgmt_cluster_output
+      when: cloud_resources_present
 
     - name: Extract suse-ai cluster tofu output
       include_role:
         name: vm
         tasks_from: suse_ai_cluster_output
-      when: suse_ai_cluster is defined
+      when:
+        - cloud_resources_present
+        - suse_ai_cluster is defined
 
     - name: Extract suse-observability cluster tofu output
       include_role:
         name: vm
         tasks_from: suse_observability_cluster_output
-      when: suse_observability_cluster is defined and enable_suse_observability | default('False') | bool
+      when:
+        - cloud_resources_present
+        - suse_observability_cluster is defined
+        - enable_suse_observability | default('False') | bool
 
     - name: Include ingress_ouput
       include_role:
         name: vm
         tasks_from: ingress_output.yml
+      when: cloud_resources_present
 
 - name: Setup the right python interpreter based on the distro
   import_playbook: setup_python_interpreter.yml
@@ -50,18 +70,24 @@
   import_playbook: define_nodes_mgmt_cluster.yml
   vars:
     python_interpreter: "{{ hostvars['localhost']['python_interpreter'] }}"
+  when: hostvars['localhost']['cloud_resources_present'] | bool
 
 - name: Define suse ai cluster nodes
   import_playbook: define_nodes_suse_ai_cluster.yml
   vars:
     suse_ai_python_interpreter: "{{ hostvars['localhost']['suse_ai_python_interpreter'] }}"
-  when: suse_ai_cluster is defined
+  when:
+    - hostvars['localhost']['cloud_resources_present'] | bool
+    - suse_ai_cluster is defined
 
 - name: Define suse observability cluster nodes
   import_playbook: define_nodes_suse_observability_cluster.yml
   vars:
     suse_observability_python_interpreter: "{{ hostvars['localhost']['suse_observability_python_interpreter'] }}"
-  when: suse_observability_cluster is defined and enable_suse_observability | default('False') | bool
+  when:
+    - hostvars['localhost']['cloud_resources_present'] | bool
+    - suse_observability_cluster is defined
+    - enable_suse_observability | default('False') | bool
 
 - hosts: mgmt_master:suse_ai_master:suse_observability_master
   gather_facts: false

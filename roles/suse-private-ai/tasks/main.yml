@@ -17,6 +17,7 @@
 
 - name: ollama deploy
   include_tasks: ollama.yml
+  when: enable_ollama | default(true)
 
 - name: vllm deploy
   include_tasks: vllm.yml
@@ -24,7 +25,9 @@
 
 - name: open-webui-mcpo deploy
   include_tasks: open-webui-mcpo.yml
+  when: enable_open_webui_mcpo | default(true)
 
 - name: open-webui deploy
   include_tasks: open-webui.yml
+  when: enable_open_webui | default(true)
 
