@@ -11,6 +11,15 @@ if [ ! -d ${LIBVIRT_IMAGES_DIR} ] ; then
   LIBVIRT_IMAGES_DIR=${PROJECT_DIR}/libvirt_images
 fi
 
+# Print the full ansible-playbook command (copy-pasteable), then run it.
+# When DEBUG is set, the command is only printed and not executed.
+run_ansible_playbook() {
+  printf '+ ansible-playbook'
+  printf ' %q' "$@"
+  printf '\n'
+  ${DEBUG:+echo} ansible-playbook "$@"
+}
+
 setup_name=$(basename ${BASH_SOURCE[0]} .sh)
 setup_type=${setup_name#setup_}
 playbook=${setup_name}
@@ -23,15 +32,23 @@ case "${setup_type}" in
 	;;
 esac
 
-# Base argument
-base_playbook_args=(
-  -e current_project_dir="${PROJECT_DIR}"
-  -e libvirt_images_dir="${LIBVIRT_IMAGES_DIR}"
-)
-
 if [ ! -f "${EXTRA_VARS_FILE}" ] ; then
 	echo "ERROR: ${EXTRA_VARS_FILE} not found. Did you remember to copy extra_vars.yml.example to extra_vars.yml and configure it appropriately?"
 	exit 1
+fi
+
+# Determine cloud_provider from extra_vars.yml (defaults to "local" when unset)
+cloud_provider=$(grep -E '^[[:space:]]*cloud_provider[[:space:]]*:' "${EXTRA_VARS_FILE}" | tail -1 | sed -E 's/^[[:space:]]*cloud_provider[[:space:]]*:[[:space:]]*//; s/#.*//; s/["'\'' ]//g')
+cloud_provider=${cloud_provider:-local}
+
+# Base argument
+base_playbook_args=(
+  -e current_project_dir="${PROJECT_DIR}"
+)
+
+# libvirt_images_dir is only relevant for local (libvirt) deployments
+if [ "${cloud_provider}" = "local" ]; then
+  base_playbook_args+=( -e libvirt_images_dir="${LIBVIRT_IMAGES_DIR}" )
 fi
 
 if ! command -v ansible-playbook &> /dev/null; then
@@ -72,7 +89,7 @@ playbook_args+=(
   "$@"
 )
 
-${DEBUG:+echo} ansible-playbook "${playbook_args[@]}"
+run_ansible_playbook "${playbook_args[@]}"
 
 ### CLONE suse-ai-node-ansible repo as external_playbooks
 EXT_REPO_URL="https://github.com/SUSE/suse-ai-node-ansible.git"
@@ -119,7 +136,7 @@ for cluster in "${clusters[@]}"; do
 
   # Run through each cluster - mgmt, suse-ai, suse-observability with own ini files
   if [ -e "${PROJECT_DIR}/inventories/${cluster}_inventory.ini" ]; then
-    ${DEBUG:+echo} ansible-playbook "${playbook_args[@]}"
+    run_ansible_playbook "${playbook_args[@]}"
   fi
 
 done
@@ -140,7 +157,7 @@ playbook_args=(
   "$PROJECT_DIR/playbooks/${playbook}.yml"
 )
 
-${DEBUG:+echo} ansible-playbook "${playbook_args[@]}"
+run_ansible_playbook "${playbook_args[@]}"
 
 
 # DEPLOY external-dns, storage on all clusters
@@ -158,7 +175,7 @@ for cluster in "${clusters[@]}"; do
 
   # Run through each cluster - mgmt, suse-ai, suse-observability with own ini files
   if [ -e "${PROJECT_DIR}/inventories/${cluster}_inventory.ini" ]; then
-    ${DEBUG:+echo} ansible-playbook "${playbook_args[@]}"
+    run_ansible_playbook "${playbook_args[@]}"
   fi
 
 done
@@ -179,7 +196,7 @@ playbook_args=(
   "$PROJECT_DIR/playbooks/${playbook}.yml"
 )
 
-${DEBUG:+echo} ansible-playbook "${playbook_args[@]}"
+run_ansible_playbook "${playbook_args[@]}"
 
 ### Deploy SUSE AI
 playbook="deploy_suse_ai" # playbook that deploys suse ai
@@ -196,7 +213,7 @@ playbook_args=(
   "$PROJECT_DIR/playbooks/${playbook}.yml"
 )
 
-${DEBUG:+echo} ansible-playbook "${playbook_args[@]}"
+run_ansible_playbook "${playbook_args[@]}"
 
 ### Display access info
 playbook="display" # playbook that displays access info
@@ -208,4 +225,4 @@ playbook_args=(
   "$PROJECT_DIR/playbooks/${playbook}.yml"
 )
 
-${DEBUG:+echo} ansible-playbook "${playbook_args[@]}"
+run_ansible_playbook "${playbook_args[@]}"

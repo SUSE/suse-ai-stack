@@ -42,6 +42,15 @@ opensearch_release_name: opensearch
 opensearch_cluster_deployment: false
 opensearch_admin_password: "MySecurePass123"
 
+# flag to enable deployment of ollama
+enable_ollama: true
+
+# flag to enable deployment of open-webui
+enable_open_webui: true
+
+# flag to enable deployment of open-webui-mcpo
+enable_open_webui_mcpo: true
+
 #Flag to indicate whether ollama should be installed seperately or part of the open-webui
 ollama_deploy_separately: true
 

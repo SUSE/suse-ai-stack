@@ -83,6 +83,34 @@
       mgmt_pyyaml_package_name: 'python311-PyYAML'
     when: cluster is not defined
 
+  # Resolve the SUSE AI Factory (aif-operator) chart version.
+  # Precedence: suse_ai_factory.version from extra_vars (explicit override)
+  # otherwise the latest stable chart version published to the OCI registry.
+  - name: Use SUSE AI Factory chart version from extra_vars (override)
+    set_fact:
+      suse_ai_factory_version: "{{ suse_ai_factory.version }}"
+    when:
+      - suse_ai_factory is defined
+      - suse_ai_factory.version is defined
+
+  - name: Fetch latest SUSE AI Factory (aif-operator) chart version
+    ansible.builtin.command:
+      cmd: "helm show chart {{ suse_ai_factory_chart_repo | default('oci://ghcr.io/suse/chart/aif-operator') }}"
+    register: aif_chart_info
+    changed_when: false
+    when:
+      - suse_ai_factory is defined
+      - suse_ai_factory.enabled | default(false)
+      - suse_ai_factory.version is not defined
+
+  - name: Set latest SUSE AI Factory chart version as default
+    set_fact:
+      suse_ai_factory_version: "{{ (aif_chart_info.stdout_lines | select('match', '^version:') | first).split(':')[1] | trim }}"
+    when:
+      - suse_ai_factory is defined
+      - suse_ai_factory.version is not defined
+      - aif_chart_info.stdout_lines is defined
+
 
   - name: Build mgmt extra_vars content
     set_fact:
@@ -129,7 +157,38 @@
             "curl", "git", "pciutils"]
         }}
 
+        suse_ai_factory:
+          enabled: {{ suse_ai_factory.enabled | default(false) }}
+          version: {{ suse_ai_factory_version | default('2.0.0') }}
+
+          ai_extension:
+            enabled: {{ suse_ai_factory.ai_extension.enabled | default(false) }}
+
+        {% if (application_collection_user_token | default("") | length > 0) or (nvidia_token | default("") | length > 0) or (suse_ai_registration_code | default("") | length > 0) %}
+          credentials:
+        {% if application_collection_user_token | default("") | length > 0 %}
+            # credential for oci://dp.apps.rancher.io/charts
+            applicationCollection:
+              username: {{ application_collection_user_email | default("") }}
+              password: {{ application_collection_user_token }}
+        {% endif %}
+        {% if nvidia_token | default("") | length > 0 %}
+            # credential to pull NGC artifacts
+            # e.g. https://helm.ngc.nvidia.com/nvidia
+            nvidia:
+              username: {{ nvidia_user | default('$oauthtoken') }}
+              password: {{ nvidia_token }}
+        {% endif %}
+        {% if suse_ai_registration_code | default("") | length > 0 %}
+            # credential for oci://registry.suse.com/ai/charts
+            suseRegistry:
+              username: {{ suse_ai_registry_user | default('regcode') }}
+              password: {{ suse_ai_registration_code }}
+        {% endif %}
+        {% endif %}
+
   - name: Save mgmt_extra_vars.yml
     copy:
       dest: "../mgmt_extra_vars.yml"
       content: "{{ mgmt_extra_vars_content }}"
+

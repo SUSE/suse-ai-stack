@@ -4,6 +4,7 @@
 - [Prerequisites](#prerequisites)
 - [How Setup The Virtualized Private AI Stack](#setup_howto)
 - [How Cleanup/Destroy The Virtualized Private AI Stack](#setup_howto_cleanup)
+- [Additional Notes: AWS Resources Provisioned](#aws_resources)
 
 # Overview <a name="overview" />
 
@@ -189,12 +190,91 @@ To clean the local environment, run
 
 The above command will delete the Private AI stack, including the VM itself.
 
+# Additional Notes: AWS Resources Provisioned <a name="aws_resources" />
+
+When you run `setup_private_ai_stack.sh`, OpenTofu (Terraform) provisions the
+following AWS resources in your configured `aws_region` (see
+`roles/vm/terraform/*.tf`). Everything is created inside a dedicated VPC and is
+named with your `resource_prefix` (your SUSE username by default), so it is easy
+to identify and clean up. All resources are removed again by
+`destroy_private_ai_stack.sh`.
+
+## Shared networking (created once per deployment)
+
+| AWS resource                | Type                       | Count | Details                                                                                           |
+| --------------------------- | -------------------------- | ----- | ------------------------------------------------------------------------------------------------ |
+| VPC                         | `aws_vpc`                  | 1     | CIDR `10.0.0.0/16`, named `<prefix>-dev-ai-vpc`                                                   |
+| Internet Gateway            | `aws_internet_gateway`     | 1     | `<prefix>-dev-ai-igw`                                                                             |
+| Public subnets              | `aws_subnet`               | 2     | `10.0.0.0/19` in `az1` and `10.0.32.0/19` in `az2`; auto-assign public IP                         |
+| Route table                 | `aws_route_table`          | 1     | Plus 1 default route (`0.0.0.0/0` → IGW) and 2 subnet associations                                |
+| Security group              | `aws_security_group`       | 1     | Inbound rules for SSH, Rancher/RKE2, ingress (80/443) and observability ports; all outbound open  |
+| SSH key pair                | `aws_key_pair`             | 1     | Imports the public key you provide in `extra_vars.yml`                                            |
+
+> **_NOTE:_** By default the instances get **public IPs but no public DNS
+> records** (to reduce cost), which is why you update `/etc/hosts` manually after
+> setup. Setting `enable_external_dns: true` enables automatic DNS record
+> management via [ExternalDNS][external-dns-project]. **Cloudflare is the
+> supported DNS provider** — provide your `cloudflare_api_token` (and related
+> settings) in `extra_vars.yml`, and DNS records are created/updated
+> automatically instead of editing `/etc/hosts`. When using
+> `cloudflare_api_token`, set the DNS domain the records are created under via
+> `external_dns_domain_filter` (defaults to `suseclouddev.com`); this domain is
+> also used to build the generated hostnames (e.g.
+> `rancher-<github_username>-<id>.<external_dns_domain_filter>`).
+
+## Per RKE2 cluster
+
+The **management (mgmt) cluster is always created**. The **SUSE AI cluster** and
+the **SUSE Observability cluster** are only created when you add the optional
+`suse_ai_cluster:` / `suse_observability_cluster:` blocks to `extra_vars.yml`
+(see below). Otherwise those workloads run on the mgmt cluster.
+
+For **each** cluster the following are provisioned:
+
+**EC2 instances** (each with one root EBS volume of `root_volume_size` GB — default 350):
+
+| Node role                   | Controlled by                 | Default | Instance type (default)   | Name pattern (mgmt example)          |
+| --------------------------- | ----------------------------- | ------- | ------------------------- | ------------------------------------ |
+| Control-plane master        | always 1                      | 1       | `instance_type_cp` (`g4dn.2xlarge`) | `<prefix>-dev-mgmt-cp0`              |
+| Additional control-plane    | `num_cp_nodes` − 1            | 0       | `instance_type_cp`        | `<prefix>-dev-mgmt-cp<N>`            |
+| GPU workers                 | `num_worker_nodes_gpu`        | 0       | `instance_type_gpu` (`g4dn.2xlarge`) | `<prefix>-dev-mgmt-worker-gpu-<N>`  |
+| Non-GPU workers             | `num_worker_nodes_nongpu`     | 0       | `instance_type_nongpu` (`m5d.2xlarge`) | `<prefix>-dev-mgmt-worker-nongpu-<N>` |
+
+(The SUSE AI cluster uses the same roles with `-dev-ai-*` names; the Observability
+cluster uses `-dev-observability-*` names and a single `num_worker_nodes` worker
+role.)
+
+**Load balancers** — 2 internet-facing Layer-4 Network Load Balancers (NLBs) per cluster:
+
+| Load balancer   | Type                | Listeners (TCP) | Purpose                                   |
+| --------------- | ------------------- | --------------- | ----------------------------------------- |
+| RKE2 API NLB    | `aws_lb` (network)  | 9345, 6443      | Fixed registration address / Kube API     |
+| Ingress NLB     | `aws_lb` (network)  | 443, 80         | Cluster ingress (Rancher, Open WebUI, …)  |
+
+Each NLB has its own target groups and listeners, with all control-plane and
+worker nodes of that cluster attached as targets.
+
+## Example footprints
+
+- **Default (mgmt cluster only, `num_cp_nodes: 1`, workers `0`)** — the
+  out-of-the-box `extra_vars.yml.aws.example`:
+  - 1 EC2 instance (`g4dn.2xlarge`, GPU) with a 350 GB root volume
+  - 2 NLBs (RKE2 API + Ingress)
+  - 1 VPC, 1 Internet Gateway, 2 subnets, 1 route table, 1 security group, 1 key pair
+- **All three clusters deployed** — the shared networking above (created once) plus,
+  per cluster, its EC2 instances and 2 NLBs (up to **6 NLBs** total).
+
+> **_TIP:_** The exact set of instances scales with the `num_cp_nodes`,
+> `num_worker_nodes_gpu`, `num_worker_nodes_nongpu` (and `num_worker_nodes` for
+> observability) values in each cluster block.
+
+
 [aws]: https://aws.amazon.com/
 [aws-console]: https://aws.amazon.com/console/
+[external-dns-project]: https://github.com/kubernetes-sigs/external-dns
 [llm]: https://en.wikipedia.org/wiki/Large_language_model
 [ollama]: https://ollama.com/
 [open-webui]: https://github.com/open-webui/open-webui
 [rancher-prime]: https://www.rancher.com/products/rancher-platform
 [rke2]: https://www.rancher.com/products/secure-kubernetes-distribution
 [sle-micro]: https://www.suse.com/products/micro/
-
