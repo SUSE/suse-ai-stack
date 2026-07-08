@@ -13,7 +13,7 @@ image:
   tag:  {{ openwebui_image_version }}
   pullPolicy: "IfNotPresent"
 {% endif %}
-{% if ollama_deploy_separately %}
+{% if enable_ollama | default(true) and ollama_deploy_separately %}
 ollamaUrls:
 - http://ollama.{{suse_private_ai_namespace}}.svc.cluster.local:11434
 {% endif %}
@@ -21,7 +21,7 @@ persistence:
   enabled: true
   size: 10Gi
   storageClass: {{ storage_class }}
-{% if ollama_deploy_separately %}
+{% if ollama_deploy_separately or not (enable_ollama | default(true)) %}
 ollama:
   enabled: false
 {% else %}

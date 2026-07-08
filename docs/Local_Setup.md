@@ -38,6 +38,13 @@ environment using [libvirt][libvirt].
   ```console
   ansible-galaxy collection install -r requirements.yml
   ```
+
+* helm: https://helm.sh/docs/intro/install/ — required on the ansible controller node to
+  resolve the latest SUSE AI Factory (`aif-operator`) chart version when SUSE AI
+  Factory is enabled. If `helm` is missing (or the registry is unreachable) and
+  no version is pinned, the deployment fails with a clear error. To avoid the
+  lookup entirely, pin `suse_ai_factory.version` in `extra_vars.yml`.
+
 ## Create Virtual Network <a name="create_virtual_network" />
 
 By default, the libvirt `default` virtual network is used. Therefore, you must
