@@ -88,8 +88,8 @@ fi
 
 # Process each line in the file
 while IFS= read -r image; do
-  # Simple check if the image is in the format <registry>/<repository>:<tag>
-  if [[ $image =~ ^([^/]+)/(.*):([^:]+)$ ]]; then
+  # Simple check if the image is in the format <registry>/<repository>[:<tag>]
+  if [[ $image =~ ^([^/]+)/(.+)$ ]]; then
     repository_and_tag=$(echo "${image}" | cut -d'/' -f2-)
     dest_image="${destination_registry}/${repository_and_tag}"
     docker tag "${image}" "${dest_image}"
