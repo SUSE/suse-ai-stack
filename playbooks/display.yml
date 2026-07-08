@@ -46,7 +46,7 @@
 
     - name: Display /etc/hosts entries
       debug:
-        msg: 
+        msg:
         - "Add these items to /etc/hosts as line entries:"
         - "{{ (hosts_entries | default([]) + url_entries | default([])) | join(', ') }}"
       when: (hosts_entries is defined and hosts_entries | length > 0) or (url_entries is defined and url_entries | length > 0)

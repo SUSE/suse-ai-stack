@@ -84,8 +84,12 @@
     when: cluster is not defined
 
   # Resolve the SUSE AI Factory (aif-operator) chart version.
-  # Precedence: suse_ai_factory.version from extra_vars (explicit override)
+  # Precedence: suse_ai_factory.version from extra_vars (explicit override),
   # otherwise the latest stable chart version published to the OCI registry.
+  # The registry lookup requires 'helm' on the ansible controller node. When SUSE AI
+  # Factory is enabled and no version is pinned, an unresolved version is a hard
+  # error (see the assert below) rather than a silent fallback. The lookup is
+  # skipped during destroy (aif_skip_version_resolution), where it is not needed.
   - name: Use SUSE AI Factory chart version from extra_vars (override)
     set_fact:
       suse_ai_factory_version: "{{ suse_ai_factory.version }}"
@@ -98,18 +102,38 @@
       cmd: "helm show chart {{ suse_ai_factory_chart_repo | default('oci://ghcr.io/suse/chart/aif-operator') }}"
     register: aif_chart_info
     changed_when: false
+    failed_when: false
     when:
+      - not (aif_skip_version_resolution | default(false))
       - suse_ai_factory is defined
       - suse_ai_factory.enabled | default(false)
       - suse_ai_factory.version is not defined
 
   - name: Set latest SUSE AI Factory chart version as default
     set_fact:
-      suse_ai_factory_version: "{{ (aif_chart_info.stdout_lines | select('match', '^version:') | first).split(':')[1] | trim }}"
+      suse_ai_factory_version: "{{ (_aif_version_lines | first).split(':')[1] | trim }}"
+    vars:
+      _aif_version_lines: "{{ (aif_chart_info.stdout_lines | default([])) | select('match', '^version:') | list }}"
     when:
       - suse_ai_factory is defined
       - suse_ai_factory.version is not defined
-      - aif_chart_info.stdout_lines is defined
+      - (aif_chart_info.rc | default(1)) == 0
+      - _aif_version_lines | length > 0
+
+  - name: Ensure SUSE AI Factory chart version was resolved
+    assert:
+      that:
+        - suse_ai_factory_version is defined
+      fail_msg: >-
+        Could not resolve the latest aif-operator chart version. Ensure 'helm'
+        is installed on the ansible controller node and the registry
+        ({{ suse_ai_factory_chart_repo | default('oci://ghcr.io/suse/chart/aif-operator') }})
+        is reachable, or pin suse_ai_factory.version in extra_vars.yml.
+    when:
+      - not (aif_skip_version_resolution | default(false))
+      - suse_ai_factory is defined
+      - suse_ai_factory.enabled | default(false)
+      - suse_ai_factory.version is not defined
 
 
   - name: Build mgmt extra_vars content
@@ -191,4 +215,3 @@
     copy:
       dest: "../mgmt_extra_vars.yml"
       content: "{{ mgmt_extra_vars_content }}"
-

@@ -70,6 +70,8 @@
   import_playbook: define_nodes_mgmt_cluster.yml
   vars:
     python_interpreter: "{{ hostvars['localhost']['python_interpreter'] }}"
+    # Teardown does not need the aif-operator chart version; skip the helm lookup.
+    aif_skip_version_resolution: true
   when: hostvars['localhost']['cloud_resources_present'] | bool
 
 - name: Define suse ai cluster nodes
