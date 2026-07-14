@@ -43,7 +43,9 @@ environment using [libvirt][libvirt].
   resolve the latest SUSE AI Factory (`aif-operator`) chart version when SUSE AI
   Factory is enabled. If `helm` is missing (or the registry is unreachable) and
   no version is pinned, the deployment fails with a clear error. To avoid the
-  lookup entirely, pin `suse_ai_factory.version` in `extra_vars.yml`.
+  lookup entirely, pin `suse_ai_factory.version` in `extra_vars.yml`. By default only
+  stable (GA) versions are considered; set `suse_ai_factory.devel: true` to also
+  consider pre-release versions.
 
 ## Create Virtual Network <a name="create_virtual_network" />
 
