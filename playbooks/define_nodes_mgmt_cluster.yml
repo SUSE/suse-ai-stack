@@ -85,7 +85,9 @@
 
   # Resolve the SUSE AI Factory (aif-operator) chart version.
   # Precedence: suse_ai_factory.version from extra_vars (explicit override),
-  # otherwise the latest stable chart version published to the OCI registry.
+  # otherwise the latest chart version published to the OCI registry. By default
+  # only stable (GA) versions are considered; set suse_ai_factory.devel to
+  # true to also consider pre-release versions (adds 'helm --devel').
   # The registry lookup requires 'helm' on the ansible controller node. When SUSE AI
   # Factory is enabled and no version is pinned, an unresolved version is a hard
   # error (see the assert below) rather than a silent fallback. The lookup is
@@ -99,7 +101,9 @@
 
   - name: Fetch latest SUSE AI Factory (aif-operator) chart version
     ansible.builtin.command:
-      cmd: "helm show chart {{ suse_ai_factory_chart_repo | default('oci://ghcr.io/suse/chart/aif-operator') }}"
+      cmd: >-
+        helm show chart {{ suse_ai_factory_chart_repo | default('oci://ghcr.io/suse/chart/aif-operator') }}
+        {{ '--devel' if (suse_ai_factory.devel | default(false)) else '' }}
     register: aif_chart_info
     changed_when: false
     failed_when: false
