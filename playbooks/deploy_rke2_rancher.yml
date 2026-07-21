@@ -2,3 +2,13 @@
 
 - name: Kick off site.yml
   import_playbook: "{{ (current_project_dir, 'external_playbooks/playbooks/site.yml') | path_join }}"
+
+- name: Create blueprints
+  hosts: mgmt-rancher
+  tasks:
+    - name: Create blueprints (T4)
+      import_role:
+        name: blueprint
+      when:
+        - cluster == 'mgmt'
+        - suse_ai_factory.enabled | default(false)

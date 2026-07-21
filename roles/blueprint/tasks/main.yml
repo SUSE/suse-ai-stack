@@ -1,0 +1,10 @@
+- name: Copy NVIDIA RAG minimal (T4) blueprint manifest
+  ansible.builtin.copy:
+    src: nvidia-rag-minimal-2-6-0-t4.yaml
+    dest: ~/nvidia-rag-minimal-2-6-0-t4.yaml
+
+- name: Create NVIDIA RAG minimal (T4) blueprint manifest
+  ansible.builtin.shell: >
+    kubectl apply -f ~/nvidia-rag-minimal-2-6-0-t4.yaml
+  register: nvidia_rag_blueprint_apply
+  changed_when: "'created' in nvidia_rag_blueprint_apply.stdout or 'configured' in nvidia_rag_blueprint_apply.stdout"
