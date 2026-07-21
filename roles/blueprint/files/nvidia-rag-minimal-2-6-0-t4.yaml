@@ -1,0 +1,367 @@
+apiVersion: ai-factory.suse.com/v1alpha1
+kind: Blueprint
+metadata:
+  labels:
+    ai-factory.suse.com/blueprint-name: nvidia-rag-minimal-t4
+    ai-factory.suse.com/blueprint-version: 2.6.0
+  name: nvidia-rag-minimal-t4-2-6-0
+spec:
+  # NOTE: This blueprint requires NVIDIA k8s-nim-operator and
+  # Elasticsearch (ECK) Operator. Please make sure they are
+  # installed on the cluster. Please refer to
+  # https://docs.nvidia.com/nim-operator/latest/install.html on how to
+  # install k8s-nim-operator. For Elasticsearch Operator, please
+  # refer to https://www.elastic.co/docs/deploy-manage/deploy/cloud-on-k8s/install-using-helm-chart.
+  #
+  source: Nvidia
+  components:
+  - chartName: nvidia-blueprint-rag
+    chartRepo: nvidia-blueprints
+    chartVersion: v2.6.0
+    # vendor: nvidia makes the operator's nvidiaInjector auto-create the
+    # conventional ngc-secret (dockerconfigjson for nvcr.io) and ngc-api
+    # (NGC_CLI_API_KEY/NGC_API_KEY/NVIDIA_API_KEY) in the release namespace from
+    # the configured NVIDIA credentials, and deliver them to target clusters.
+    # Without it the default suse combined-secret injector runs instead and the
+    # create:false references below resolve to MISSING secrets — rag-server hits
+    # CreateContainerConfigError on ngc-api and rag-nv-ingest gets
+    # 403/ImagePullBackOff pulling gated nvcr.io images.
+    vendor: nvidia
+    values:
+      # Reference the operator-delivered secrets (see vendor: nvidia above)
+      # rather than letting the chart create its own from inline passwords.
+      imagePullSecret:
+        create: false
+        name: ngc-secret
+      ngcApiSecret:
+        create: false
+        name: ngc-api
+
+      # Tesla T4 DECISION multi-gpu-nodes - Pin rag-server to the LLM node.
+      nodeSelector:
+        workload-type: llm
+
+      # Tesla T4 DECISION - RAG Server - reduce memory/cpu requests.
+      # Set only requests (for scheduling); leave limits unset so pods can
+      # burst. The default charts assume an 8x H100 footprint. NOTE: `null`
+      # does NOT clear a default — the Blueprint controller strips null values
+      # during the value merge. Omitting limits here means the chart's default
+      # limits ride (Helm deep-merges over them); we just avoid pinning our own
+      # tight limits. Set explicit requests to override the (huge) default requests.
+      resources:
+        requests:
+          cpu: "500m"
+          memory: 1Gi
+
+      # Tesla T4 DECISION - Reduce workers for lower CPU environments
+      # Reduce uvicorn worker count for low-CPU environments. The chart default
+      # (--workers 128) cannot start on an 8-CPU node: workers never bind :8081
+      # before the liveness probe SIGKILLs the container (exit 137 crash loop).
+      server:
+        workers: 4
+
+      envVars:
+        # DECISION: Downscaled the orchestrator routing targets from the default
+        # massive 49B Nemotron model to the hyper-efficient Llama 3.2 3B model.
+        # This alignment ensures the orchestrator sends API traffic to the
+        # correct, locally-hosted Triton inference endpoints.
+        APP_LLM_MODELNAME: meta/llama-3.2-3b-instruct
+        APP_QUERYREWRITER_MODELNAME: meta/llama-3.2-3b-instruct
+        APP_FILTEREXPRESSIONGENERATOR_MODELNAME: meta/llama-3.2-3b-instruct
+        APP_EMBEDDINGS_MODELNAME: nvidia/llama-nemotron-embed-1b-v2
+        APP_RANKING_MODELNAME: nvidia/llama-nemotron-rerank-1b-v2
+
+        APP_EMBEDDINGS_SERVERURL: "nemotron-embedding-ms:8000/v1"
+
+        # DECISION: Switched vector search execution entirely to the CPU.
+        # For text knowledge bases under a few million chunks, CPU dense
+        # retrieval runs in single-digit milliseconds, saving critical VRAM
+        # for the models.
+        APP_VECTORSTORE_ENABLEGPUSEARCH: "False"
+
+        # CRITICAL FIX/DECISION: Rebalanced the token allocation budget to
+        # prevent 400 BadRequestErrors. LLM_MAX_TOKENS dictates the max output
+        # completion size, which is subtracted from NIM_MAX_MODEL_LEN (8192 on
+        # this T4 layout, see nim-llm.env below) — the rest is available for the
+        # input prompt and retrieved vector context. Capping generation at 1024
+        # guarantees a pool of ~7168 tokens remains open for user messages and
+        # retrieved document chunks.
+        LLM_MAX_TOKENS: "1024"
+      ingestor-server:
+        # Tesla T4 DECISION multi-gpu-nodes - co-locate the ingestor with the LLM node.
+        nodeSelector:
+          workload-type: llm
+        resources:
+          # DECISION: requests only (text-only ingestion needs little); leave
+          # limits unset so the pod can burst. `null` can't clear a default
+          # (controller strips it), so we just omit limits and override requests.
+          requests:
+            cpu: "500m"
+            memory: 1Gi
+        envVars:
+          # DECISION: Ensured the internal automated document summarization
+          # pipeline uses the same lightweight local 3B model instead of trying
+          # to spin up or look for a separate dedicated summarizer instance.
+          SUMMARY_LLM: meta/llama-3.2-3b-instruct
+          # Slashed from default 9000 to 4000 to keep inputs lean.
+          SUMMARY_LLM_MAX_CHUNK_LENGTH: "4000"
+          APP_EMBEDDINGS_MODELNAME: nvidia/llama-nemotron-embed-1b-v2
+          APP_EMBEDDINGS_SERVERURL: "nemotron-embedding-ms:8000/v1"
+
+          # DECISION: Forced document token indexing to run strictly on host
+          # CPU threads.
+          APP_VECTORSTORE_ENABLEGPUINDEX: "False"
+          APP_VECTORSTORE_ENABLEGPUSEARCH: "False"
+
+          # DECISION: Turned off advanced structural chart and table
+          # extraction. This transforms our pipeline into a dedicated,
+          # high-speed text-only ingestion system and eliminates the need for
+          # multi-modal GPU overhead.
+          APP_NVINGEST_EXTRACTTABLES: "False"
+          APP_NVINGEST_EXTRACTCHARTS: "False"
+      nv-ingest:
+        # Pin subchart names to match the chart's release-name="rag" defaults
+        # (rag-minio, rag-redis-master, rag-nv-ingest). The Blueprint controller
+        # picks a different release name; without these overrides every
+        # *_HOST / *_ENDPOINT default in the chart breaks. Matching defaults
+        # also lets us drop the host/endpoint envVar overrides above entirely.
+        fullnameOverride: rag-nv-ingest
+        redis:
+          fullnameOverride: rag-redis
+          # DECISION: standalone (master only). Chart default is replication
+          # (master + replica StatefulSets); the replica adds a 6Gi memory
+          # request and a second PVC that a single low-RAM node can't fit,
+          # leaving rag-redis-replicas-0 Pending. Minimal RAG needs only the
+          # master.
+          architecture: standalone
+        # FIXES Fleet duplicate-env error: chart template emits
+        # OTEL_EXPORTER_OTLP_ENDPOINT twice in the nv-ingest Deployment - once
+        # from the envVars loop (parent chart sets it under nv-ingest.envVars)
+        # and once from a fallback block guarded only by `otelEnvVars`.
+        # Disabling otel here skips the fallback. Consistent with parent
+        # default opentelemetry-collector.enabled=false anyway.
+        otelEnabled: false
+        resources:
+          # DECISION: Cap nv-ingest requests so it fits a single low-RAM node.
+          # Chart default requests 24Gi mem / 24 CPU leaves the pod Pending:
+          # "Insufficient memory". Set explicit small requests; leave limits
+          # unset so the pod can burst (the chart default limit is 200Gi/48cpu,
+          # effectively unlimited). NOTE: `null` does NOT clear a default — the
+          # Blueprint controller strips nulls during the value merge.
+          requests:
+            cpu: "2"
+            memory: 4Gi
+        envVars:
+          # CRITICAL DECISION: Cleared out the COMPONENTS_TO_READY_CHECK array.
+          # By default, nv-ingest runs strict network loop checks to ensure
+          # every single multi-modal sub-component (like the OCR engine or
+          # table parser) is live. Since we explicitly turned those off to
+          # save VRAM, resetting this string stops the ingestion pod from
+          # hanging in an infinite loop waiting for dead services.
+          COMPONENTS_TO_READY_CHECK: ""
+
+          APP_EMBEDDINGS_SERVERURL: "nemotron-embedding-ms:8000/v1"
+          EMBEDDING_NIM_ENDPOINT: "http://nemotron-embedding-ms:8000/v1"
+        milvus:
+          image:
+            all:
+              # DECISION: Explicitly pinned docker.io Milvus v2.6.5 database
+              # registry targets. This prevents the chart from drifting to
+              # enterprise distributed versions that expect independent index,
+              # query, and data proxy nodes.
+              repository: docker.io/milvusdb/milvus
+              tag: v2.6.5
+          minio:
+            fullnameOverride: rag-minio
+          # Milvus builds its S3 endpoint as "<release>-<minio.name>" in the
+          # milvus subchart config.tpl ({{ .Release.Name }}-{{ .Values.minio.name }}),
+          # IGNORING minio.fullnameOverride. The chart assumes release name "rag"
+          # so that resolves to "rag-minio"; under the Blueprint controller's
+          # long release name it becomes "nvidia-rag-minimal-...-minio", which
+          # doesn't exist (we renamed minio to rag-minio) -> milvus panics with
+          # "no such host". The externalS3 branch is the only one that bypasses
+          # the release-name computation, so point milvus at rag-minio directly.
+          # Bucket/creds mirror the parent chart defaults (bucketName nv-ingest,
+          # minioadmin/minioadmin); rootPath "file" matches the milvus default.
+          externalS3:
+            enabled: true
+            host: rag-minio
+            port: 9000
+            accessKey: minioadmin
+            secretKey: minioadmin
+            bucketName: nv-ingest
+            rootPath: file
+            useSSL: false
+          standalone:
+            resources:
+              # DECISION: Modest requests for standalone Milvus on a dev dataset;
+              # leave limits unset so it can burst. `null` can't clear a default
+              # (controller strips it), so we omit limits and override requests.
+              requests:
+                cpu: "1"
+                memory: 2Gi
+        # Nested nimOperator inside nv-ingest (Layout/OCR Extraction Engines).
+        # DECISION: Disabled all structural vision microservices to reclaim
+        # host RAM.
+        nimOperator:
+          graphic_elements:
+            enabled: false
+          page_elements:
+            enabled: false
+          table_structure:
+            enabled: false
+          # CRITICAL DECISION: Explicitly disabled the nemoretriever-ocr-v1
+          # engine. In our initial run, this service greedily grabbed
+          # 18,640 MiB (18.6 GB) of VRAM just to initialize. Evicting this
+          # monster cleared out 80%+ of our GPU card, giving the embedding,
+          # ranking, and LLM services a clean slate.
+          ocr:
+            enabled: false
+      # NIM Operator Deployments (3B LLM Engine)
+      nimOperator:
+        # DECISION: nim-vlm is another memory eating monster so disable it
+        # for now.
+        nim-vlm:
+          enabled: false
+        # DECISION: disable nvidia-nim-llama-nemotron-embed-vl-1b-v2 as its
+        # caching job keep failing to download model profiles. Use the non-vlm
+        # one instead.
+        nvidia-nim-llama-nemotron-embed-vl-1b-v2:
+          enabled: false
+        nvidia-nim-llama-nemotron-embed-1b-v2:
+          enabled: true
+          # Tesla T4 DECISION multi-gpu-nodes - place the embedding NIM on its own T4.
+          nodeSelector:
+            workload-type: embedding
+        # Tesla T4 DECISION multi-gpu-nodes - the text rerank NIM is enabled by the chart
+        # default; pin it to the third T4 node so each NIM owns a full card.
+        nvidia-nim-llama-nemotron-rerank-1b-v2:
+          enabled: true
+          nodeSelector:
+            workload-type: retriever
+        nim-llm:
+          enabled: true
+          # Tesla T4 DECISION multi-gpu-nodes - place the LLM NIM on the dedicated T4.
+          nodeSelector:
+            workload-type: llm
+          image:
+            # DECISION: Replaced the un-runnable 49B foundation model with
+            # Meta's compact 3-Billion parameter instruction-tuned model.
+            repository: nvcr.io/nim/meta/llama-3.2-3b-instruct
+            # CRITICAL DECISION: Pinning tag version "1.8.5". Avoided generic
+            # tags like "latest" which fail NIM operator hardware-profile
+            # lookup validation. Avoided "1.1.0" which was an invalid registry
+            # tag. Pinned 1.8.5 to trigger successful JIT TensorRT-LLM engine
+            # building.
+            tag: "1.8.5"
+
+          # Tesla T4 DECISION - Tesla T4 is Turing (compute capability 7.5). It does not support bf16.
+          # Force the vLLM profile to download to cache.
+          model:
+            profiles:
+            - 4f904d571fe60ff24695b5ee2aa42da58cb460787a968f1e8a09f5a7e862728d
+          storage:
+            pvc:
+              create: true
+              # DECISION: Slashed the persistent cache directory request from
+              # 120Gi to 35Gi. The 3B model weights only consume ~6 GB of
+              # space.
+              size: 35Gi
+              volumeAccessMode: ReadWriteOnce
+          # NB: chart renders this `env` as a list via toYaml — providing a
+          # list here FULLY REPLACES the chart default list (no merge). Chart
+          # default `NIM_TRITON_LOG_VERBOSE: "1"` is intentionally dropped.
+          env:
+          - name: NIM_SERVED_MODEL_NAME
+            value: meta/llama-3.2-3b-instruct
+          # DECISION: Limited max token sequence length to 8192. Bounds the
+          # baseline allocation size calculated by the TensorRT-LLM engine
+          # builder profile, working alongside the embedding/ranking services.
+          # (Was 4096 originally; bumped to 8192 to fit a workable context.)
+          - name: NIM_MAX_MODEL_LEN
+            value: "8192"
+          # DECISION: Capped the generative dynamic Key-Value Cache allocation
+          # to 15%. Since our 1B Embedding and 1B Reranking models lock down a
+          # fixed 49% (11.4 GB) of the card, capping the LLM's dynamic cache
+          # pool ensures the remaining ~6.5 GB of base weights fit cleanly,
+          # preserving a ~2.3 GB unallocated safety cushion for concurrent
+          # user queries.
+          - name: NIM_KVCACHE_PERCENT
+            value: "0.15"
+
+          # Tesla T4 DECISION - Tesla T4 is Turing (compute capability 7.5). It does not support bf16.
+          # Force the vLLM profile - passed to the runtime container.
+          # Pin to the cached vLLM bf16 profile. Without this, NIM auto-selects
+          # the trtllm_buildable profile, whose FMHA kernel aborts on Turing.
+          - name: NIM_MODEL_PROFILE
+            value: 4f904d571fe60ff24695b5ee2aa42da58cb460787a968f1e8a09f5a7e862728d
+
+          # DECISION: Expose an ingress to make it easier to access the
+          # NIM frontend UI. This is a hack, intended for demo purposes as the
+          # endpoint is not protected by TLS or required any authentication.
+          # To access the frontend UI, user will need to manually create the
+          # DNS record for "rag-frontend.suse.demo" with the IP address
+          # of the NIM frontend node in either /etc/hosts or DNS server.
+          expose:
+            ingress:
+              enabled: true
+              spec:
+                rules:
+                  - host: rag-frontend.suse.demo
+                    http:
+                      paths:
+                      - path: /
+                        pathType: Prefix
+                        backend:
+                          service:
+                            name: rag-frontend
+                            port:
+                              number: 3000
+  description: |
+    Minimal NVIDIA RAG (v2.6.0) for small (16 GB) GPUs, spread across
+    multiple Tesla T4 nodes (one GPU NIM per card). Swaps the default 49B
+    Nemotron for Llama 3.2 3B, disables structural OCR / table / chart
+    extraction to reclaim ~18 GB VRAM, forces CPU vector search/index,
+    drops chart resource bounds to fit low-RAM nodes, and pins Milvus
+    standalone (text-only RAG). Not for production: tracing/observability
+    stack is disabled, and the token budget is tuned for the small LLM,
+    not throughput.
+
+    This blueprint exposes an ingress endpoint for the RAG Frontend UI
+    with the name "rag-frontend.suse.demo".
+    To access the RAG Frontend UI:
+
+      1. get the external IP of the node
+      2. create a DNS entry in either your /etc/hosts file or DNS server
+         for "rag-frontend.suse.demo" with the node IP
+      3. point your browser to http://rag-frontend.suse.demo
+
+
+    Tesla T4 DECISION:
+    REQUIRES: NVIDIA k8s-nim-operator
+    REQUIRES: Elastic eck-operator.
+    See https://www.elastic.co/docs/deploy-manage/deploy/cloud-on-k8s/install-using-helm-chart
+    REQUIRES: Multiple GPU nodes
+    REQUIRES: longhorn storage backend
+    This multi-gpu-nodes layout spreads the three GPU NIMs (LLM, embedding, rerank) across three
+    T4 nodes via workload-type labels (max one NIM per 16Gi T4 card).
+    Label the nodes before deploying:
+      kubectl label node <gpunode1> workload-type=llm --overwrite
+      kubectl label node <gpunode2> workload-type=embedding --overwrite
+      kubectl label node <gpunode3> workload-type=retriever --overwrite
+
+    STORAGE REQUIREMENT - DO NOT use a node-local (local-path) storage
+    class for this pinned layout. Each NIM's model cache is populated by a
+    separate NIMCache model-puller Job. The v2.6.0 chart only renders
+    nodeSelector on the NIMService, NOT on the NIMCache, so the puller Job
+    has no node affinity. With local-path (ReadWriteOnce,
+    volumeBindingMode: WaitForFirstConsumer) the puller Job is the first
+    consumer and binds the PVC to whatever node it lands on. If that
+    differs from the NIMService's pinned workload-type node, the NIMService
+    pod is stuck Pending forever ("volume node affinity conflict") because
+    an RWO local-path volume can only be mounted from its bound node.
+    Use a storage class whose volumes are reachable from any node -
+    ReadWriteMany / network-backed (e.g. Longhorn) - so
+    the cache PVC is not pinned to the puller Job's node.
+  displayName: T4 NVIDIA RAG (minimal, low-GPU)
+  version: 2.6.0
