@@ -1,6 +1,8 @@
 global:
   imagePullSecrets:
   - {{ appco_secret }}
+image:
+  tag: "{{ suse_ai_observability_extension_image_tag }}"
 serverUrl: {{ suse_observability_server_url }}
 apiToken: {{ suse_observability_api_token }}
 tokenType: service
