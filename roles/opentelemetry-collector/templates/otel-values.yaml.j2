@@ -239,6 +239,8 @@ config:
             - set(attributes["suse.ai.managed"], "true")
             - set(attributes["suse.ai.component.type"], "application")
             - set(attributes["suse.ai.component.name"], attributes["service.name"])
+            - set(attributes["k8s.namespace.name"], attributes["service.namespace"]) where attributes["service.namespace"] != nil
+            - set(attributes["k8s.namespace.name"], "${env:SUSE_AI_NAMESPACE}") where attributes["service.namespace"] == nil
     filter/genai-spans:
       error_mode: ignore
       traces:
