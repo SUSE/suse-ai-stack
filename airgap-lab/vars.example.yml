@@ -1,0 +1,143 @@
+---
+# Store the real file under generated/vars.yml and preferably encrypt it with
+# ansible-vault. The example deliberately contains no working credentials.
+
+# Dedicated services cluster -------------------------------------------------
+airgap_services_address: "10.0.0.30"
+harbor_hostname: "harbor.airgap.test"
+gitea_hostname: "gitea.airgap.test"
+harbor_chart_version: "1.19.2"
+gitea_chart_version: "12.7.0"
+harbor_admin_password: "REPLACE_WITH_A_STRONG_PASSWORD"
+harbor_registry_storage_size: "40Gi"  # raise substantially for vendor images
+
+# AIF and artifact clients use this gated account. The first-pass lab uses the
+# Harbor admin account; production-like suites should replace it with a scoped
+# robot account after the registry bootstrap.
+harbor_registry_username: "admin"
+harbor_registry_password: "REPLACE_WITH_A_STRONG_PASSWORD"
+
+# AIF's Git client currently hard-codes the HTTP Basic username to "token".
+# Using that as the Gitea lab account makes the supported HTTP path testable and
+# leaves the product limitation visible in the assessment instead of hiding it.
+gitea_admin_username: "token"
+gitea_admin_password: "REPLACE_WITH_A_STRONG_PASSWORD"
+gitea_admin_email: "aif-qa@airgap.test"
+gitea_repository: "aif-gitops"
+gitea_http_node_port: 30030
+# false is the authenticated HTTP passing baseline for the current product.
+# true terminates a private-CA certificate at the RKE2 ingress and intentionally
+# exercises AG-003; GitOps is expected to fail until AIF and Fleet can consume
+# the configured Git CA.
+gitea_tls_enabled: false
+gitea_url: >-
+  {{ ('https://' ~ gitea_hostname)
+     if (gitea_tls_enabled | bool)
+     else ('http://' ~ gitea_hostname ~ ':' ~ (gitea_http_node_port | string)) }}
+
+# The services playbook bootstraps an online, single-node RKE2 services cluster
+# before the workload side is isolated. It never installs Rancher or GPU bits.
+rke2:
+  version: "v1.34.4+rke2r1"
+  token: "REPLACE_WITH_A_RANDOM_RKE2_TOKEN"
+  lb_address: ""
+rke2_installer_url: "https://get.rke2.io"
+scc_registration:
+  server: "https://scc.suse.com"
+  email: ""
+  sles_code: ""
+  sle_micro_code: ""
+nvidia:
+  driver_install: false
+  gpu_operator_deploy: false
+
+# AIF installation -----------------------------------------------------------
+aif_version: "2.2.0-dev.1"
+aif_namespace: "aif-operator"
+aif_release_name: "aif-operator"
+aif_ui_release_name: "aif-ui"
+aif_install_mode: "combined"  # combined | separate
+# Dynamic discovery is recommended for an air-gap because it shows only charts
+# actually indexed from the mirror. Run a second case with true to audit the
+# bundled catalog's external logos and unavailable-entry behavior.
+aif_use_static_catalog: false
+aif_chart_project: "aif-system"
+aif_image_project: "aif-images"
+appco_chart_project: "aif-appco"
+suse_chart_project: "aif-suse"
+nvidia_chart_project: "aif-nvidia"
+
+# The stack-installed Rancher chart must mount the lab CA so Rancher's catalog
+# and Fleet controllers trust Harbor. Set false only for the expected-failure
+# custom-CA test.
+rancher_trust_lab_ca: true
+rancher_release_name: "rancher"
+rancher_namespace: "cattle-system"
+rancher_chart_repo_name: "rancher-stable"
+rancher_chart_repo_url: "https://releases.rancher.com/server-charts/stable"
+
+# Node registry redirection --------------------------------------------------
+# Every registry named by any selected chart must be listed. RKE2's default
+# endpoint is disabled, so an omitted source fails closed rather than leaking.
+airgap_registry_mirrors:
+  - source: "ghcr.io"
+    prefix: "ghcr.io"
+  - source: "registry.suse.com"
+    prefix: "registry.suse.com"
+  - source: "dp.apps.rancher.io"
+    prefix: "dp.apps.rancher.io"
+  - source: "nvcr.io"
+    prefix: "nvcr.io"
+  - source: "docker.io"
+    prefix: "docker.io"
+  - source: "quay.io"
+    prefix: "quay.io"
+  - source: "registry.k8s.io"
+    prefix: "registry.k8s.io"
+
+# Isolation ------------------------------------------------------------------
+# Include only internal routed networks plus pod/service networks. On local
+# libvirt, replace 10.0.0.0/16 with the libvirt network (often
+# 192.168.122.0/24). Do not add 0.0.0.0/0.
+airgap_allowed_ipv4_cidrs:
+  - "10.0.0.0/16"
+  - "10.42.0.0/16"
+  - "10.43.0.0/16"
+airgap_allowed_ipv6_cidrs: []
+airgap_pod_ipv4_cidrs:
+  - "10.42.0.0/16"
+airgap_pod_ipv6_cidrs: []
+
+# DNS stays available so a test can distinguish "DNS failed" from "public
+# address resolved but egress was rejected". AWS VPC DNS is normally
+# 169.254.169.253; use the actual resolver shown in /etc/resolv.conf.
+airgap_dns_servers:
+  - "169.254.169.253"
+airgap_log_rejects: true
+airgap_probe_public_ipv4: "1.1.1.1"
+airgap_probe_public_port: 443
+airgap_probe_public_hostname: "registry.suse.com"
+
+# Hostname records are installed before isolation. Add Rancher's public name
+# mapped to its private management-node/LB address so downstream Fleet agents
+# do not leave the private network.
+airgap_host_records:
+  - ip: "10.0.0.30"
+    names: ["harbor.airgap.test", "gitea.airgap.test"]
+  - ip: "10.0.0.10"
+    names: ["suse-rancher.demo"]
+
+# Smoke test -----------------------------------------------------------------
+# Blueprint automation covers both operator-owned strategies. Run once with
+# FleetBundle and once with GitOps. The App/Helm journey remains a browser test
+# because the UI, rather than the operator, downloads and installs App charts.
+smoke_strategy: "FleetBundle"  # FleetBundle | GitOps
+smoke_target_clusters:
+  - "local"  # Rancher cluster IDs, for example local and c-m-abcde
+smoke_namespace: "aif-airgap-smoke"
+smoke_workload_name: "airgap-smoke-local"
+smoke_timeout_seconds: 900
+smoke_expect_git_ca_failure: false
+
+# Where playbook 06 fetches redacted command evidence on the controller.
+airgap_evidence_dir: "{{ airgap_generated_dir }}/evidence"

@@ -1,0 +1,20 @@
+---
+- name: Verify the gate on every isolated host and pod-capable node
+  hosts: airgap_isolated
+  gather_facts: true
+  become: true
+  vars:
+    airgap_ca_source: "{{ playbook_dir }}/../generated/pki/ca.crt"
+    airgap_generated_dir: "{{ playbook_dir }}/../generated"
+  roles:
+    - role: airgap_verify_node
+
+- name: Verify AI Factory, Fleet and pod egress from the management cluster
+  hosts: aif_management
+  gather_facts: false
+  become: true
+  vars:
+    airgap_ca_source: "{{ playbook_dir }}/../generated/pki/ca.crt"
+    airgap_generated_dir: "{{ playbook_dir }}/../generated"
+  roles:
+    - role: aif_airgap_verify

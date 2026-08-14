@@ -1,0 +1,76 @@
+image:
+  registry: docker.gitea.com
+  repository: gitea
+  tag: "1.27.0"
+  rootless: true
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+service:
+  http:
+    type: {{ ('ClusterIP' if (gitea_tls_enabled | bool) else 'NodePort') | quote }}
+    port: 3000
+{% if not (gitea_tls_enabled | bool) %}
+    nodePort: {{ gitea_http_node_port }}
+{% endif %}
+  ssh:
+    type: ClusterIP
+
+ingress:
+  enabled: {{ gitea_tls_enabled | bool | lower }}
+  className: nginx
+  hosts:
+    - host: {{ gitea_hostname | quote }}
+      paths:
+        - path: /
+{% if gitea_tls_enabled | bool %}
+  tls:
+    - secretName: gitea-ingress-tls
+      hosts:
+        - {{ gitea_hostname | quote }}
+{% else %}
+  tls: []
+{% endif %}
+
+persistence:
+  enabled: true
+  create: true
+  storageClass: local-path
+  size: 10Gi
+  accessModes: [ReadWriteOnce]
+
+gitea:
+  admin:
+    username: {{ gitea_admin_username | quote }}
+    password: {{ gitea_admin_password | quote }}
+    email: {{ gitea_admin_email | quote }}
+    passwordMode: keepUpdated
+  config:
+    server:
+      DOMAIN: {{ gitea_hostname | quote }}
+      ROOT_URL: "{{ gitea_url }}/"
+      SSH_DOMAIN: {{ gitea_hostname | quote }}
+      OFFLINE_MODE: true
+    database:
+      DB_TYPE: sqlite3
+    cache:
+      ADAPTER: memory
+    session:
+      PROVIDER: memory
+    queue:
+      TYPE: level
+    service:
+      DISABLE_REGISTRATION: true
+
+valkey-cluster:
+  enabled: false
+valkey:
+  enabled: false
+postgresql-ha:
+  enabled: false
+postgresql:
+  enabled: false
+
+test:
+  enabled: false

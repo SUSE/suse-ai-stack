@@ -1,0 +1,63 @@
+---
+- name: Install internal names and the lab CA on every participating node
+  hosts: airgap_services:airgap_isolated
+  gather_facts: true
+  become: true
+  vars:
+    airgap_ca_source: "{{ playbook_dir }}/../generated/pki/ca.crt"
+  tasks:
+    - name: Require the generated lab CA
+      ansible.builtin.stat:
+        path: "{{ airgap_ca_source }}"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      register: lab_ca
+
+    - name: Stop when the services phase has not generated a CA
+      ansible.builtin.assert:
+        that: lab_ca.stat.exists
+        fail_msg: "Run the services phase before configuring isolated nodes."
+      run_once: true
+
+    - name: Add internal lab host records
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: "^[^#]*\\s{{ item.names[0] | regex_escape }}(?:\\s|$)"
+        line: "{{ item.ip }} {{ item.names | join(' ') }}"
+        state: present
+      loop: "{{ airgap_host_records }}"
+
+    - name: Install the lab CA into the host trust store
+      ansible.builtin.copy:
+        src: "{{ airgap_ca_source }}"
+        dest: /etc/pki/trust/anchors/aif-airgap-lab-ca.crt
+        owner: root
+        group: root
+        mode: "0644"
+      register: host_ca
+
+    - name: Refresh host CA trust
+      ansible.builtin.command:
+        cmd: update-ca-certificates
+      when: host_ca.changed
+      changed_when: true
+
+- name: Add the lab CA to Rancher before the gate closes
+  hosts: aif_management
+  gather_facts: false
+  become: true
+  vars:
+    airgap_ca_source: "{{ playbook_dir }}/../generated/pki/ca.crt"
+  roles:
+    - role: rancher_lab_ca
+
+- name: Configure authenticated RKE2 registry mirrors on every schedulable node
+  hosts: rke2_airgap_nodes
+  serial: 1
+  gather_facts: true
+  become: true
+  vars:
+    airgap_ca_source: "{{ playbook_dir }}/../generated/pki/ca.crt"
+  roles:
+    - role: rke2_airgap_registry

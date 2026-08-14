@@ -1,0 +1,79 @@
+---
+- name: Validate the isolation allow-list
+  ansible.builtin.assert:
+    that:
+      - airgap_allowed_ipv4_cidrs | length > 0
+      - airgap_pod_ipv4_cidrs | length > 0
+      - airgap_services_address | ansible.utils.ipaddr
+      - "'0.0.0.0/0' not in airgap_allowed_ipv4_cidrs"
+      - "'::/0' not in airgap_allowed_ipv6_cidrs"
+    fail_msg: >-
+      Isolation needs explicit internal and pod CIDRs; a default route is never an allowed value.
+
+- name: Validate every configured IPv4 network and resolver
+  ansible.builtin.assert:
+    that:
+      - item | ansible.utils.ipaddr
+  loop: "{{ airgap_allowed_ipv4_cidrs + airgap_pod_ipv4_cidrs + airgap_dns_servers }}"
+
+- name: Validate every configured IPv6 network
+  ansible.builtin.assert:
+    that:
+      - item | ansible.utils.ipaddr
+  loop: "{{ airgap_allowed_ipv6_cidrs + airgap_pod_ipv6_cidrs }}"
+
+- name: Install nftables before closing the gate
+  ansible.builtin.package:
+    name: nftables
+    state: present
+
+- name: Create the isolated rules directory
+  ansible.builtin.file:
+    path: /etc/nftables.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Render host-output and pod-forward isolation rules
+  ansible.builtin.template:
+    src: aif-airgap-lab.nft.j2
+    dest: /etc/nftables.d/aif-airgap-lab.nft
+    owner: root
+    group: root
+    mode: "0600"
+  register: isolation_rules
+
+- name: Check the rendered nftables rules without applying them
+  ansible.builtin.command:
+    cmd: nft --check --file /etc/nftables.d/aif-airgap-lab.nft
+  changed_when: false
+
+- name: Install the reversible isolation service
+  ansible.builtin.template:
+    src: aif-airgap-isolation.service.j2
+    dest: /etc/systemd/system/aif-airgap-isolation.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: isolation_service
+
+- name: Reload systemd for the isolation unit
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: isolation_service.changed
+
+- name: Enable and apply the isolation rules
+  ansible.builtin.systemd_service:
+    name: aif-airgap-isolation.service
+    enabled: true
+    state: "{{ 'restarted' if isolation_rules.changed or isolation_service.changed else 'started' }}"
+
+- name: Confirm the lab-owned nftables table is active
+  ansible.builtin.command:
+    cmd: nft list table inet aif_airgap_lab
+  register: active_lab_rules
+  changed_when: false
+
+- name: Confirm the SSH connection survived the gate
+  ansible.builtin.ping:

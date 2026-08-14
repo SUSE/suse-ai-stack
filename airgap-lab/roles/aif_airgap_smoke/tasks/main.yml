@@ -1,0 +1,185 @@
+---
+- name: Validate the smoke journey
+  ansible.builtin.assert:
+    that:
+      - smoke_strategy in ['FleetBundle', 'GitOps']
+      - smoke_target_clusters | length > 0
+      - smoke_target_clusters | unique | list | length == smoke_target_clusters | length
+      - smoke_timeout_seconds | int >= 60
+      - >-
+        not (smoke_expect_git_ca_failure | default(false) | bool)
+        or (smoke_strategy == 'GitOps' and (gitea_tls_enabled | bool))
+    fail_msg: "Choose FleetBundle or GitOps and at least one unique Rancher cluster ID."
+
+- name: Create smoke staging directory
+  ansible.builtin.file:
+    path: /var/lib/aif-airgap-smoke
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Render the no-GPU Blueprint and AIWorkload
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/var/lib/aif-airgap-smoke/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0600"
+  loop:
+    - { src: blueprint.yaml.j2, dest: blueprint.yaml }
+    - { src: aiworkload.yaml.j2, dest: aiworkload.yaml }
+
+- name: Create the smoke target namespace
+  ansible.builtin.shell: |
+    set -o pipefail
+    /var/lib/rancher/rke2/bin/kubectl create namespace "{{ smoke_namespace }}" \
+      --dry-run=client -o yaml --kubeconfig /etc/rancher/rke2/rke2.yaml \
+      | /var/lib/rancher/rke2/bin/kubectl apply -f - \
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+  args:
+    executable: /bin/bash
+  changed_when: "'created' in stdout or 'configured' in stdout"
+
+- name: Apply the smoke Blueprint
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl apply
+      --filename /var/lib/aif-airgap-smoke/blueprint.yaml
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  register: smoke_blueprint_apply
+  changed_when: "'created' in smoke_blueprint_apply.stdout or 'configured' in smoke_blueprint_apply.stdout"
+
+- name: Apply the smoke AIWorkload
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl apply
+      --filename /var/lib/aif-airgap-smoke/aiworkload.yaml
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  register: smoke_workload_apply
+  changed_when: "'created' in smoke_workload_apply.stdout or 'configured' in smoke_workload_apply.stdout"
+
+- name: Wait for the operator to record the component bundle name
+  ansible.builtin.shell: |
+    set -o pipefail
+    deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
+    while (( SECONDS < deadline )); do
+      name=$(/var/lib/rancher/rke2/bin/kubectl -n "{{ smoke_namespace }}" \
+        get aiworkload "{{ smoke_workload_name }}-{{ smoke_strategy | lower }}" \
+        --kubeconfig /etc/rancher/rke2/rke2.yaml \
+        -o jsonpath='{.spec.fleetBundleNames[0]}' 2>/dev/null || true)
+      [[ -n "${name}" ]] && { printf '%s\n' "${name}"; exit 0; }
+      sleep 5
+    done
+    exit 1
+  args:
+    executable: /bin/bash
+  register: smoke_bundle_name
+  changed_when: false
+
+- name: Wait for GitOps publication when selected
+  when:
+    - smoke_strategy == 'GitOps'
+    - not (smoke_expect_git_ca_failure | default(false) | bool)
+  block:
+    - name: Wait for the workload file in private Gitea
+      ansible.builtin.uri:
+        url: "{{ gitea_url }}/api/v1/repos/{{ gitea_admin_username }}/{{ gitea_repository }}/contents/workloads/{{ smoke_bundle_name.stdout | trim }}.yaml?ref=main"
+        method: GET
+        url_username: "{{ gitea_admin_username }}"
+        url_password: "{{ gitea_admin_password }}"
+        force_basic_auth: true
+        ca_path: "{{ '/etc/pki/trust/anchors/aif-airgap-lab-ca.crt' if (gitea_tls_enabled | bool) else omit }}"
+        status_code: 200
+      register: gitea_workload_file
+      retries: 60
+      delay: 5
+      until: gitea_workload_file.status == 200
+      no_log: true
+
+    - name: Wait for Fleet to observe the internal Git repository
+      ansible.builtin.shell: |
+        set -o pipefail
+        deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
+        while (( SECONDS < deadline )); do
+          ready=$(/var/lib/rancher/rke2/bin/kubectl -n fleet-local get gitrepo suse-ai-fleet-repo \
+            --kubeconfig /etc/rancher/rke2/rke2.yaml \
+            -o jsonpath='{range .status.conditions[?(@.type=="Ready")]}{.status}{end}' 2>/dev/null || true)
+          [[ "${ready}" == "True" ]] && exit 0
+          sleep 5
+        done
+        /var/lib/rancher/rke2/bin/kubectl -n fleet-local get gitrepo suse-ai-fleet-repo -o yaml \
+          --kubeconfig /etc/rancher/rke2/rke2.yaml >&2 || true
+        exit 1
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+- name: Assert the known private-CA Git client failure
+  when: smoke_expect_git_ca_failure | default(false) | bool
+  block:
+    - name: Wait for the operator to report the untrusted Gitea certificate
+      ansible.builtin.shell: |
+        set -o pipefail
+        deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
+        while (( SECONDS < deadline )); do
+          logs=$(/var/lib/rancher/rke2/bin/kubectl -n "{{ aif_namespace }}" \
+            logs deployment/{{ aif_release_name }} --all-containers=true --since=15m \
+            --kubeconfig /etc/rancher/rke2/rke2.yaml 2>&1 || true)
+          if grep -Eq 'x509: certificate signed by unknown authority|certificate signed by unknown authority' <<<"${logs}"; then
+            printf '%s\n' "${logs}" \
+              | grep -E 'x509: certificate signed by unknown authority|certificate signed by unknown authority' \
+              | tail -n 20 \
+              > /var/lib/aif-airgap-smoke/expected-git-ca-failure.txt
+            exit 0
+          fi
+          sleep 5
+        done
+        /var/lib/rancher/rke2/bin/kubectl -n "{{ smoke_namespace }}" \
+          get aiworkload "{{ smoke_workload_name }}-gitops" -o yaml \
+          --kubeconfig /etc/rancher/rke2/rke2.yaml >&2 || true
+        exit 1
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Report the asserted private-CA gap
+      ansible.builtin.debug:
+        msg: >-
+          Expected failure AG-003 reproduced: the host trusts {{ gitea_url }},
+          but the AIF operator Git client rejected its private CA. Evidence is
+          on the management node at
+          /var/lib/aif-airgap-smoke/expected-git-ca-failure.txt.
+
+- name: Wait for the smoke AIWorkload to become Running
+  when: not (smoke_expect_git_ca_failure | default(false) | bool)
+  ansible.builtin.shell: |
+    set -o pipefail
+    deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
+    while (( SECONDS < deadline )); do
+      phase=$(/var/lib/rancher/rke2/bin/kubectl -n "{{ smoke_namespace }}" \
+        get aiworkload "{{ smoke_workload_name }}-{{ smoke_strategy | lower }}" \
+        --kubeconfig /etc/rancher/rke2/rke2.yaml \
+        -o jsonpath='{.status.phase}' 2>/dev/null || true)
+      [[ "${phase}" == "Running" ]] && exit 0
+      [[ "${phase}" == "Failed" || "${phase}" == "Degraded" ]] && break
+      sleep 5
+    done
+    /var/lib/rancher/rke2/bin/kubectl -n "{{ smoke_namespace }}" \
+      get aiworkload "{{ smoke_workload_name }}-{{ smoke_strategy | lower }}" -o yaml \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml >&2 || true
+    /var/lib/rancher/rke2/bin/kubectl get helmop,bundle -A \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml >&2 || true
+    exit 1
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Report the successful smoke journey
+  when: not (smoke_expect_git_ca_failure | default(false) | bool)
+  ansible.builtin.debug:
+    msg: >-
+      Blueprint {{ smoke_strategy }} workload
+      {{ smoke_namespace }}/{{ smoke_workload_name }}-{{ smoke_strategy | lower }}
+      is Running through bundle {{ smoke_bundle_name.stdout | trim }} on
+      {{ smoke_target_clusters | join(', ') }}.

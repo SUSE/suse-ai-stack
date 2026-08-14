@@ -1,0 +1,171 @@
+---
+- name: Wait for the AI Factory operator deployment
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace }} rollout status
+      deployment/{{ aif_release_name }} --timeout=5m
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  changed_when: false
+
+- name: Verify the combined UI installation
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace }} wait
+      installaiextension/{{ aif_ui_release_name }}
+      --for=condition=Ready --timeout=5m
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  when: aif_install_mode == 'combined'
+  changed_when: false
+
+- name: Verify the separate UI installation
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl -n cattle-ui-plugin-system rollout status
+      deployment/{{ aif_ui_release_name }} --timeout=5m
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  when: aif_install_mode == 'separate'
+  changed_when: false
+
+- name: Confirm AIF deployments use direct Harbor image references
+  ansible.builtin.shell: |
+    set -o pipefail
+    operator_image=$(/var/lib/rancher/rke2/bin/kubectl -n "{{ aif_namespace }}" \
+      get deployment "{{ aif_release_name }}" \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml \
+      -o jsonpath='{.spec.template.spec.containers[0].image}')
+    ui_image=$(/var/lib/rancher/rke2/bin/kubectl -n cattle-ui-plugin-system \
+      get deployment "{{ aif_ui_release_name }}" \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml \
+      -o jsonpath='{.spec.template.spec.containers[0].image}')
+    [[ "${operator_image}" == "{{ harbor_hostname }}/"* ]]
+    [[ "${ui_image}" == "{{ harbor_hostname }}/"* ]]
+    printf 'operator=%s\nui=%s\n' "${operator_image}" "${ui_image}"
+  args:
+    executable: /bin/bash
+  register: aif_deployment_images
+  changed_when: false
+
+- name: Confirm Settings and every mirrored catalog are observed
+  ansible.builtin.shell: |
+    set -o pipefail
+    generation=$(/var/lib/rancher/rke2/bin/kubectl -n "{{ aif_namespace }}" get settings settings \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml -o jsonpath='{.metadata.generation}')
+    observed=$(/var/lib/rancher/rke2/bin/kubectl -n "{{ aif_namespace }}" get settings settings \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml -o jsonpath='{.status.observedGeneration}')
+    [[ -n "${observed}" && "${generation}" == "${observed}" ]]
+    for repo in application-collection suse-ai-registry nvidia; do
+      downloaded=$(/var/lib/rancher/rke2/bin/kubectl get clusterrepo "${repo}" \
+        --kubeconfig /etc/rancher/rke2/rke2.yaml -o jsonpath='{.status.downloadTime}')
+      [[ -n "${downloaded}" ]]
+    done
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Render the pod-level negative egress probe
+  ansible.builtin.template:
+    src: public-egress-probe.yaml.j2
+    dest: /var/lib/aif-airgap-public-egress-probe.yaml
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Remove only an earlier lab probe pod
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace }} delete pod
+      aif-airgap-public-egress-probe --ignore-not-found --wait=true
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  changed_when: true
+
+- name: Start the pod-level negative egress probe
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl apply
+      --filename /var/lib/aif-airgap-public-egress-probe.yaml
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  changed_when: true
+
+- name: Require internal access and rejected public access from the pod
+  ansible.builtin.shell: |
+    set -o pipefail
+    for attempt in $(seq 1 36); do
+      phase=$(/var/lib/rancher/rke2/bin/kubectl -n "{{ aif_namespace }}" \
+        get pod aif-airgap-public-egress-probe \
+        --kubeconfig /etc/rancher/rke2/rke2.yaml \
+        -o jsonpath='{.status.phase}' 2>/dev/null || true)
+      [[ "${phase}" == "Succeeded" ]] && exit 0
+      [[ "${phase}" == "Failed" ]] && break
+      sleep 5
+    done
+    /var/lib/rancher/rke2/bin/kubectl -n "{{ aif_namespace }}" \
+      describe pod aif-airgap-public-egress-probe \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml >&2 || true
+    /var/lib/rancher/rke2/bin/kubectl -n "{{ aif_namespace }}" \
+      logs aif-airgap-public-egress-probe \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml >&2 || true
+    exit 1
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Read the successful pod probe log
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace }} logs
+      aif-airgap-public-egress-probe
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  register: pod_probe_log
+  changed_when: false
+
+- name: Create the control-plane evidence directory
+  ansible.builtin.file:
+    path: /var/lib/aif-airgap-evidence
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Capture redacted control-plane evidence
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    {
+      printf 'captured_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      printf 'install_mode={{ aif_install_mode }}\n'
+      printf '%s\n' "{{ aif_deployment_images.stdout }}"
+      printf 'pod_probe={{ pod_probe_log.stdout | trim }}\n'
+      helm list --all-namespaces --kubeconfig "${kubeconfig}"
+      "${kubectl}" get settings -A -o yaml --kubeconfig "${kubeconfig}"
+      "${kubectl}" get clusterrepo application-collection suse-ai-registry nvidia -o yaml --kubeconfig "${kubeconfig}"
+      "${kubectl}" get gitrepo,helmop,bundle -A -o wide --kubeconfig "${kubeconfig}"
+      "${kubectl}" get aiworkload -A -o yaml --kubeconfig "${kubeconfig}"
+      "${kubectl}" get pods -A -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,IMAGE:.spec.containers[*].image,IMAGE_ID:.status.containerStatuses[*].imageID,PHASE:.status.phase' --kubeconfig "${kubeconfig}"
+      "${kubectl}" get events -A --sort-by=.lastTimestamp --kubeconfig "${kubeconfig}" | tail -n 200
+    } > /var/lib/aif-airgap-evidence/control-plane.txt
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+- name: Create the local control-plane evidence destination
+  ansible.builtin.file:
+    path: "{{ airgap_evidence_dir }}/management"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Fetch control-plane evidence to the controller
+  ansible.builtin.fetch:
+    src: /var/lib/aif-airgap-evidence/control-plane.txt
+    dest: "{{ airgap_evidence_dir }}/management/"
+    flat: false
+
+- name: Report verification result
+  ansible.builtin.debug:
+    msg:
+      - "AIF and UI are Ready from Harbor; all three private catalogs have downloaded."
+      - "Host and pod public TCP probes were rejected while Harbor and Gitea stayed reachable."
+      - "Redacted evidence was fetched under {{ airgap_evidence_dir }}."

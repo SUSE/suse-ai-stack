@@ -1,0 +1,367 @@
+---
+- name: Validate services-plane inputs
+  ansible.builtin.assert:
+    that:
+      - groups['airgap_services'] | length == 1
+      - harbor_hostname | length > 0
+      - gitea_hostname | length > 0
+      - airgap_services_address | ansible.utils.ipaddr
+      - harbor_admin_password != 'REPLACE_WITH_A_STRONG_PASSWORD'
+      - harbor_registry_password != 'REPLACE_WITH_A_STRONG_PASSWORD'
+      - gitea_admin_password != 'REPLACE_WITH_A_STRONG_PASSWORD'
+      - harbor_registry_username == 'admin' or harbor_registry_username | length > 0
+      - harbor_admin_password == harbor_registry_password or harbor_registry_username != 'admin'
+    fail_msg: >-
+      Replace all credentials and ensure the configured services address is a valid private IP.
+
+- name: Check services-node Kubernetes access
+  ansible.builtin.stat:
+    path: /etc/rancher/rke2/rke2.yaml
+  register: services_kubeconfig
+
+- name: Require a bootstrapped services cluster
+  ansible.builtin.assert:
+    that: services_kubeconfig.stat.exists
+    fail_msg: "Run airgap-lab/run.sh bootstrap-services before installing Harbor and Gitea."
+
+- name: Create generated PKI directory on the controller
+  ansible.builtin.file:
+    path: "{{ airgap_generated_dir }}/pki"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+
+- name: Generate the lab CA private key
+  community.crypto.openssl_privatekey:
+    path: "{{ airgap_generated_dir }}/pki/ca.key"
+    size: 4096
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+
+- name: Generate the lab CA request
+  community.crypto.openssl_csr:
+    path: "{{ airgap_generated_dir }}/pki/ca.csr"
+    privatekey_path: "{{ airgap_generated_dir }}/pki/ca.key"
+    common_name: "SUSE AI Factory air-gap QA lab CA"
+    basic_constraints:
+      - "CA:TRUE"
+    basic_constraints_critical: true
+    key_usage:
+      - keyCertSign
+      - cRLSign
+    key_usage_critical: true
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+
+- name: Generate the self-signed lab CA certificate
+  community.crypto.x509_certificate:
+    path: "{{ airgap_generated_dir }}/pki/ca.crt"
+    csr_path: "{{ airgap_generated_dir }}/pki/ca.csr"
+    privatekey_path: "{{ airgap_generated_dir }}/pki/ca.key"
+    provider: selfsigned
+    selfsigned_not_after: "+3650d"
+    mode: "0644"
+  delegate_to: localhost
+  become: false
+
+- name: Generate Harbor private key
+  community.crypto.openssl_privatekey:
+    path: "{{ airgap_generated_dir }}/pki/harbor.key"
+    size: 3072
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+
+- name: Generate Harbor certificate request
+  community.crypto.openssl_csr:
+    path: "{{ airgap_generated_dir }}/pki/harbor.csr"
+    privatekey_path: "{{ airgap_generated_dir }}/pki/harbor.key"
+    common_name: "{{ harbor_hostname }}"
+    subject_alt_name:
+      - "DNS:{{ harbor_hostname }}"
+      - "IP:{{ airgap_services_address }}"
+    key_usage:
+      - digitalSignature
+      - keyEncipherment
+    extended_key_usage:
+      - serverAuth
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+
+- name: Sign Harbor certificate with the lab CA
+  community.crypto.x509_certificate:
+    path: "{{ airgap_generated_dir }}/pki/harbor.crt"
+    csr_path: "{{ airgap_generated_dir }}/pki/harbor.csr"
+    ownca_path: "{{ airgap_generated_dir }}/pki/ca.crt"
+    ownca_privatekey_path: "{{ airgap_generated_dir }}/pki/ca.key"
+    provider: ownca
+    ownca_not_after: "+825d"
+    mode: "0644"
+  delegate_to: localhost
+  become: false
+
+- name: Generate Gitea private key
+  community.crypto.openssl_privatekey:
+    path: "{{ airgap_generated_dir }}/pki/gitea.key"
+    size: 3072
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+
+- name: Generate Gitea certificate request
+  community.crypto.openssl_csr:
+    path: "{{ airgap_generated_dir }}/pki/gitea.csr"
+    privatekey_path: "{{ airgap_generated_dir }}/pki/gitea.key"
+    common_name: "{{ gitea_hostname }}"
+    subject_alt_name:
+      - "DNS:{{ gitea_hostname }}"
+      - "IP:{{ airgap_services_address }}"
+    key_usage:
+      - digitalSignature
+      - keyEncipherment
+    extended_key_usage:
+      - serverAuth
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+
+- name: Sign Gitea certificate with the lab CA
+  community.crypto.x509_certificate:
+    path: "{{ airgap_generated_dir }}/pki/gitea.crt"
+    csr_path: "{{ airgap_generated_dir }}/pki/gitea.csr"
+    ownca_path: "{{ airgap_generated_dir }}/pki/ca.crt"
+    ownca_privatekey_path: "{{ airgap_generated_dir }}/pki/ca.key"
+    provider: ownca
+    ownca_not_after: "+825d"
+    mode: "0644"
+  delegate_to: localhost
+  become: false
+
+- name: Add services hostnames to the services node
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^[^#]*\\s{{ item.names[0] | regex_escape }}(?:\\s|$)"
+    line: "{{ item.ip }} {{ item.names | join(' ') }}"
+    state: present
+  loop: "{{ airgap_host_records }}"
+
+- name: Install the lab CA into the services-node trust store
+  ansible.builtin.copy:
+    src: "{{ airgap_generated_dir }}/pki/ca.crt"
+    dest: /etc/pki/trust/anchors/aif-airgap-lab-ca.crt
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Refresh services CA trust
+
+- name: Flush CA trust before using Harbor
+  ansible.builtin.meta: flush_handlers
+
+- name: Create lab staging directory on the services node
+  ansible.builtin.file:
+    path: /var/lib/aif-airgap-lab
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Copy service TLS material to the services node
+  ansible.builtin.copy:
+    src: "{{ airgap_generated_dir }}/pki/{{ item.src }}"
+    dest: "/var/lib/aif-airgap-lab/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: "harbor.crt", dest: "harbor.crt", mode: "0644" }
+    - { src: "harbor.key", dest: "harbor.key", mode: "0600" }
+    - { src: "gitea.crt", dest: "gitea.crt", mode: "0644" }
+    - { src: "gitea.key", dest: "gitea.key", mode: "0600" }
+
+- name: Create Harbor and Gitea namespaces
+  ansible.builtin.shell: |
+    set -o pipefail
+    /var/lib/rancher/rke2/bin/kubectl create namespace "{{ item }}" \
+      --dry-run=client -o yaml \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml \
+      | /var/lib/rancher/rke2/bin/kubectl apply -f - \
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+  args:
+    executable: /bin/bash
+  loop:
+    - harbor
+    - gitea
+  changed_when: "'created' in stdout or 'configured' in stdout"
+
+- name: Install Harbor ingress TLS secret
+  ansible.builtin.shell: |
+    set -o pipefail
+    /var/lib/rancher/rke2/bin/kubectl -n harbor create secret tls harbor-ingress-tls \
+      --cert=/var/lib/aif-airgap-lab/harbor.crt \
+      --key=/var/lib/aif-airgap-lab/harbor.key \
+      --dry-run=client -o yaml \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml \
+      | /var/lib/rancher/rke2/bin/kubectl apply -f - \
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+  args:
+    executable: /bin/bash
+  changed_when: "'created' in stdout or 'configured' in stdout"
+
+- name: Install Gitea ingress TLS secret
+  ansible.builtin.shell: |
+    set -o pipefail
+    /var/lib/rancher/rke2/bin/kubectl -n gitea create secret tls gitea-ingress-tls \
+      --cert=/var/lib/aif-airgap-lab/gitea.crt \
+      --key=/var/lib/aif-airgap-lab/gitea.key \
+      --dry-run=client -o yaml \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml \
+      | /var/lib/rancher/rke2/bin/kubectl apply -f - \
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+  args:
+    executable: /bin/bash
+  when: gitea_tls_enabled | bool
+  changed_when: "'created' in stdout or 'configured' in stdout"
+
+- name: Render Harbor values
+  ansible.builtin.template:
+    src: harbor-values.yaml.j2
+    dest: /var/lib/aif-airgap-lab/harbor-values.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Render Gitea values
+  ansible.builtin.template:
+    src: gitea-values.yaml.j2
+    dest: /var/lib/aif-airgap-lab/gitea-values.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Add connected-stage Helm repositories
+  ansible.builtin.command:
+    cmd: "helm repo add {{ item.name }} {{ item.url }} --force-update"
+  loop:
+    - { name: harbor, url: "https://helm.goharbor.io" }
+    - { name: gitea, url: "https://dl.gitea.com/charts" }
+  changed_when: true
+
+- name: Update connected-stage Helm repositories
+  ansible.builtin.command:
+    cmd: helm repo update
+  changed_when: true
+
+- name: Install Harbor
+  ansible.builtin.command:
+    cmd: >-
+      helm upgrade --install harbor harbor/harbor
+      --namespace harbor
+      --version {{ harbor_chart_version }}
+      --values /var/lib/aif-airgap-lab/harbor-values.yaml
+      --atomic --timeout 20m
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  register: harbor_install
+  retries: 2
+  delay: 20
+  until: harbor_install.rc == 0
+  no_log: true
+
+- name: Install Gitea
+  ansible.builtin.command:
+    cmd: >-
+      helm upgrade --install gitea gitea/gitea
+      --namespace gitea
+      --version {{ gitea_chart_version }}
+      --values /var/lib/aif-airgap-lab/gitea-values.yaml
+      --atomic --timeout 20m
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  register: gitea_install
+  retries: 2
+  delay: 20
+  until: gitea_install.rc == 0
+  no_log: true
+
+- name: Wait for Harbor health
+  ansible.builtin.uri:
+    url: "https://{{ harbor_hostname }}/api/v2.0/health"
+    method: GET
+    ca_path: /etc/pki/trust/anchors/aif-airgap-lab-ca.crt
+    status_code: 200
+  register: harbor_health
+  retries: 30
+  delay: 10
+  until: harbor_health.status == 200
+
+- name: Create private Harbor projects
+  ansible.builtin.uri:
+    url: "https://{{ harbor_hostname }}/api/v2.0/projects"
+    method: POST
+    url_username: admin
+    url_password: "{{ harbor_admin_password }}"
+    force_basic_auth: true
+    ca_path: /etc/pki/trust/anchors/aif-airgap-lab-ca.crt
+    body_format: json
+    body:
+      project_name: "{{ item }}"
+      public: false
+    status_code: [201, 409]
+  loop:
+    - "{{ aif_chart_project }}"
+    - "{{ aif_image_project }}"
+    - "{{ appco_chart_project }}"
+    - "{{ suse_chart_project }}"
+    - "{{ nvidia_chart_project }}"
+  no_log: true
+
+- name: Wait for Gitea health
+  ansible.builtin.uri:
+    url: "{{ gitea_url }}/api/healthz"
+    method: GET
+    ca_path: "{{ '/etc/pki/trust/anchors/aif-airgap-lab-ca.crt' if (gitea_tls_enabled | bool) else omit }}"
+    status_code: 200
+  register: gitea_health
+  retries: 30
+  delay: 10
+  until: gitea_health.status == 200
+
+- name: Create the initialized Gitea GitOps repository
+  ansible.builtin.uri:
+    url: "{{ gitea_url }}/api/v1/user/repos"
+    method: POST
+    url_username: "{{ gitea_admin_username }}"
+    url_password: "{{ gitea_admin_password }}"
+    force_basic_auth: true
+    ca_path: "{{ '/etc/pki/trust/anchors/aif-airgap-lab-ca.crt' if (gitea_tls_enabled | bool) else omit }}"
+    body_format: json
+    body:
+      name: "{{ gitea_repository }}"
+      private: true
+      auto_init: true
+      default_branch: main
+      description: "AI Factory air-gap GitOps QA repository"
+    status_code: [201, 409, 422]
+  no_log: true
+
+- name: Verify the initialized Gitea GitOps repository
+  ansible.builtin.uri:
+    url: "{{ gitea_url }}/api/v1/repos/{{ gitea_admin_username }}/{{ gitea_repository }}"
+    method: GET
+    url_username: "{{ gitea_admin_username }}"
+    url_password: "{{ gitea_admin_password }}"
+    force_basic_auth: true
+    ca_path: "{{ '/etc/pki/trust/anchors/aif-airgap-lab-ca.crt' if (gitea_tls_enabled | bool) else omit }}"
+    status_code: 200
+  no_log: true
+
+- name: Report services endpoints
+  ansible.builtin.debug:
+    msg:
+      - "Harbor: https://{{ harbor_hostname }}"
+      - "Gitea: {{ gitea_url }}/{{ gitea_admin_username }}/{{ gitea_repository }}.git"
+      - "CA: {{ airgap_generated_dir }}/pki/ca.crt on the Ansible controller"

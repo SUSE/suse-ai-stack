@@ -1,0 +1,173 @@
+---
+apiVersion: airgap.ai-factory.suse.com/v1alpha1
+kind: ArtifactSet
+metadata:
+  name: aif-no-gpu-control-plane
+spec:
+  charts:
+    - id: aif-operator
+      profiles: [core]
+      sourceType: oci
+      source: oci://ghcr.io/suse/chart/aif-operator
+      version: 2.2.0-dev.1
+      archive: aif-operator-2.2.0-dev.1.tgz
+      targets: [aif-system]
+    - id: aif-ui
+      profiles: [core]
+      sourceType: oci
+      source: oci://ghcr.io/suse/chart/aif-ui
+      version: 2.2.0-dev.1
+      archive: aif-ui-2.2.0-dev.1.tgz
+      targets: [aif-system]
+    - id: airgap-smoke-appco
+      profiles: [core]
+      sourceType: local
+      source: fixtures/charts/airgap-smoke
+      version: 0.1.0
+      archive: airgap-smoke-0.1.0.tgz
+      targets: [aif-appco]
+    - id: airgap-smoke-suse
+      profiles: [core]
+      sourceType: local
+      source: fixtures/charts/airgap-smoke
+      version: 0.1.0
+      archive: airgap-smoke-0.1.0.tgz
+      targets: [aif-suse]
+    - id: airgap-smoke-nvidia
+      profiles: [core]
+      sourceType: local
+      source: fixtures/charts/airgap-smoke
+      version: 0.1.0
+      archive: airgap-smoke-0.1.0.tgz
+      targets: [aif-nvidia]
+
+    # Vendor control-plane profile. It transfers default-rendered NVIDIA
+    # containers below, but omits model artifacts and does not claim runtime
+    # readiness for NIM or RAG. The charts exercise authenticated catalog,
+    # HelmOp, Blueprint and secret-injection paths without requiring a GPU.
+    - id: appco-open-webui
+      profiles: [vendor]
+      sourceType: oci
+      source: oci://dp.apps.rancher.io/charts/open-webui
+      version: 8.19.1
+      archive: open-webui-8.19.1.tgz
+      targets: [aif-appco]
+    - id: appco-ollama
+      profiles: [vendor]
+      sourceType: oci
+      source: oci://dp.apps.rancher.io/charts/ollama
+      version: 1.55.0
+      archive: ollama-1.55.0.tgz
+      targets: [aif-appco]
+    - id: appco-open-webui-mcpo
+      profiles: [vendor]
+      sourceType: oci
+      source: oci://dp.apps.rancher.io/charts/open-webui-mcpo
+      version: 1.0.2
+      archive: open-webui-mcpo-1.0.2.tgz
+      targets: [aif-appco]
+    - id: suse-litellm
+      profiles: [vendor]
+      sourceType: oci
+      source: oci://registry.suse.com/ai/charts/litellm
+      version: 1.81.13
+      archive: litellm-1.81.13.tgz
+      targets: [aif-suse]
+    - id: nvidia-rag-blueprint
+      profiles: [vendor]
+      sourceType: helm-repo
+      source: https://helm.ngc.nvidia.com/nvidia/blueprint
+      chart: nvidia-blueprint-rag
+      version: v2.6.0
+      archive: nvidia-blueprint-rag-v2.6.0.tgz
+      targets: [aif-nvidia]
+    - id: nvidia-aiq-web
+      profiles: [vendor]
+      sourceType: helm-repo
+      source: https://helm.ngc.nvidia.com/nvidia/blueprint
+      chart: aiq2-web
+      version: 2.1.0
+      archive: aiq2-web-2.1.0.tgz
+      targets: [aif-nvidia]
+
+  images:
+    - id: aif-operator
+      profiles: [core]
+      source: ghcr.io/suse/aif-operator:2.2.0-dev.1
+      bundlePath: ghcr.io_suse_aif-operator_2.2.0-dev.1.dir
+      target: aif-images/ghcr.io/suse/aif-operator:2.2.0-dev.1
+    - id: aif-ui
+      profiles: [core]
+      source: ghcr.io/suse/aif-ui:2.2.0-dev.1
+      bundlePath: ghcr.io_suse_aif-ui_2.2.0-dev.1.dir
+      target: aif-images/ghcr.io/suse/aif-ui:2.2.0-dev.1
+    - id: aif-kubectl
+      profiles: [core]
+      source: registry.suse.com/suse/kubectl:1.35
+      bundlePath: registry.suse.com_suse_kubectl_1.35.dir
+      target: aif-images/registry.suse.com/suse/kubectl:1.35
+    - id: airgap-smoke
+      profiles: [core]
+      source: registry.suse.com/bci/bci-busybox:15.7
+      bundlePath: registry.suse.com_bci_bci-busybox_15.7.dir
+      target: aif-images/registry.suse.com/bci/bci-busybox:15.7
+    - id: appco-open-webui
+      profiles: [vendor]
+      source: dp.apps.rancher.io/containers/open-webui:0.6.41-14.80
+      bundlePath: dp.apps.rancher.io_containers_open-webui_0.6.41-14.80.dir
+      target: aif-images/dp.apps.rancher.io/containers/open-webui:0.6.41-14.80
+    - id: suse-litellm
+      profiles: [vendor]
+      source: registry.suse.com/ai/containers/litellm-database:v1.81.13
+      bundlePath: registry.suse.com_ai_containers_litellm-database_v1.81.13.dir
+      target: aif-images/registry.suse.com/ai/containers/litellm-database:v1.81.13
+    # Images rendered by the pinned NVIDIA charts with their default values.
+    # They are large and the runtime is not asserted in the no-GPU suite; they
+    # are present so an optional vendor bundle can exercise gated NGC transfer.
+    - id: nvidia-rag-ingestor
+      profiles: [vendor]
+      source: nvcr.io/nvidia/blueprint/ingestor-server:2.6.0
+      bundlePath: nvcr.io_nvidia_blueprint_ingestor-server_2.6.0.dir
+      target: aif-images/nvcr.io/nvidia/blueprint/ingestor-server:2.6.0
+    - id: nvidia-rag-frontend
+      profiles: [vendor]
+      source: nvcr.io/nvidia/blueprint/rag-frontend:2.6.0
+      bundlePath: nvcr.io_nvidia_blueprint_rag-frontend_2.6.0.dir
+      target: aif-images/nvcr.io/nvidia/blueprint/rag-frontend:2.6.0
+    - id: nvidia-rag-server
+      profiles: [vendor]
+      source: nvcr.io/nvidia/blueprint/rag-server:2.6.0
+      bundlePath: nvcr.io_nvidia_blueprint_rag-server_2.6.0.dir
+      target: aif-images/nvcr.io/nvidia/blueprint/rag-server:2.6.0
+    - id: nvidia-nv-ingest
+      profiles: [vendor]
+      source: nvcr.io/nvidia/nemo-microservices/nv-ingest:26.3.0
+      bundlePath: nvcr.io_nvidia_nemo-microservices_nv-ingest_26.3.0.dir
+      target: aif-images/nvcr.io/nvidia/nemo-microservices/nv-ingest:26.3.0
+    - id: nvidia-aiq-agent
+      profiles: [vendor]
+      source: nvcr.io/nvidia/blueprint/aiq-agent:2.1.0
+      bundlePath: nvcr.io_nvidia_blueprint_aiq-agent_2.1.0.dir
+      target: aif-images/nvcr.io/nvidia/blueprint/aiq-agent:2.1.0
+    - id: nvidia-aiq-frontend
+      profiles: [vendor]
+      source: nvcr.io/nvidia/blueprint/aiq-frontend:2.1.0
+      bundlePath: nvcr.io_nvidia_blueprint_aiq-frontend_2.1.0.dir
+      target: aif-images/nvcr.io/nvidia/blueprint/aiq-frontend:2.1.0
+    - id: nvidia-rag-redis
+      profiles: [vendor]
+      source: docker.io/library/redis:8.2.1
+      bundlePath: docker.io_library_redis_8.2.1.dir
+      target: aif-images/docker.io/library/redis:8.2.1
+    - id: nvidia-rag-seaweedfs
+      profiles: [vendor]
+      source: docker.io/chrislusf/seaweedfs:3.73
+      bundlePath: docker.io_chrislusf_seaweedfs_3.73.dir
+      target: aif-images/docker.io/chrislusf/seaweedfs:3.73
+    # aiq2-web 2.1.0 renders this mutable upstream tag. Its resolved digest is
+    # recorded, but AG-001 requires the vendor/release contract to pin it.
+    - id: nvidia-aiq-postgresql
+      profiles: [vendor]
+      source: docker.io/bitnami/postgresql:latest
+      bundlePath: docker.io_bitnami_postgresql_latest.dir
+      target: aif-images/docker.io/bitnami/postgresql:latest

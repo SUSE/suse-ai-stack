@@ -1,0 +1,12 @@
+apiVersion: v2
+name: airgap-smoke
+description: CPU-only chart used to validate AI Factory air-gap delivery paths
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+annotations:
+  helm.sh/images: |
+    - image: registry.suse.com/bci/bci-busybox:15.7
+      name: bci-busybox
+maintainers:
+  - name: SUSE AI Factory QA

@@ -1,0 +1,9 @@
+---
+- name: Exercise a CPU-only Blueprint through Fleet
+  hosts: aif_management
+  gather_facts: false
+  become: true
+  vars:
+    airgap_ca_source: "{{ playbook_dir }}/../generated/pki/ca.crt"
+  roles:
+    - role: aif_airgap_smoke

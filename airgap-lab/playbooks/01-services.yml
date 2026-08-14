@@ -1,0 +1,9 @@
+---
+- name: Install the Harbor and Gitea services plane
+  hosts: airgap_services
+  gather_facts: true
+  become: true
+  vars:
+    airgap_generated_dir: "{{ playbook_dir }}/../generated"
+  roles:
+    - role: airgap_services

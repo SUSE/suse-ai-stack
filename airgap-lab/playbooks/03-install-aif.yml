@@ -1,0 +1,9 @@
+---
+- name: Install and configure SUSE AI Factory entirely from Harbor
+  hosts: aif_management
+  gather_facts: true
+  become: true
+  vars:
+    airgap_ca_source: "{{ playbook_dir }}/../generated/pki/ca.crt"
+  roles:
+    - role: aif_airgap_install

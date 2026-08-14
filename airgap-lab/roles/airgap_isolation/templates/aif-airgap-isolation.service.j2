@@ -1,0 +1,16 @@
+[Unit]
+Description=SUSE AI Factory air-gap QA egress isolation
+Documentation=file:/etc/nftables.d/aif-airgap-lab.nft
+Wants=network-online.target
+After=network-online.target
+Before=rke2-server.service rke2-agent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=-/usr/sbin/nft delete table inet aif_airgap_lab
+ExecStart=/usr/sbin/nft --file /etc/nftables.d/aif-airgap-lab.nft
+ExecStop=-/usr/sbin/nft delete table inet aif_airgap_lab
+
+[Install]
+WantedBy=multi-user.target

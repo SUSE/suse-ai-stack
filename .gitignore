@@ -68,3 +68,7 @@ suse_observability_api_key.txt
 suse_observability_admin_password.txt
 
 external_playbooks
+
+# Generated air-gap lab credentials, certificates, inventories and artifact bundles.
+airgap-lab/generated/
+airgap-lab/bundles/

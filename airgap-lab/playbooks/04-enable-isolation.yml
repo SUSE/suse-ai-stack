@@ -1,0 +1,7 @@
+---
+- name: Close public egress on management, workload and browser nodes
+  hosts: airgap_isolated
+  gather_facts: true
+  become: true
+  roles:
+    - role: airgap_isolation

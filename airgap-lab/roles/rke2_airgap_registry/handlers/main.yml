@@ -1,0 +1,22 @@
+---
+- name: Gather service state for RKE2 restart
+  ansible.builtin.service_facts:
+  listen:
+    - Restart RKE2 server
+    - Restart RKE2 agent
+
+- name: Restart RKE2 server
+  ansible.builtin.systemd_service:
+    name: rke2-server
+    state: restarted
+  when:
+    - ansible_facts.services['rke2-server.service'] is defined
+    - ansible_facts.services['rke2-server.service'].status != 'not-found'
+
+- name: Restart RKE2 agent
+  ansible.builtin.systemd_service:
+    name: rke2-agent
+    state: restarted
+  when:
+    - ansible_facts.services['rke2-agent.service'] is defined
+    - ansible_facts.services['rke2-agent.service'].status != 'not-found'

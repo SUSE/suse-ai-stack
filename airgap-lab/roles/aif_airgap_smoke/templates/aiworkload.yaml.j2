@@ -1,0 +1,18 @@
+apiVersion: ai-factory.suse.com/v1alpha1
+kind: AIWorkload
+metadata:
+  name: {{ smoke_workload_name }}-{{ smoke_strategy | lower }}
+  namespace: {{ smoke_namespace }}
+spec:
+  displayName: AI Factory air-gap {{ smoke_strategy }} smoke
+  source:
+    sourceType: Blueprint
+    blueprint:
+      name: aif-airgap-smoke
+      version: 0.1.0
+  targetNamespace: {{ smoke_namespace }}
+  targetClusters:
+{% for cluster_id in smoke_target_clusters %}
+    - {{ cluster_id | quote }}
+{% endfor %}
+  deployStrategy: {{ smoke_strategy }}

@@ -1,0 +1,36 @@
+replicaCount: 1
+
+image:
+  registry: registry.suse.com
+  repository: bci/bci-busybox
+  tag: "15.7"
+  pullPolicy: Always
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  readOnlyRootFilesystem: true
+
+resources:
+  requests:
+    cpu: 5m
+    memory: 8Mi
+  limits:
+    cpu: 50m
+    memory: 32Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

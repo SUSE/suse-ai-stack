@@ -1,0 +1,92 @@
+---
+- name: Require the lab isolation service to be active
+  ansible.builtin.command:
+    cmd: systemctl is-active aif-airgap-isolation.service
+  changed_when: false
+
+- name: Resolve a public registry through the configured DNS path
+  ansible.builtin.command:
+    cmd: "getent ahostsv4 {{ airgap_probe_public_hostname }}"
+  register: public_dns_result
+  changed_when: false
+
+- name: Reach gated Harbor over the private network
+  ansible.builtin.uri:
+    url: "https://{{ harbor_hostname }}/api/v2.0/health"
+    method: GET
+    ca_path: /etc/pki/trust/anchors/aif-airgap-lab-ca.crt
+    status_code: 200
+  register: internal_harbor_result
+
+- name: Reach authenticated Gitea's health endpoint over the private network
+  ansible.builtin.uri:
+    url: "{{ gitea_url }}/api/healthz"
+    method: GET
+    ca_path: "{{ '/etc/pki/trust/anchors/aif-airgap-lab-ca.crt' if (gitea_tls_enabled | bool) else omit }}"
+    status_code: 200
+  register: internal_gitea_result
+
+- name: Prove host TCP egress to a public IP is rejected
+  ansible.builtin.shell: |
+    timeout 5 bash -c 'exec 3<>/dev/tcp/{{ airgap_probe_public_ipv4 }}/{{ airgap_probe_public_port | int }}'
+  args:
+    executable: /bin/bash
+  register: public_tcp_probe
+  changed_when: false
+  failed_when: public_tcp_probe.rc == 0
+
+- name: Pull an upstream-named image through containerd's Harbor rewrite
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/crictl
+      --runtime-endpoint unix:///run/k3s/containerd/containerd.sock
+      pull registry.suse.com/bci/bci-busybox:15.7
+  when: inventory_hostname in groups['rke2_airgap_nodes']
+  register: mirrored_cri_pull
+  changed_when: false
+
+- name: Create the node evidence directory
+  ansible.builtin.file:
+    path: /var/lib/aif-airgap-evidence
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Write redacted node evidence
+  ansible.builtin.shell: |
+    set -o pipefail
+    {
+      printf 'host=%s\n' "$(hostname -f 2>/dev/null || hostname)"
+      printf 'captured_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      printf 'public_dns=resolved\n'
+      printf 'public_tcp=blocked rc=%s\n' "{{ public_tcp_probe.rc }}"
+      printf 'harbor_health=%s\n' "{{ internal_harbor_result.status }}"
+      printf 'gitea_health=%s\n' "{{ internal_gitea_result.status }}"
+      systemctl show aif-airgap-isolation.service --property=ActiveState,UnitFileState
+      nft list table inet aif_airgap_lab
+      if [[ -f /etc/rancher/rke2/config.yaml ]]; then
+        grep -F 'disable-default-registry-endpoint:' /etc/rancher/rke2/config.yaml || true
+      fi
+      if [[ -f /etc/rancher/rke2/registries.yaml ]]; then
+        sed -E 's/^([[:space:]]*password:).*/\1 REDACTED/' /etc/rancher/rke2/registries.yaml
+      fi
+    } > /var/lib/aif-airgap-evidence/node.txt
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+- name: Create the local evidence destination
+  ansible.builtin.file:
+    path: "{{ airgap_evidence_dir }}/nodes"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Fetch node evidence to the controller
+  ansible.builtin.fetch:
+    src: /var/lib/aif-airgap-evidence/node.txt
+    dest: "{{ airgap_evidence_dir }}/nodes/"
+    flat: false
