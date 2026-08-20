@@ -213,16 +213,29 @@ export_bundle() {
       >> "${bundle}/SOURCE-DIGESTS.txt"
   done
 
-  local image_count image_index image_source image_bundle image_digest bundle_digest
+  local image_count image_index image_source image_transport image_ref image_bundle image_digest bundle_digest
   image_count="$(yq -r '.spec.images | length' "${manifest}")"
   for ((image_index=0; image_index<image_count; image_index++)); do
     profiles="$(yq -r ".spec.images[${image_index}].profiles | join(\",\")" "${manifest}")"
     selected "${profiles}" || continue
     image_source="$(yq -r ".spec.images[${image_index}].source" "${manifest}")"
+    image_transport="$(yq -r ".spec.images[${image_index}].sourceTransport // \"docker\"" "${manifest}")"
+    case "${image_transport}" in
+      docker) image_ref="docker://${image_source}" ;;
+      docker-daemon) image_ref="docker-daemon:${image_source}" ;;
+      *)
+        printf 'Unsupported image sourceTransport %s for %s\n' "${image_transport}" "${image_source}" >&2
+        exit 2
+        ;;
+    esac
     image_bundle="$(yq -r ".spec.images[${image_index}].bundlePath" "${manifest}")"
     require_bundle_basename "${image_bundle}" "spec.images[${image_index}].bundlePath"
     path="${bundle}/images/${image_bundle}"
-    image_digest="$(skopeo inspect --authfile "${source_auth_file}" --format '{{.Digest}}' "docker://${image_source}")"
+    if [[ "${image_transport}" == "docker" ]]; then
+      image_digest="$(skopeo inspect --authfile "${source_auth_file}" --format '{{.Digest}}' "${image_ref}")"
+    else
+      image_digest="$(skopeo inspect --format '{{.Digest}}' "${image_ref}")"
+    fi
     if [[ -d "${path}" ]]; then
       [[ -f "${path}/manifest.json" ]] || {
         printf 'Cached image bundle is incomplete: %s; use a new bundle directory.\n' "${path}" >&2
@@ -240,11 +253,20 @@ export_bundle() {
     else
       # The dir transport preserves Docker/OCI manifest media types, multi-arch
       # indexes, source digests, and containers/image transport signatures.
-      skopeo copy --all --preserve-digests --retry-times 3 \
-        --src-authfile "${source_auth_file}" \
-        "docker://${image_source}" "dir:${path}"
+      if [[ "${image_transport}" == "docker" ]]; then
+        skopeo copy --all --preserve-digests --retry-times 3 \
+          --src-authfile "${source_auth_file}" \
+          "${image_ref}" "dir:${path}"
+      else
+        # A locally built PR image is intentionally single-platform. The
+        # Docker daemon transport cannot expose a manifest list, so --all does
+        # not apply; digest preservation still makes the transfer verifiable.
+        skopeo copy --preserve-digests --retry-times 3 \
+          "${image_ref}" "dir:${path}"
+      fi
     fi
-    printf 'image\t%s\t%s\n' "${image_source}" "${image_digest}" >> "${bundle}/SOURCE-DIGESTS.txt"
+    printf 'image\t%s\t%s\t%s\n' "${image_source}" "${image_digest}" "${image_transport}" \
+      >> "${bundle}/SOURCE-DIGESTS.txt"
   done
 
   {

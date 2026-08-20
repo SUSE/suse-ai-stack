@@ -160,6 +160,43 @@ part of either installation journey.
 Record `helm list -A`, the `InstallAIExtension` status, pod image references,
 and Harbor access logs for each run.
 
+## Qualifying an AIF source checkout or pull request
+
+The committed `core` profile uses published AIF artifacts. To test code that is
+not released yet, build both containers and stage both charts from an exact,
+clean AIF Git checkout while the seed is still connected:
+
+```console
+export AIF_SOURCE_DIR=/path/to/aif
+airgap-lab/run.sh build-aif-source
+
+export AIF_AIRGAP_MANIFEST="$PWD/airgap-lab/generated/artifacts-aif-source.yml"
+export AIF_AIRGAP_BUNDLE="$PWD/airgap-lab/bundles/aif-$(git -C "$AIF_SOURCE_DIR" rev-parse --short=12 HEAD)"
+AIF_AIRGAP_PROFILE=core airgap-lab/run.sh mirror
+```
+
+The build refuses tracked changes, stamps the source commit into the operator
+binary and image labels, copies the source charts under `generated/`, and emits
+a manifest that reads the locally built single-platform images through
+Skopeo's Docker-daemon transport. The exported bundle records the source
+commit, version, image transport, and exact image digests before Harbor import.
+Set `aif_version` in `generated/vars.yml` to the version printed by the build;
+the install role and source manifest must describe the same release.
+
+When qualifying native chart-registry CA propagation (for example AIF PR
+`#200`), also set this in `generated/vars.yml`:
+
+```yaml
+aif_registry_ca_mode: settings
+```
+
+That mode writes `caBundleSecretRef` for all three mirrored registry settings,
+disables the lab's compatibility patch, verifies all nine generated Fleet/Rancher
+Secret copies, rotates the source CA without changing its trust semantics, and
+requires every ClusterRepo to receive a new `spec.forceUpdate`. The source CA
+and all copies are restored before installation continues. A successful run in
+`workaround` mode is not evidence for the native product implementation.
+
 ## Profiles and artifact completeness
 
 `artifacts.yml` is an allow-list, not a best-effort chart scraper. Every image

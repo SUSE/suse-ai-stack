@@ -57,6 +57,11 @@ aif_namespace: "aif-operator"
 aif_release_name: "aif-operator"
 aif_ui_release_name: "aif-ui"
 aif_install_mode: "combined"  # combined | separate
+# "workaround" patches Fleet auth Secrets after reconciliation so the published
+# baseline remains testable. "settings" requires native caBundleSecretRef support
+# (for example AIF PR #200) and proves that AIF itself propagates and rotates CA
+# data. Never use workaround when qualifying the native implementation.
+aif_registry_ca_mode: "workaround"  # workaround | settings
 # Dynamic discovery is recommended for an air-gap because it shows only charts
 # actually indexed from the mirror. Run a second case with true to audit the
 # bundled catalog's external logos and unavailable-entry behavior.

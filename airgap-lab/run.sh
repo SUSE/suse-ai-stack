@@ -16,6 +16,7 @@ usage() {
     "" \
     "Phases:" \
     "  bootstrap-services  Install CPU-only RKE2 on the services node (connected stage)" \
+    "  build-aif-source    Build exact operator/UI images and charts from AIF_SOURCE_DIR" \
     "  services            Install TLS Harbor and authenticated Gitea" \
     "  mirror-export       Download selected artifacts into a checksummed transfer bundle" \
     "  mirror-import       Verify and upload a transfer bundle into Harbor" \
@@ -53,6 +54,9 @@ case "${phase}" in
   bootstrap-services)
     require_config
     play "${lab_dir}/playbooks/00-bootstrap-services.yml"
+    ;;
+  build-aif-source)
+    "${lab_dir}/scripts/build-aif-source.sh"
     ;;
   services)
     require_config

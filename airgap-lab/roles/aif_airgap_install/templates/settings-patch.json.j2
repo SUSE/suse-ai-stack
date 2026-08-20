@@ -11,15 +11,21 @@
     },
     "applicationCollection": {
       "userSecretRef": { "name": "harbor-credentials", "key": "username" },
-      "tokenSecretRef": { "name": "harbor-credentials", "key": "password" }
+      "tokenSecretRef": { "name": "harbor-credentials", "key": "password" }{% if (aif_registry_ca_mode | default('workaround')) == 'settings' %},
+      "caBundleSecretRef": { "name": "harbor-ca", "key": "ca.crt" }
+      {% endif %}
     },
     "suseRegistry": {
       "userSecretRef": { "name": "harbor-credentials", "key": "username" },
-      "tokenSecretRef": { "name": "harbor-credentials", "key": "password" }
+      "tokenSecretRef": { "name": "harbor-credentials", "key": "password" }{% if (aif_registry_ca_mode | default('workaround')) == 'settings' %},
+      "caBundleSecretRef": { "name": "harbor-ca", "key": "ca.crt" }
+      {% endif %}
     },
     "nvidia": {
       "userSecretRef": { "name": "harbor-credentials", "key": "username" },
-      "tokenSecretRef": { "name": "harbor-credentials", "key": "password" }
+      "tokenSecretRef": { "name": "harbor-credentials", "key": "password" }{% if (aif_registry_ca_mode | default('workaround')) == 'settings' %},
+      "caBundleSecretRef": { "name": "harbor-ca", "key": "ca.crt" }
+      {% endif %}
     },
     "registryEndpoints": {
       "applicationCollection": "oci://{{ harbor_hostname }}/{{ appco_chart_project }}",

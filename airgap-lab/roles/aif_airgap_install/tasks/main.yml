@@ -3,6 +3,7 @@
   ansible.builtin.assert:
     that:
       - aif_install_mode in ['combined', 'separate']
+      - (aif_registry_ca_mode | default('workaround')) in ['workaround', 'settings']
       - aif_version | length > 0
       - aif_release_name == 'aif-operator'
       - aif_ui_release_name == 'aif-ui'
@@ -264,6 +265,7 @@
     executable: /bin/bash
   no_log: true
   changed_when: true
+  when: (aif_registry_ca_mode | default('workaround')) == 'workaround'
 
 - name: Verify Fleet auth secrets contain credentials and a CA
   ansible.builtin.shell: |
@@ -280,6 +282,77 @@
     executable: /bin/bash
   changed_when: false
 
+- name: Verify Settings-native CA rotation and ClusterRepo refresh
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    original_ca=$(/usr/bin/base64 -w 0 /var/lib/aif-airgap-lab-ca.crt)
+    rotated_ca=$({ cat /var/lib/aif-airgap-lab-ca.crt; printf '\n'; } | /usr/bin/base64 -w 0)
+    repos=(application-collection suse-ai-registry nvidia)
+    namespaces=(cattle-system fleet-local fleet-default)
+    secrets=(application-collection-auth suse-ai-registry-auth ngc-helm-auth)
+    declare -A before
+
+    for repo in "${repos[@]}"; do
+      before["${repo}"]=$("${kubectl}" get clusterrepo "${repo}" \
+        --kubeconfig "${kubeconfig}" -o jsonpath='{.spec.forceUpdate}')
+    done
+
+    restore_source() {
+      "${kubectl}" -n "{{ aif_namespace }}" patch secret harbor-ca --type merge \
+        --patch "{\"data\":{\"ca.crt\":\"${original_ca}\"}}" \
+        --kubeconfig "${kubeconfig}" >/dev/null
+    }
+    trap restore_source EXIT
+
+    "${kubectl}" -n "{{ aif_namespace }}" patch secret harbor-ca --type merge \
+      --patch "{\"data\":{\"ca.crt\":\"${rotated_ca}\"}}" \
+      --kubeconfig "${kubeconfig}" >/dev/null
+
+    rotated=false
+    for attempt in $(seq 1 60); do
+      rotated=true
+      for namespace in "${namespaces[@]}"; do
+        for secret in "${secrets[@]}"; do
+          actual=$("${kubectl}" -n "${namespace}" get secret "${secret}" \
+            --kubeconfig "${kubeconfig}" -o jsonpath='{.data.cacerts}' 2>/dev/null || true)
+          [[ "${actual}" == "${rotated_ca}" ]] || rotated=false
+        done
+      done
+      for repo in "${repos[@]}"; do
+        actual=$("${kubectl}" get clusterrepo "${repo}" --kubeconfig "${kubeconfig}" \
+          -o jsonpath='{.spec.forceUpdate}' 2>/dev/null || true)
+        [[ -n "${actual}" && "${actual}" != "${before[${repo}]}" ]] || rotated=false
+      done
+      [[ "${rotated}" == true ]] && break
+      sleep 5
+    done
+    [[ "${rotated}" == true ]]
+
+    restore_source
+    trap - EXIT
+
+    restored=false
+    for attempt in $(seq 1 60); do
+      restored=true
+      for namespace in "${namespaces[@]}"; do
+        for secret in "${secrets[@]}"; do
+          actual=$("${kubectl}" -n "${namespace}" get secret "${secret}" \
+            --kubeconfig "${kubeconfig}" -o jsonpath='{.data.cacerts}' 2>/dev/null || true)
+          [[ "${actual}" == "${original_ca}" ]] || restored=false
+        done
+      done
+      [[ "${restored}" == true ]] && break
+      sleep 5
+    done
+    [[ "${restored}" == true ]]
+  args:
+    executable: /bin/bash
+  no_log: true
+  changed_when: true
+  when: (aif_registry_ca_mode | default('workaround')) == 'settings'
+
 - name: Report AIF install mode and endpoints
   ansible.builtin.debug:
     msg:
@@ -288,4 +361,7 @@
       - "SUSE endpoint: oci://{{ harbor_hostname }}/{{ suse_chart_project }}"
       - "NVIDIA endpoint: oci://{{ harbor_hostname }}/{{ nvidia_chart_project }}"
       - "GitOps endpoint: {{ gitea_url }}/{{ gitea_admin_username }}/{{ gitea_repository }}.git"
-      - "Lab workaround active: cacerts was added to AIF-created Fleet Helm auth secrets."
+      - >-
+        Registry CA mode: {{ aif_registry_ca_mode | default('workaround') }}
+        {{ '(lab patched cacerts)' if (aif_registry_ca_mode | default('workaround')) == 'workaround'
+           else '(AIF propagated and rotation-tested cacerts)' }}.
