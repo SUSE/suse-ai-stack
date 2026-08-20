@@ -9,4 +9,5 @@ spec:
   paths:
   - ./fleet/applications/local-path-provisioner
   helmSecretName: appco-helm-secret
+  helmRepoURLRegex: oci://dp\.apps\.rancher\.io.*
   forceSyncGeneration: 1
