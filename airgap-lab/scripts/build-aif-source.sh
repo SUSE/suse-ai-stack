@@ -30,7 +30,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-for command_name in docker git helm jq realpath tar yq yarn; do
+for command_name in docker git helm jq node realpath tar yq yarn; do
   command -v "${command_name}" >/dev/null || {
     printf 'Required command not found: %s\n' "${command_name}" >&2
     exit 2
@@ -91,6 +91,12 @@ cleanup_build_checkout() {
 }
 trap cleanup_build_checkout EXIT
 
+image_revision() {
+  docker image inspect "$1" \
+    --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+    2>/dev/null || true
+}
+
 # Build from Git's exact commit rather than the developer's working directory.
 # This excludes untracked files and lets the UI publisher freely create and
 # clean its output without mutating the source checkout used as evidence.
@@ -104,7 +110,12 @@ if [[ ! -d "${build_root}/charts/aif-ui" ]]; then
   cp -a "${build_checkout}/charts/aif-ui" "${build_root}/charts/aif-ui"
 fi
 
-if [[ "${rebuild}" == "true" ]] || ! docker image inspect "${operator_image}" >/dev/null 2>&1; then
+operator_revision="$(image_revision "${operator_image}")"
+if [[ "${rebuild}" == "true" || "${operator_revision}" != "${commit}" ]]; then
+  if [[ -n "${operator_revision}" && "${operator_revision}" != "${commit}" ]]; then
+    printf 'Rebuilding stale operator image %s (cached revision %s).\n' \
+      "${operator_image}" "${operator_revision}"
+  fi
   docker build \
     -f "${build_checkout}/build/Dockerfile.operator" \
     --build-arg "VERSION=${version}" \
@@ -117,15 +128,19 @@ else
   printf 'Using existing operator image %s\n' "${operator_image}"
 fi
 
-if [[ "${rebuild}" == "true" ]] || ! docker image inspect "${ui_image}" >/dev/null 2>&1; then
-  [[ -d "${source_dir}/ui/node_modules" ]] || {
-    printf 'UI dependencies are missing; run yarn install in %s/ui first.\n' "${source_dir}" >&2
-    exit 2
-  }
-  ln -s "${source_dir}/ui/node_modules" "${build_checkout}/ui/node_modules"
+ui_revision="$(image_revision "${ui_image}")"
+if [[ "${rebuild}" == "true" || "${ui_revision}" != "${commit}" ]]; then
+  if [[ -n "${ui_revision}" && "${ui_revision}" != "${commit}" ]]; then
+    printf 'Rebuilding stale UI image %s (cached revision %s).\n' \
+      "${ui_image}" "${ui_revision}"
+  fi
+  (
+    cd "${build_checkout}/ui"
+    yarn install --frozen-lockfile --ignore-engines --non-interactive
+  )
   # webpack-virtual-modules creates @rancher/auto-import under the package's
-  # nearest node_modules directory. It must be a real directory in the
-  # disposable checkout, not a symlink back into the developer checkout.
+  # nearest node_modules directory. Keep the package-local directory inside
+  # the disposable checkout as well.
   mkdir -p "${build_checkout}/ui/pkg/aif-ui/node_modules"
   (
     cd "${build_checkout}/ui"

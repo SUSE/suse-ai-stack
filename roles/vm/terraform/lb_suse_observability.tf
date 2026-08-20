@@ -14,6 +14,7 @@ resource "aws_lb" "suse_observ_rke2" {
 }
 
 #create target group - rke2
+# AWS target-group names allow 32 characters; reserve four for the -tgN suffix.
 resource "aws_lb_target_group" "suse_observ_rke2_targetgroup1" {
   count       = var.suse_observability_cluster["user"] != null && var.suse_observability_cluster["user"] != "" ? 1 : 0
   name        = "${substr(aws_lb.suse_observ_rke2[0].name, 0, 28)}-tg1"

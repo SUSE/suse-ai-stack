@@ -204,7 +204,7 @@
 
 - name: Create Harbor and Gitea namespaces
   ansible.builtin.shell: |
-    set -o pipefail
+    set -euo pipefail
     /var/lib/rancher/rke2/bin/kubectl create namespace "{{ item }}" \
       --dry-run=client -o yaml \
       --kubeconfig /etc/rancher/rke2/rke2.yaml \
@@ -220,7 +220,7 @@
 
 - name: Install Harbor ingress TLS secret
   ansible.builtin.shell: |
-    set -o pipefail
+    set -euo pipefail
     /var/lib/rancher/rke2/bin/kubectl -n harbor create secret tls harbor-ingress-tls \
       --cert=/var/lib/aif-airgap-lab/harbor.crt \
       --key=/var/lib/aif-airgap-lab/harbor.key \
@@ -235,7 +235,7 @@
 
 - name: Install Gitea ingress TLS secret
   ansible.builtin.shell: |
-    set -o pipefail
+    set -euo pipefail
     /var/lib/rancher/rke2/bin/kubectl -n gitea create secret tls gitea-ingress-tls \
       --cert=/var/lib/aif-airgap-lab/gitea.crt \
       --key=/var/lib/aif-airgap-lab/gitea.key \
@@ -256,7 +256,7 @@
     owner: root
     group: root
     mode: "0600"
-  no_log: true
+  diff: false
 
 - name: Render Gitea values
   ansible.builtin.template:
@@ -265,7 +265,7 @@
     owner: root
     group: root
     mode: "0600"
-  no_log: true
+  diff: false
 
 - name: Add connected-stage Helm repositories
   ansible.builtin.command:
@@ -293,7 +293,6 @@
   retries: 2
   delay: 20
   until: harbor_install.rc == 0
-  no_log: true
 
 - name: Install Gitea
   ansible.builtin.command:
@@ -308,7 +307,6 @@
   retries: 2
   delay: 20
   until: gitea_install.rc == 0
-  no_log: true
 
 - name: Wait for Harbor health
   ansible.builtin.uri:

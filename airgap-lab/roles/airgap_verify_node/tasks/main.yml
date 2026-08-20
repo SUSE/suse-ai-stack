@@ -1,4 +1,12 @@
 ---
+- name: Validate public probe inputs
+  ansible.builtin.assert:
+    that:
+      - airgap_probe_public_ipv4 is regex('^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$')
+      - airgap_probe_public_hostname is regex('^[A-Za-z0-9](?:[-.A-Za-z0-9]*[A-Za-z0-9])?$')
+      - airgap_probe_public_port | int >= 1
+      - airgap_probe_public_port | int <= 65535
+
 - name: Require the lab isolation service to be active
   ansible.builtin.command:
     cmd: systemctl is-active aif-airgap-isolation.service
@@ -26,6 +34,12 @@
     status_code: 200
   register: internal_gitea_result
 
+- name: Snapshot isolation counters before the public probe
+  ansible.builtin.command:
+    cmd: nft --json list table inet aif_airgap_lab
+  register: isolation_counters_before
+  changed_when: false
+
 - name: Prove host TCP egress to a public IP is rejected
   ansible.builtin.shell: |
     timeout 5 bash -c 'exec 3<>/dev/tcp/{{ airgap_probe_public_ipv4 }}/{{ airgap_probe_public_port | int }}'
@@ -35,6 +49,12 @@
   changed_when: false
   failed_when: public_tcp_probe.rc == 0
 
+- name: Snapshot isolation counters after the public probe
+  ansible.builtin.command:
+    cmd: nft --json list table inet aif_airgap_lab
+  register: isolation_counters_after
+  changed_when: false
+
 - name: Pull an upstream-named image through containerd's Harbor rewrite
   ansible.builtin.command:
     cmd: >-
@@ -43,7 +63,7 @@
       pull registry.suse.com/bci/bci-busybox:15.7
   when: inventory_hostname in groups['rke2_airgap_nodes']
   register: mirrored_cri_pull
-  changed_when: false
+  changed_when: true
 
 - name: Create the node evidence directory
   ansible.builtin.file:
@@ -55,14 +75,16 @@
 
 - name: Write redacted node evidence
   ansible.builtin.shell: |
-    set -o pipefail
+    set -euo pipefail
     {
       printf 'host=%s\n' "$(hostname -f 2>/dev/null || hostname)"
       printf 'captured_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-      printf 'public_dns=resolved\n'
-      printf 'public_tcp=blocked rc=%s\n' "{{ public_tcp_probe.rc }}"
+      printf 'public_dns=%s\n' {{ public_dns_result.stdout | trim | quote }}
+      printf 'public_tcp_rc=%s\n' {{ public_tcp_probe.rc | string | quote }}
       printf 'harbor_health=%s\n' "{{ internal_harbor_result.status }}"
       printf 'gitea_health=%s\n' "{{ internal_gitea_result.status }}"
+      printf 'nft_before=%s\n' {{ isolation_counters_before.stdout | trim | quote }}
+      printf 'nft_after=%s\n' {{ isolation_counters_after.stdout | trim | quote }}
       systemctl show aif-airgap-isolation.service --property=ActiveState,UnitFileState
       nft list table inet aif_airgap_lab
       if [[ -f /etc/rancher/rke2/config.yaml ]]; then

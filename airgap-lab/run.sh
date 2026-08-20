@@ -10,6 +10,7 @@ profile="${AIF_AIRGAP_PROFILE:-core}"
 discovered_vars="${lab_dir}/generated/discovered-vars.yml"
 
 export ANSIBLE_CONFIG="${lab_dir}/ansible.cfg"
+"${lab_dir}/scripts/check-shell-safety.sh"
 
 usage() {
   printf '%s\n' \
@@ -31,7 +32,8 @@ usage() {
     "  matrix              Run FleetBundle/GitOps in single- and multi-cluster modes" \
     "  verify              Run positive internal and negative external probes" \
     "  restore             Remove only the lab's nftables isolation table" \
-    "  all                 services, mirror, configure, isolate, install, smoke, verify"
+    "" \
+    "Use ./setup_airgap_lab.sh for the complete ordered and resumable workflow."
 }
 
 require_config() {
@@ -126,16 +128,6 @@ case "${phase}" in
   restore)
     require_config
     play "${lab_dir}/playbooks/99-disable-isolation.yml"
-    ;;
-  all)
-    require_config
-    play "${lab_dir}/playbooks/01-services.yml"
-    mirror mirror
-    play "${lab_dir}/playbooks/02-configure-nodes.yml"
-    play "${lab_dir}/playbooks/04-enable-isolation.yml"
-    play "${lab_dir}/playbooks/03-install-aif.yml"
-    play "${lab_dir}/playbooks/05-smoke.yml"
-    play "${lab_dir}/playbooks/06-verify.yml"
     ;;
   *)
     usage >&2

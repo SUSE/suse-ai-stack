@@ -57,6 +57,7 @@ suse-observability_inventory.ini
 
 # misc tool related files
 .python-version
+install.log
 
 *.bak
 *.swo

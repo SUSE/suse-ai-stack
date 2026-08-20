@@ -1,10 +1,4 @@
 ---
-- name: Gather service state for RKE2 restart
-  ansible.builtin.service_facts:
-  listen:
-    - Restart RKE2 server
-    - Restart RKE2 agent
-
 - name: Restart RKE2 server
   ansible.builtin.systemd_service:
     name: rke2-server

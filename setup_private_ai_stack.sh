@@ -40,6 +40,11 @@ fi
 # Determine cloud_provider from extra_vars.yml (defaults to "local" when unset)
 cloud_provider=$(grep -E '^[[:space:]]*cloud_provider[[:space:]]*:' "${EXTRA_VARS_FILE}" | tail -1 | sed -E 's/^[[:space:]]*cloud_provider[[:space:]]*:[[:space:]]*//; s/#.*//; s/["'\'' ]//g')
 cloud_provider=${cloud_provider:-local}
+airgap_overlay=${AIF_AIRGAP_OVERLAY:-false}
+if [[ "${airgap_overlay}" != true && "${airgap_overlay}" != false ]]; then
+  echo "ERROR: AIF_AIRGAP_OVERLAY must be true or false."
+  exit 1
+fi
 
 # Base argument
 base_playbook_args=(
@@ -130,7 +135,7 @@ done
 playbook="deploy_rke2_rancher"
 
 for cluster in "${clusters[@]}"; do
-  if [[ "${cloud_provider}" == "aws" && -e "${PROJECT_DIR}/inventories/${cluster}_inventory.ini" ]]; then
+  if [[ "${airgap_overlay}" == true && "${cloud_provider}" == "aws" && -e "${PROJECT_DIR}/inventories/${cluster}_inventory.ini" ]]; then
     run_ansible_playbook \
       -i "${PROJECT_DIR}/inventories/${cluster}_inventory.ini" \
       -e "@${EXTRA_VARS_FILE}" \
@@ -140,7 +145,11 @@ for cluster in "${clusters[@]}"; do
   playbook_args=(
     "${base_playbook_args[@]}"
     -i "${PROJECT_DIR}/inventories/${cluster}_inventory.ini"
-    -e "@${EXTRA_VARS_FILE}"
+  )
+  if [[ "${airgap_overlay}" == true ]]; then
+    playbook_args+=( -e "@${EXTRA_VARS_FILE}" )
+  fi
+  playbook_args+=(
     -e "@${DEST_DIR}/${cluster}_extra_vars.yml"
     -e cluster="${cluster}"
     "$PROJECT_DIR/playbooks/${playbook}.yml"

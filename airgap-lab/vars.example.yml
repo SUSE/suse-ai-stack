@@ -41,7 +41,6 @@ rke2:
   version: "v1.34.4+rke2r1"
   token: "REPLACE_WITH_A_RANDOM_RKE2_TOKEN"
   lb_address: ""
-rke2_installer_url: "https://get.rke2.io"
 scc_registration:
   server: "https://scc.suse.com"
   email: ""
@@ -57,11 +56,11 @@ aif_namespace: "aif-operator"
 aif_release_name: "aif-operator"
 aif_ui_release_name: "aif-ui"
 aif_install_mode: "combined"  # combined | separate
-# "workaround" patches Fleet auth Secrets after reconciliation so the published
-# baseline remains testable. "settings" requires native caBundleSecretRef support
-# (for example AIF PR #200) and proves that AIF itself propagates and rotates CA
-# data. Never use workaround when qualifying the native implementation.
-aif_registry_ca_mode: "workaround"  # workaround | settings
+# "settings" is the qualification default and requires native
+# caBundleSecretRef support (for example AIF PR #200). "workaround" patches
+# Fleet auth Secrets after reconciliation so older builds remain testable.
+# Never use workaround as evidence for the native implementation.
+aif_registry_ca_mode: "settings"  # settings | workaround
 # Dynamic discovery is recommended for an air-gap because it shows only charts
 # actually indexed from the mirror. Run a second case with true to audit the
 # bundled catalog's external logos and unavailable-entry behavior.
@@ -141,6 +140,7 @@ smoke_target_clusters:
   - "local"  # Rancher cluster IDs, for example local and c-m-abcde
 smoke_namespace: "aif-airgap-smoke"
 smoke_workload_name: "airgap-smoke-local"
+smoke_chart_version: "0.1.0"
 smoke_timeout_seconds: 900
 smoke_expect_git_ca_failure: false
 

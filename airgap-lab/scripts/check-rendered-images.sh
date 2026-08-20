@@ -45,10 +45,12 @@ normalize_image() {
 declare -A allowed=()
 declare -A allowed_targets=()
 while IFS= read -r image; do
-  [[ -n "${image}" ]] && allowed["$(normalize_image "${image}")"]=1
+  [[ -n "${image}" ]] || continue
+  allowed["$(normalize_image "${image}")"]=1
 done < <(yq -r '.spec.images[].source' "${manifest}")
 while IFS= read -r target; do
-  [[ -n "${target}" ]] && allowed_targets["${target}"]=1
+  [[ -n "${target}" ]] || continue
+  allowed_targets["${target}"]=1
 done < <(yq -r '.spec.images[].target' "${manifest}")
 
 missing=0

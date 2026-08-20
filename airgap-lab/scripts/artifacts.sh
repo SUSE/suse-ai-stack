@@ -144,7 +144,8 @@ validate_chart_dependencies() {
   chart_name="$(helm show chart "${archive}" | yq -r '.name')"
   while IFS= read -r dep; do
     [[ -z "${dep}" ]] && continue
-    if ! tar -tzf "${archive}" | grep -Eq "^${chart_name}/charts/${dep}(-[^/]+)?\.(tgz|yaml)$|^${chart_name}/charts/${dep}/Chart\.yaml$"; then
+    if ! tar -tzf "${archive}" \
+        | LC_ALL=C grep -E "^${chart_name}/charts/${dep}(-[^/]+)?\.(tgz|yaml)$|^${chart_name}/charts/${dep}/Chart\.yaml$" >/dev/null; then
       printf 'Chart %s declares dependency %s but does not vendor it; air-gap install would fetch upstream.\n' \
         "${archive}" "${dep}" >&2
       return 1

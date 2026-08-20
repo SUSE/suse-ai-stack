@@ -60,21 +60,28 @@ services, with no GPU instances. These are billable resources; always use the
 guarded destroy command when the QA session ends.
 
 By default the sibling checkout `../aif` is qualified and native Settings CA
-propagation is required (`aif_registry_ca_mode: settings`). Override only when
-needed:
+propagation is required (`aif_registry_ca_mode: settings`). Existing values in
+the ignored `airgap-lab/generated/vars.yml` are retained across resumable runs;
+the script merges new example defaults into that file and overwrites only
+machine-derived values. Environment overrides are available for the two
+qualification axes and for a nonstandard SSH key:
 
 ```console
 AIF_SOURCE_DIR=/path/to/aif AIF_AIRGAP_PROFILE=core ./setup_airgap_lab.sh
 AIF_AIRGAP_INSTALL_MODE=separate ./setup_airgap_lab.sh
+AIF_AIRGAP_CA_MODE=workaround ./setup_airgap_lab.sh
+AIF_AIRGAP_SSH_KEY=/path/to/aws-private-key ./setup_airgap_lab.sh
 ```
 
-The install mode defaults to `combined`. Each `combined` or `separate` run has
-independent resumable qualification markers and a mode-specific evidence file,
-while the expensive AWS, build and mirror phases are reused. The runner records
-the mode currently active on the management cluster, so switching modes always
-forces installation, matrix and verification to run again. Switching back to
-combined mode also removes the standalone UI release before reconciling the
-operator-managed extension.
+The install mode defaults to `combined`; the CA mode defaults to `settings` in
+`vars.example.yml`. Each install/CA combination has independent resumable
+qualification markers and an evidence file, while the expensive AWS, build and
+mirror phases are reused. The runner records the combination currently active
+on the management cluster, so switching either axis always forces installation,
+matrix and verification to run again. Switching back to combined mode also
+removes the standalone UI release before reconciling the operator-managed
+extension. A `workaround` pass remains useful for comparison, but is not native
+CA-propagation evidence.
 
 The services security group exposes SSH only to the controller's detected
 public `/32`; Harbor and Gitea are reachable only from the private VPC. Set
@@ -133,7 +140,7 @@ custom infrastructure. AWS users normally use the one-command path above.
 
    ```console
    ansible-galaxy collection install -r airgap-lab/requirements.yml
-   command -v ansible-playbook helm skopeo yq sha256sum
+   command -v ansible-playbook file helm skopeo yq sha256sum
    ```
 
 4. Copy configuration outside version control and replace every placeholder:
@@ -241,15 +248,18 @@ AIF_AIRGAP_PROFILE=core airgap-lab/run.sh mirror
 ```
 
 The build refuses tracked changes, stamps the source commit into the operator
-binary and image labels, copies the source charts under `generated/`, and emits
-a manifest that reads the locally built single-platform images through
-Skopeo's Docker-daemon transport. The exported bundle records the source
-commit, version, image transport, and exact image digests before Harbor import.
+binary and image labels, installs UI dependencies from the committed Yarn
+lockfile inside a disposable Git-archive checkout, copies the source charts
+under `generated/`, and emits a manifest that reads the locally built
+single-platform images through Skopeo's Docker-daemon transport. A cached image
+whose revision label differs from the requested commit is rebuilt automatically.
+The exported bundle records the source commit, version, image transport, and
+exact image digests before Harbor import.
 Set `aif_version` in `generated/vars.yml` to the version printed by the build;
 the install role and source manifest must describe the same release.
 
-When qualifying native chart-registry CA propagation (for example AIF PR
-`#200`), also set this in `generated/vars.yml`:
+Native chart-registry CA propagation (for example AIF PR `#200`) is the default.
+Its equivalent explicit setting in `generated/vars.yml` is:
 
 ```yaml
 aif_registry_ca_mode: settings
@@ -261,6 +271,11 @@ Secret copies, rotates the source CA without changing its trust semantics, and
 requires every ClusterRepo to receive a new `spec.forceUpdate`. The source CA
 and all copies are restored before installation continues. A successful run in
 `workaround` mode is not evidence for the native product implementation.
+In compatibility mode, AIF rewrites the generated auth Secrets while creating
+each AIWorkload; the smoke role therefore reapplies the CA after its HelmOp
+appears and requires Fleet to accept the retried HelmOp. That timing-dependent
+lab action is another reason a workaround pass must not be reported as native
+product support.
 
 ## Profiles and artifact completeness
 
@@ -319,6 +334,9 @@ CA bundle. To reproduce AG-003, set `gitea_tls_enabled: true`,
 while the smoke role passes only after the AIF operator logs the expected
 certificate-authority rejection. Do not enable insecure TLS to make the normal
 GitOps path pass.
+
+The one-command path preserves all three values in `generated/vars.yml` on
+subsequent runs; they are not part of a hand-maintained preservation allow-list.
 
 ## Evidence to retain
 

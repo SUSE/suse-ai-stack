@@ -60,6 +60,9 @@
     - Restart RKE2 server
     - Restart RKE2 agent
 
+- name: Gather RKE2 service state before handlers and readiness checks
+  ansible.builtin.service_facts:
+
 - name: Flush RKE2 restart before validation
   ansible.builtin.meta: flush_handlers
 

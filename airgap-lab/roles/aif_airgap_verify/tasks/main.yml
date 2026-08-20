@@ -30,16 +30,17 @@
   ansible.builtin.shell: |
     set -euo pipefail
     ui_deployment={{ (aif_ui_release_name ~ ('-server' if aif_install_mode == 'combined' else '')) | quote }}
-    operator_image=$(/var/lib/rancher/rke2/bin/kubectl -n "{{ aif_namespace }}" \
-      get deployment "{{ aif_release_name }}" \
+    harbor_prefix={{ (harbor_hostname ~ '/') | quote }}
+    operator_image=$(/var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace | quote }} \
+      get deployment {{ aif_release_name | quote }} \
       --kubeconfig /etc/rancher/rke2/rke2.yaml \
       -o jsonpath='{.spec.template.spec.containers[0].image}')
     ui_image=$(/var/lib/rancher/rke2/bin/kubectl -n cattle-ui-plugin-system \
       get deployment "${ui_deployment}" \
       --kubeconfig /etc/rancher/rke2/rke2.yaml \
       -o jsonpath='{.spec.template.spec.containers[0].image}')
-    [[ "${operator_image}" == "{{ harbor_hostname }}/"* ]]
-    [[ "${ui_image}" == "{{ harbor_hostname }}/"* ]]
+    [[ "${operator_image}" == "${harbor_prefix}"* ]]
+    [[ "${ui_image}" == "${harbor_prefix}"* ]]
     printf 'operator=%s\nui=%s\n' "${operator_image}" "${ui_image}"
   args:
     executable: /bin/bash
@@ -48,16 +49,36 @@
 
 - name: Confirm Settings and every mirrored catalog are observed
   ansible.builtin.shell: |
-    set -o pipefail
-    generation=$(/var/lib/rancher/rke2/bin/kubectl -n "{{ aif_namespace }}" get settings settings \
+    set -euo pipefail
+    generation=$(/var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace | quote }} get settings settings \
       --kubeconfig /etc/rancher/rke2/rke2.yaml -o jsonpath='{.metadata.generation}')
-    observed=$(/var/lib/rancher/rke2/bin/kubectl -n "{{ aif_namespace }}" get settings settings \
+    observed=$(/var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace | quote }} get settings settings \
       --kubeconfig /etc/rancher/rke2/rke2.yaml -o jsonpath='{.status.observedGeneration}')
-    [[ -n "${observed}" && "${generation}" == "${observed}" ]]
+    if [[ -z "${observed}" || "${generation}" != "${observed}" ]]; then
+      printf 'settings not observed: generation=%s observed=%s\n' \
+        "${generation}" "${observed:-<empty>}" >&2
+      exit 1
+    fi
     for repo in application-collection suse-ai-registry nvidia; do
+      repo_generation=$(/var/lib/rancher/rke2/bin/kubectl get clusterrepo "${repo}" \
+        --kubeconfig /etc/rancher/rke2/rke2.yaml \
+        -o jsonpath='{.metadata.generation}' 2>/dev/null || true)
+      repo_observed=$(/var/lib/rancher/rke2/bin/kubectl get clusterrepo "${repo}" \
+        --kubeconfig /etc/rancher/rke2/rke2.yaml \
+        -o jsonpath='{.status.observedGeneration}' 2>/dev/null || true)
       downloaded=$(/var/lib/rancher/rke2/bin/kubectl get clusterrepo "${repo}" \
-        --kubeconfig /etc/rancher/rke2/rke2.yaml -o jsonpath='{.status.downloadTime}')
-      [[ -n "${downloaded}" ]]
+        --kubeconfig /etc/rancher/rke2/rke2.yaml \
+        -o jsonpath='{.status.downloadTime}' 2>/dev/null || true)
+      oci_ready=$(/var/lib/rancher/rke2/bin/kubectl get clusterrepo "${repo}" \
+        --kubeconfig /etc/rancher/rke2/rke2.yaml \
+        -o jsonpath='{.status.conditions[?(@.type=="OCIDownloaded")].status}' \
+        2>/dev/null || true)
+      if [[ -z "${downloaded}" || "${repo_generation}" != "${repo_observed}" || "${oci_ready}" != "True" ]]; then
+        printf 'clusterrepo %s not ready: generation=%s observed=%s downloadTime=%s OCIDownloaded=%s\n' \
+          "${repo}" "${repo_generation:-<empty>}" "${repo_observed:-<empty>}" \
+          "${downloaded:-<empty>}" "${oci_ready:-<empty>}" >&2
+        exit 1
+      fi
     done
   args:
     executable: /bin/bash
@@ -89,9 +110,9 @@
 
 - name: Require internal access and rejected public access from the pod
   ansible.builtin.shell: |
-    set -o pipefail
+    set -euo pipefail
     for attempt in $(seq 1 36); do
-      phase=$(/var/lib/rancher/rke2/bin/kubectl -n "{{ aif_namespace }}" \
+      phase=$(/var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace | quote }} \
         get pod aif-airgap-public-egress-probe \
         --kubeconfig /etc/rancher/rke2/rke2.yaml \
         -o jsonpath='{.status.phase}' 2>/dev/null || true)
@@ -99,10 +120,10 @@
       [[ "${phase}" == "Failed" ]] && break
       sleep 5
     done
-    /var/lib/rancher/rke2/bin/kubectl -n "{{ aif_namespace }}" \
+    /var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace | quote }} \
       describe pod aif-airgap-public-egress-probe \
       --kubeconfig /etc/rancher/rke2/rke2.yaml >&2 || true
-    /var/lib/rancher/rke2/bin/kubectl -n "{{ aif_namespace }}" \
+    /var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace | quote }} \
       logs aif-airgap-public-egress-probe \
       --kubeconfig /etc/rancher/rke2/rke2.yaml >&2 || true
     exit 1
@@ -129,14 +150,15 @@
 
 - name: Capture redacted control-plane evidence
   ansible.builtin.shell: |
-    set -o pipefail
+    set -euo pipefail
     kubectl=/var/lib/rancher/rke2/bin/kubectl
     kubeconfig=/etc/rancher/rke2/rke2.yaml
     {
       printf 'captured_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-      printf 'install_mode={{ aif_install_mode }}\n'
-      printf '%s\n' "{{ aif_deployment_images.stdout }}"
-      printf 'pod_probe={{ pod_probe_log.stdout | trim }}\n'
+      printf 'install_mode=%s\n' {{ aif_install_mode | quote }}
+      printf 'registry_ca_mode=%s\n' {{ aif_registry_ca_mode | quote }}
+      printf '%s\n' {{ aif_deployment_images.stdout | quote }}
+      printf 'pod_probe=%s\n' {{ pod_probe_log.stdout | trim | quote }}
       helm list --all-namespaces --kubeconfig "${kubeconfig}"
       "${kubectl}" get settings -A -o yaml --kubeconfig "${kubeconfig}"
       "${kubectl}" get clusterrepo application-collection suse-ai-registry nvidia -o yaml --kubeconfig "${kubeconfig}"
@@ -144,7 +166,7 @@
       "${kubectl}" get aiworkload -A -o yaml --kubeconfig "${kubeconfig}"
       "${kubectl}" get pods -A -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,IMAGE:.spec.containers[*].image,IMAGE_ID:.status.containerStatuses[*].imageID,PHASE:.status.phase' --kubeconfig "${kubeconfig}"
       "${kubectl}" get events -A --sort-by=.lastTimestamp --kubeconfig "${kubeconfig}" | tail -n 200
-    } > /var/lib/aif-airgap-evidence/control-plane-{{ aif_install_mode }}.txt
+    } > /var/lib/aif-airgap-evidence/control-plane-{{ aif_install_mode }}-{{ aif_registry_ca_mode }}.txt
   args:
     executable: /bin/bash
   changed_when: true
@@ -162,7 +184,7 @@
 
 - name: Fetch control-plane evidence to the controller
   ansible.builtin.fetch:
-    src: /var/lib/aif-airgap-evidence/control-plane-{{ aif_install_mode }}.txt
+    src: /var/lib/aif-airgap-evidence/control-plane-{{ aif_install_mode }}-{{ aif_registry_ca_mode }}.txt
     dest: "{{ airgap_evidence_dir }}/management/"
     flat: false
 

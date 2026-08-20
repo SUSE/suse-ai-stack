@@ -38,6 +38,7 @@ for command_name in ansible-galaxy ansible-playbook docker git helm jq skopeo to
   }
 done
 
+"${lab_dir}/scripts/check-shell-safety.sh"
 AIF_AIRGAP_BASE_VARS="${base_vars}" "${lab_dir}/scripts/prepare-aws.sh"
 metadata="${lab_dir}/generated/lab-metadata.yml"
 stack_vars="$(yq -r '.stackVars' "${metadata}")"
@@ -45,6 +46,7 @@ lab_vars="$(yq -r '.labVars' "${metadata}")"
 aif_commit="$(yq -r '.sourceCommit' "${metadata}")"
 short_commit="${aif_commit:0:12}"
 install_mode="$(yq -r '.aif_install_mode' "${lab_vars}")"
+ca_mode="$(yq -r '.aif_registry_ca_mode' "${lab_vars}")"
 manifest="${lab_dir}/generated/artifacts-aif-source.yml"
 bundle="${AIF_AIRGAP_BUNDLE:-${lab_dir}/bundles/aif-${short_commit}-${profile}}"
 bundle_local_sources_match() {
@@ -79,8 +81,9 @@ if [[ -z "${AIF_AIRGAP_BUNDLE:-}" && ! -d "${bundle}" ]]; then
 fi
 state_root="${lab_dir}/generated/state/${workspace}"
 run_state="${state_root}/runs/${short_commit}-${profile}"
-qualification_state="${run_state}/qualifications/${install_mode}"
-active_mode_file="${run_state}/active-install-mode"
+qualification_key="${install_mode}-${ca_mode}"
+qualification_state="${run_state}/qualifications/${qualification_key}"
+active_qualification_file="${run_state}/active-qualification"
 mkdir -p "${state_root}" "${run_state}" "${qualification_state}"
 chmod 700 "${state_root}" "${state_root}/runs" "${run_state}" \
   "${run_state}/qualifications" "${qualification_state}"
@@ -106,10 +109,11 @@ if [[ "${mode}" == status ]]; then
   printf 'OpenTofu workspace: %s\n' "${workspace}"
   printf 'Source commit: %s\n' "${short_commit}"
   printf 'Requested AIF install mode: %s\n' "${install_mode}"
-  if [[ -f "${active_mode_file}" ]]; then
-    printf 'Active qualified AIF mode: %s\n' "$(<"${active_mode_file}")"
+  printf 'Requested registry CA mode: %s\n' "${ca_mode}"
+  if [[ -f "${active_qualification_file}" ]]; then
+    printf 'Active qualified AIF profile: %s\n' "$(<"${active_qualification_file}")"
   else
-    printf 'Active qualified AIF mode: not recorded\n'
+    printf 'Active qualified AIF profile: not recorded\n'
   fi
   printf 'Bundle: %s\n' "${bundle}"
   if find "${state_root}" -type f -name '*.complete' -print -quit | grep -q .; then
@@ -131,17 +135,18 @@ if [[ "${mode}" == reset ]]; then
   exit 0
 fi
 
-active_mode=""
-if [[ -f "${active_mode_file}" ]]; then
-  active_mode="$(<"${active_mode_file}")"
+active_qualification=""
+if [[ -f "${active_qualification_file}" ]]; then
+  active_qualification="$(<"${active_qualification_file}")"
 fi
-if [[ "${active_mode}" != "${install_mode}" ]]; then
+if [[ "${active_qualification}" != "${qualification_key}" ]]; then
   find "${qualification_state}" -type f -name '*.complete' -delete
-  if [[ -n "${active_mode}" ]]; then
+  if [[ -n "${active_qualification}" ]]; then
     printf '[mode] Requalifying transition from %s to %s.\n' \
-      "${active_mode}" "${install_mode}"
+      "${active_qualification}" "${qualification_key}"
   else
-    printf '[mode] No active mode checkpoint; qualifying %s.\n' "${install_mode}"
+    printf '[mode] No active qualification checkpoint; qualifying %s.\n' \
+      "${qualification_key}"
   fi
 fi
 
@@ -183,7 +188,8 @@ run_step "${run_state}/bundle-export.complete" "Export the checksummed core medi
     AIF_AIRGAP_PROFILE="${profile}" "${lab_dir}/run.sh" mirror-export
 
 run_step "${state_root}/stack.complete" "Provision management, downstream and services nodes; install RKE2/Rancher" \
-  env EXTRA_VARS_FILE="${stack_vars}" "${project_dir}/setup_private_ai_stack.sh"
+  env EXTRA_VARS_FILE="${stack_vars}" AIF_AIRGAP_OVERLAY=true \
+    "${project_dir}/setup_private_ai_stack.sh"
 
 run_step "${state_root}/inventory.complete" "Render the AWS inventory from private/public outputs" \
   "${lab_dir}/scripts/render-aws-inventory.sh"
@@ -208,23 +214,23 @@ run_step "${state_root}/isolate.complete" "Close public host and pod egress on A
   env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
     "${lab_dir}/run.sh" isolate
 
-run_step "${qualification_state}/install.complete" "Install PR-source AIF from Harbor using native registry CA settings (${install_mode})" \
+run_step "${qualification_state}/install.complete" "Install PR-source AIF from Harbor (${qualification_key})" \
   env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
     "${lab_dir}/run.sh" install
 
-printf '%s\n' "${install_mode}" > "${active_mode_file}.tmp"
-chmod 600 "${active_mode_file}.tmp"
-mv "${active_mode_file}.tmp" "${active_mode_file}"
+printf '%s\n' "${qualification_key}" > "${active_qualification_file}.tmp"
+chmod 600 "${active_qualification_file}.tmp"
+mv "${active_qualification_file}.tmp" "${active_qualification_file}"
 
 run_step "${run_state}/targets.complete" "Discover local and downstream Rancher targets" \
   env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
     "${lab_dir}/run.sh" discover-targets
 
-run_step "${qualification_state}/matrix.complete" "Run FleetBundle and GitOps in single- and multi-cluster modes (${install_mode})" \
+run_step "${qualification_state}/matrix.complete" "Run FleetBundle and GitOps in single- and multi-cluster modes (${qualification_key})" \
   env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
     "${lab_dir}/run.sh" matrix
 
-run_step "${qualification_state}/verify.complete" "Collect positive private-path and negative public-egress evidence (${install_mode})" \
+run_step "${qualification_state}/verify.complete" "Collect positive private-path and negative public-egress evidence (${qualification_key})" \
   env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
     "${lab_dir}/run.sh" verify
 

@@ -13,6 +13,7 @@ resource "aws_lb" "rke2" {
 }
 
 #create target group - rke2
+# AWS target-group names allow 32 characters; reserve four for the -tgN suffix.
 resource "aws_lb_target_group" "rke2_targetgroup1" {
   name        = "${substr(aws_lb.rke2.name, 0, 28)}-tg1"
   port        = 9345

@@ -2,7 +2,7 @@
 Description=SUSE AI Factory air-gap QA egress isolation
 Documentation=file:/etc/nftables.d/aif-airgap-lab.nft
 Wants=network-online.target
-After=network-online.target
+After=network-online.target nftables.service
 Before=rke2-server.service rke2-agent.service
 
 [Service]

@@ -1,19 +1,19 @@
 apiVersion: ai-factory.suse.com/v1alpha1
 kind: Blueprint
 metadata:
-  name: {{ smoke_workload_name }}-{{ smoke_strategy | lower }}-0-1-0
+  name: {{ smoke_workload_name }}-{{ smoke_strategy | lower }}-{{ smoke_chart_version | regex_replace('[^0-9A-Za-z]+', '-') | lower }}
   labels:
     ai-factory.suse.com/blueprint-name: {{ smoke_workload_name }}-{{ smoke_strategy | lower }}
-    ai-factory.suse.com/blueprint-version: 0.1.0
+    ai-factory.suse.com/blueprint-version: {{ smoke_chart_version | quote }}
 spec:
   displayName: AI Factory air-gap smoke
-  version: 0.1.0
+  version: {{ smoke_chart_version | quote }}
   description: CPU-only chart used to prove private catalog, Fleet and registry paths.
   source: Custom
   components:
     - chartRepo: application-collection
       chartName: airgap-smoke
-      chartVersion: 0.1.0
+      chartVersion: {{ smoke_chart_version | quote }}
       vendor: suse
       values:
         fullnameOverride: {{ smoke_workload_name }}-{{ smoke_strategy | lower }}

@@ -1,9 +1,17 @@
 {% set unmanaged = airgap_coredns_current.stdout
-  | regex_replace('(?ms)^[ \\t]*# BEGIN AIF AIRGAP LAB HOSTS\\n.*?^[ \\t]*# END AIF AIRGAP LAB HOSTS\\n?', '')
-  | regex_replace('(?ms)^[ \\t]*hosts[ \\t]*\\{\\n.*?^[ \\t]*\\}\\n?', '') %}
+  | regex_replace('(?ms)^[ \\t]*# BEGIN AIF AIRGAP LAB HOSTS\\n.*?^[ \\t]*# END AIF AIRGAP LAB HOSTS\\n?', '') %}
+{% set has_hosts = (unmanaged | regex_search('(?m)^[ \\t]*hosts[ \\t]*\\{[ \\t]*$')) is not none %}
+{% set state = namespace(inserted=false) %}
 {% for line in unmanaged.splitlines() %}
 {{ line }}
-{% if loop.first %}
+{% if has_hosts and not state.inserted and (line | regex_search('^[ \\t]*hosts[ \\t]*\\{[ \\t]*$')) %}
+        # BEGIN AIF AIRGAP LAB HOSTS
+{% for record in airgap_host_records %}
+        {{ record.ip }} {{ record.names | join(' ') }}
+{% endfor %}
+        # END AIF AIRGAP LAB HOSTS
+{% set state.inserted = true %}
+{% elif not has_hosts and loop.first %}
     # BEGIN AIF AIRGAP LAB HOSTS
     hosts {
 {% for record in airgap_host_records %}
@@ -12,5 +20,6 @@
         fallthrough
     }
     # END AIF AIRGAP LAB HOSTS
+{% set state.inserted = true %}
 {% endif %}
 {% endfor %}

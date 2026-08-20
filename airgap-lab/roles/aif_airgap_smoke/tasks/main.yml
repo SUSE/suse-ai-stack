@@ -6,6 +6,10 @@
       - smoke_target_clusters | length > 0
       - smoke_target_clusters | unique | list | length == smoke_target_clusters | length
       - smoke_timeout_seconds | int >= 60
+      - smoke_chart_version is regex('^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$')
+      - smoke_namespace is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
+      - smoke_workload_name is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
+      - aif_namespace is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
       - >-
         not (smoke_expect_git_ca_failure | default(false) | bool)
         or (smoke_strategy == 'GitOps' and (gitea_tls_enabled | bool))
@@ -13,13 +17,13 @@
 
 - name: Remove the previous matrix workload before a deterministic retry
   ansible.builtin.shell: |
-    set -o pipefail
+    set -euo pipefail
     kubectl=/var/lib/rancher/rke2/bin/kubectl
     kubeconfig=/etc/rancher/rke2/rke2.yaml
-    "${kubectl}" get namespace "{{ smoke_namespace }}" \
+    "${kubectl}" get namespace {{ smoke_namespace | quote }} \
       --kubeconfig "${kubeconfig}" >/dev/null 2>&1 || exit 0
-    "${kubectl}" -n "{{ smoke_namespace }}" delete aiworkload \
-      "{{ smoke_workload_name }}-{{ smoke_strategy | lower }}" \
+    "${kubectl}" -n {{ smoke_namespace | quote }} delete aiworkload \
+      {{ (smoke_workload_name ~ '-' ~ (smoke_strategy | lower)) | quote }} \
       --ignore-not-found=true --wait=true --timeout=5m \
       --kubeconfig "${kubeconfig}"
   args:
@@ -27,11 +31,33 @@
   register: smoke_previous_workload_delete
   changed_when: "'deleted' in smoke_previous_workload_delete.stdout"
 
+- name: Remove prior Fleet resources for the same matrix case
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    bundle={{ (smoke_workload_name ~ '-' ~ (smoke_strategy | lower) ~ '-airgap-smoke') | quote }}
+    for kind in helmop bundle; do
+      "${kubectl}" get "${kind}" --all-namespaces -o json \
+        --kubeconfig "${kubeconfig}" \
+        | jq -r --arg bundle "${bundle}" \
+            '.items[] | select(.metadata.name == $bundle) | [.metadata.namespace, .metadata.name] | @tsv' \
+        | while IFS=$'\t' read -r namespace name; do
+            [[ -n "${namespace}" && -n "${name}" ]] || continue
+            "${kubectl}" -n "${namespace}" delete "${kind}" "${name}" \
+              --wait=true --timeout=2m --kubeconfig "${kubeconfig}"
+          done
+    done
+  args:
+    executable: /bin/bash
+  register: smoke_previous_fleet_delete
+  changed_when: "'deleted' in smoke_previous_fleet_delete.stdout"
+
 - name: Remove the previous matrix Blueprint before a deterministic retry
   ansible.builtin.command:
     cmd: >-
       /var/lib/rancher/rke2/bin/kubectl delete blueprint
-      {{ smoke_workload_name }}-{{ smoke_strategy | lower }}-0-1-0
+      {{ smoke_workload_name }}-{{ smoke_strategy | lower }}-{{ smoke_chart_version | regex_replace('[^0-9A-Za-z]+', '-') | lower }}
       --ignore-not-found=true --wait=true --timeout=2m
       --kubeconfig /etc/rancher/rke2/rke2.yaml
   register: smoke_previous_blueprint_delete
@@ -58,8 +84,8 @@
 
 - name: Create the smoke target namespace
   ansible.builtin.shell: |
-    set -o pipefail
-    /var/lib/rancher/rke2/bin/kubectl create namespace "{{ smoke_namespace }}" \
+    set -euo pipefail
+    /var/lib/rancher/rke2/bin/kubectl create namespace {{ smoke_namespace | quote }} \
       --dry-run=client -o yaml --kubeconfig /etc/rancher/rke2/rke2.yaml \
       | /var/lib/rancher/rke2/bin/kubectl apply -f - \
           --kubeconfig /etc/rancher/rke2/rke2.yaml
@@ -88,11 +114,11 @@
 
 - name: Wait for the operator to record the component bundle name
   ansible.builtin.shell: |
-    set -o pipefail
+    set -euo pipefail
     deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
     while (( SECONDS < deadline )); do
-      name=$(/var/lib/rancher/rke2/bin/kubectl -n "{{ smoke_namespace }}" \
-        get aiworkload "{{ smoke_workload_name }}-{{ smoke_strategy | lower }}" \
+      name=$(/var/lib/rancher/rke2/bin/kubectl -n {{ smoke_namespace | quote }} \
+        get aiworkload {{ (smoke_workload_name ~ '-' ~ (smoke_strategy | lower)) | quote }} \
         --kubeconfig /etc/rancher/rke2/rke2.yaml \
         -o jsonpath='{.spec.fleetBundleNames[0]}' 2>/dev/null || true)
       [[ -n "${name}" ]] && { printf '%s\n' "${name}"; exit 0; }
@@ -124,35 +150,105 @@
       until: gitea_workload_file.status == 200
       no_log: true
 
-    - name: Wait for Fleet to apply this workload from the internal Git repository
-      ansible.builtin.shell: |
-        set -o pipefail
-        bundle={{ smoke_bundle_name.stdout | trim | quote }}
-        deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
-        while (( SECONDS < deadline )); do
-          /var/lib/rancher/rke2/bin/kubectl get helmop --all-namespaces \
-            --output custom-columns=NAME:.metadata.name --no-headers \
-            --kubeconfig /etc/rancher/rke2/rke2.yaml 2>/dev/null \
-            | grep --fixed-strings --line-regexp "${bundle}" >/dev/null && exit 0
-          sleep 5
-        done
-        /var/lib/rancher/rke2/bin/kubectl -n fleet-local get gitrepo suse-ai-fleet-repo -o yaml \
-          --kubeconfig /etc/rancher/rke2/rke2.yaml >&2 || true
-        exit 1
-      args:
-        executable: /bin/bash
-      changed_when: false
+
+- name: Wait for Fleet to materialize this workload's HelmOp
+  when: not (smoke_expect_git_ca_failure | default(false) | bool)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    bundle={{ smoke_bundle_name.stdout | trim | quote }}
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
+    while (( SECONDS < deadline )); do
+      location=$("${kubectl}" get helmop --all-namespaces -o json \
+        --kubeconfig "${kubeconfig}" 2>/dev/null \
+        | jq -r --arg bundle "${bundle}" \
+            '[.items[] | select(.metadata.name == $bundle)][0]
+             | if . == null then empty else .metadata.namespace + "/" + .metadata.name end' \
+        || true)
+      if [[ -n "${location}" ]]; then
+        printf '%s\n' "${location}"
+        exit 0
+      fi
+      sleep 5
+    done
+    "${kubectl}" get helmop --all-namespaces -o wide \
+      --kubeconfig "${kubeconfig}" >&2 || true
+    if [[ {{ (smoke_strategy == 'GitOps') | lower }} == true ]]; then
+      "${kubectl}" -n fleet-local get gitrepo suse-ai-fleet-repo -o yaml \
+        --kubeconfig "${kubeconfig}" >&2 || true
+    fi
+    exit 1
+  args:
+    executable: /bin/bash
+  register: smoke_helmop_location
+  changed_when: false
+
+- name: Reapply the compatibility CA after AIF materializes the HelmOp
+  when:
+    - aif_registry_ca_mode == 'workaround'
+    - not (smoke_expect_git_ca_failure | default(false) | bool)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    location={{ smoke_helmop_location.stdout | trim | quote }}
+    helmop_namespace="${location%%/*}"
+    helmop_name="${location#*/}"
+    ca=$(/usr/bin/base64 -w 0 /var/lib/aif-airgap-lab-ca.crt)
+    for namespace in cattle-system fleet-local fleet-default; do
+      for secret in application-collection-auth suse-ai-registry-auth ngc-helm-auth; do
+        "${kubectl}" -n "${namespace}" patch secret "${secret}" \
+          --type merge --patch "{\"data\":{\"cacerts\":\"${ca}\"}}" \
+          --kubeconfig "${kubeconfig}" >/dev/null
+      done
+    done
+    "${kubectl}" -n "${helmop_namespace}" annotate helmop "${helmop_name}" \
+      airgap-lab.suse.com/ca-retry="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite \
+      --kubeconfig "${kubeconfig}" >/dev/null
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+- name: Require Fleet to accept the compatibility-CA HelmOp
+  when:
+    - aif_registry_ca_mode == 'workaround'
+    - not (smoke_expect_git_ca_failure | default(false) | bool)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    location={{ smoke_helmop_location.stdout | trim | quote }}
+    helmop_namespace="${location%%/*}"
+    helmop_name="${location#*/}"
+    deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
+    while (( SECONDS < deadline )); do
+      accepted=$("${kubectl}" -n "${helmop_namespace}" get helmop "${helmop_name}" \
+        -o json --kubeconfig "${kubeconfig}" 2>/dev/null \
+        | jq -r '[.status.conditions[]? | select(.type == "Accepted") | .status][-1] // ""' \
+        || true)
+      [[ "${accepted}" == "True" ]] && exit 0
+      sleep 5
+    done
+    printf 'Fleet did not accept compatibility-CA HelmOp %s/%s\n' \
+      "${helmop_namespace}" "${helmop_name}" >&2
+    "${kubectl}" -n "${helmop_namespace}" get helmop "${helmop_name}" -o yaml \
+      --kubeconfig "${kubeconfig}" >&2 || true
+    exit 1
+  args:
+    executable: /bin/bash
+  changed_when: false
 
 - name: Assert the known private-CA Git client failure
   when: smoke_expect_git_ca_failure | default(false) | bool
   block:
     - name: Wait for the operator to report the untrusted Gitea certificate
       ansible.builtin.shell: |
-        set -o pipefail
+        set -euo pipefail
         deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
         while (( SECONDS < deadline )); do
-          logs=$(/var/lib/rancher/rke2/bin/kubectl -n "{{ aif_namespace }}" \
-            logs deployment/{{ aif_release_name }} --all-containers=true --since=15m \
+          logs=$(/var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace | quote }} \
+            logs {{ ('deployment/' ~ aif_release_name) | quote }} --all-containers=true --since=15m \
             --kubeconfig /etc/rancher/rke2/rke2.yaml 2>&1 || true)
           if grep -Eq 'x509: certificate signed by unknown authority|certificate signed by unknown authority' <<<"${logs}"; then
             printf '%s\n' "${logs}" \
@@ -163,8 +259,8 @@
           fi
           sleep 5
         done
-        /var/lib/rancher/rke2/bin/kubectl -n "{{ smoke_namespace }}" \
-          get aiworkload "{{ smoke_workload_name }}-gitops" -o yaml \
+        /var/lib/rancher/rke2/bin/kubectl -n {{ smoke_namespace | quote }} \
+          get aiworkload {{ (smoke_workload_name ~ '-gitops') | quote }} -o yaml \
           --kubeconfig /etc/rancher/rke2/rke2.yaml >&2 || true
         exit 1
       args:
@@ -182,11 +278,11 @@
 - name: Wait for the smoke AIWorkload to become Running
   when: not (smoke_expect_git_ca_failure | default(false) | bool)
   ansible.builtin.shell: |
-    set -o pipefail
+    set -euo pipefail
     deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
     while (( SECONDS < deadline )); do
-      phase=$(/var/lib/rancher/rke2/bin/kubectl -n "{{ smoke_namespace }}" \
-        get aiworkload "{{ smoke_workload_name }}-{{ smoke_strategy | lower }}" \
+      phase=$(/var/lib/rancher/rke2/bin/kubectl -n {{ smoke_namespace | quote }} \
+        get aiworkload {{ (smoke_workload_name ~ '-' ~ (smoke_strategy | lower)) | quote }} \
         --kubeconfig /etc/rancher/rke2/rke2.yaml \
         -o jsonpath='{.status.phase}' 2>/dev/null || true)
       [[ "${phase}" == "Running" ]] && exit 0
@@ -195,8 +291,8 @@
       [[ "${phase}" == "Failed" ]] && break
       sleep 5
     done
-    /var/lib/rancher/rke2/bin/kubectl -n "{{ smoke_namespace }}" \
-      get aiworkload "{{ smoke_workload_name }}-{{ smoke_strategy | lower }}" -o yaml \
+    /var/lib/rancher/rke2/bin/kubectl -n {{ smoke_namespace | quote }} \
+      get aiworkload {{ (smoke_workload_name ~ '-' ~ (smoke_strategy | lower)) | quote }} -o yaml \
       --kubeconfig /etc/rancher/rke2/rke2.yaml >&2 || true
     /var/lib/rancher/rke2/bin/kubectl get helmop,bundle -A \
       --kubeconfig /etc/rancher/rke2/rke2.yaml >&2 || true

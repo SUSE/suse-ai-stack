@@ -17,8 +17,8 @@
 
     - name: Apply Rancher's tls-ca-additional secret
       ansible.builtin.shell: |
-        set -o pipefail
-        /var/lib/rancher/rke2/bin/kubectl -n "{{ rancher_namespace }}" create secret generic tls-ca-additional \
+        set -euo pipefail
+        /var/lib/rancher/rke2/bin/kubectl -n {{ rancher_namespace | quote }} create secret generic tls-ca-additional \
           --from-file=ca-additional.pem=/var/lib/aif-airgap-lab-ca.crt \
           --dry-run=client -o yaml \
           --kubeconfig /etc/rancher/rke2/rke2.yaml \
@@ -31,8 +31,9 @@
 
     - name: Read the installed Rancher chart version
       ansible.builtin.shell: |
-        set -o pipefail
-        helm list --namespace "{{ rancher_namespace }}" --filter '^{{ rancher_release_name }}$' --output json \
+        set -euo pipefail
+        helm list --namespace {{ rancher_namespace | quote }} \
+          --filter {{ ('^' ~ (rancher_release_name | regex_escape) ~ '$') | quote }} --output json \
           --kubeconfig /etc/rancher/rke2/rke2.yaml \
           | jq -er '.[0].chart | sub("^rancher-"; "")'
       args:
@@ -63,8 +64,9 @@
 
     - name: Confirm the Rancher deployment mounts the additional CA
       ansible.builtin.shell: |
-        set -o pipefail
-        /var/lib/rancher/rke2/bin/kubectl -n "{{ rancher_namespace }}" get deployment "{{ rancher_release_name }}" \
+        set -euo pipefail
+        /var/lib/rancher/rke2/bin/kubectl -n {{ rancher_namespace | quote }} \
+          get deployment {{ rancher_release_name | quote }} \
           --kubeconfig /etc/rancher/rke2/rke2.yaml -o json \
           | jq -e '.spec.template.spec.volumes[] | select(.secret.secretName == "tls-ca-additional")'
       args:

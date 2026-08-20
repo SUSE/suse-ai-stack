@@ -1,7 +1,7 @@
 ---
 - name: Transfer the offline media bundle and import it from inside the gated VPC
   hosts: airgap_services
-  gather_facts: false
+  gather_facts: true
   become: true
   environment:
     PATH: /usr/local/bin:/var/lib/aif-airgap-lab/tools:/usr/sbin:/usr/bin:/sbin:/bin
@@ -9,6 +9,9 @@
   vars:
     artifact_script_source: "{{ playbook_dir }}/../scripts/artifacts.sh"
     remote_bundle: "{{ airgap_remote_bundle_root }}/{{ airgap_bundle_dir | basename }}"
+    controller_yq_arch_patterns:
+      x86_64: 'ELF .* x86-64'
+      aarch64: 'ELF .* ARM aarch64'
   pre_tasks:
     - name: Validate bundle transfer inputs
       ansible.builtin.assert:
@@ -39,6 +42,33 @@
       ansible.builtin.assert:
         that: bundle_metadata.results | map(attribute='stat.exists') | min
         fail_msg: "The selected media bundle is incomplete; run mirror-export first."
+
+    - name: Inspect the controller yq helper format
+      ansible.builtin.command:
+        argv:
+          - file
+          - --brief
+          - --
+          - "{{ controller_yq_path }}"
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_become: false
+      register: controller_yq_binary
+      changed_when: false
+
+    - name: Require a Linux yq binary matching the services-node architecture
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['system'] == 'Linux'
+          - ansible_facts['architecture'] in controller_yq_arch_patterns
+          - >-
+            controller_yq_binary.stdout is
+            regex(controller_yq_arch_patterns.get(ansible_facts['architecture'], 'UNSUPPORTED'))
+        fail_msg: >-
+          controller_yq_path must be a Linux executable for the services node's
+          architecture ({{ ansible_facts['architecture'] }}); do not copy a
+          macOS or mismatched controller binary into the transfer environment.
 
   tasks:
     - name: Create the remote transfer and tools directories

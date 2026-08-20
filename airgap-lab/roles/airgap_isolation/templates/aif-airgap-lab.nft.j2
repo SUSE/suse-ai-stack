@@ -1,5 +1,8 @@
 # Managed by the SUSE AI Factory air-gap QA lab.
 # This isolated table does not flush or replace firewalld/RKE2-owned tables.
+table inet aif_airgap_lab {}
+delete table inet aif_airgap_lab
+
 table inet aif_airgap_lab {
   chain host_output {
     type filter hook output priority 20; policy accept;

@@ -61,9 +61,12 @@ fi
 }
 
 configured_public_key="$(yq -r '.aws_ssh_public_key' "${base_vars}" | awk '{print $1, $2}')"
-ssh_private_key="${AIF_AIRGAP_SSH_PRIVATE_KEY:-}"
+ssh_private_key="${AIF_AIRGAP_SSH_KEY:-}"
+if [[ -z "${ssh_private_key}" && -f "${stack_vars}" ]]; then
+  ssh_private_key="$(yq -r '.ansible_ssh_private_key_file // ""' "${stack_vars}")"
+fi
 if [[ -z "${ssh_private_key}" ]]; then
-  for candidate in "${HOME}/.ssh/id_ed25519" "${HOME}/.ssh/id_rsa" "${HOME}/.ssh/thb-aws.pem"; do
+  for candidate in "${HOME}/.ssh/id_ed25519" "${HOME}/.ssh/id_rsa"; do
     [[ -f "${candidate}" ]] || continue
     derived_public_key="$(ssh-keygen -y -f "${candidate}" 2>/dev/null | awk '{print $1, $2}' || true)"
     if [[ "${configured_public_key}" == "${derived_public_key}" ]]; then
@@ -73,7 +76,13 @@ if [[ -z "${ssh_private_key}" ]]; then
   done
 fi
 [[ -f "${ssh_private_key}" ]] || {
-  printf 'No local private key matches aws_ssh_public_key; set AIF_AIRGAP_SSH_PRIVATE_KEY.\n' >&2
+  printf 'No local private key matches aws_ssh_public_key; set AIF_AIRGAP_SSH_KEY.\n' >&2
+  exit 2
+}
+selected_public_key="$(ssh-keygen -y -f "${ssh_private_key}" 2>/dev/null | awk '{print $1, $2}' || true)"
+[[ "${configured_public_key}" == "${selected_public_key}" ]] || {
+  printf 'Private key %s does not match aws_ssh_public_key; set AIF_AIRGAP_SSH_KEY correctly.\n' \
+    "${ssh_private_key}" >&2
   exit 2
 }
 
@@ -96,15 +105,20 @@ rancher_password="$(existing_value "${stack_vars}" '.rancher_bootstrap_password'
 services_token="$(existing_value "${lab_vars}" '.rke2.token')"
 harbor_password="$(existing_value "${lab_vars}" '.harbor_admin_password')"
 gitea_password="$(existing_value "${lab_vars}" '.gitea_admin_password')"
-existing_services_address="$(existing_value "${lab_vars}" '.airgap_services_address')"
-existing_host_records="$(if [[ -f "${lab_vars}" ]]; then yq -o=json -I=0 '.airgap_host_records // []' "${lab_vars}"; else printf '[]'; fi)"
 existing_install_mode="$(existing_value "${lab_vars}" '.aif_install_mode')"
-existing_gitea_tls="$(existing_value "${lab_vars}" '.gitea_tls_enabled')"
+existing_ca_mode="$(existing_value "${lab_vars}" '.aif_registry_ca_mode')"
 requested_install_mode="${AIF_AIRGAP_INSTALL_MODE:-${existing_install_mode:-combined}}"
+default_ca_mode="$(yq -r '.aif_registry_ca_mode' "${lab_dir}/vars.example.yml")"
+requested_ca_mode="${AIF_AIRGAP_CA_MODE:-${existing_ca_mode:-${default_ca_mode}}}"
 
 [[ "${requested_install_mode}" == combined || "${requested_install_mode}" == separate ]] || {
   printf 'AIF_AIRGAP_INSTALL_MODE must be combined or separate, got: %s\n' \
     "${requested_install_mode}" >&2
+  exit 2
+}
+[[ "${requested_ca_mode}" == settings || "${requested_ca_mode}" == workaround ]] || {
+  printf 'AIF_AIRGAP_CA_MODE must be settings or workaround, got: %s\n' \
+    "${requested_ca_mode}" >&2
   exit 2
 }
 
@@ -118,6 +132,10 @@ requested_install_mode="${AIF_AIRGAP_INSTALL_MODE:-${existing_install_mode:-comb
 base_prefix="$(yq -r '.aws_resource_prefix' "${base_vars}")"
 base_key_name="$(yq -r '.aws_ssh_key_name' "${base_vars}")"
 lab_suffix="${AIF_AIRGAP_RESOURCE_SUFFIX:-882ag}"
+if (( ${#base_prefix} > 10 )); then
+  printf 'warning: AWS resource prefix %q truncated to %q before adding the lab suffix\n' \
+    "${base_prefix}" "${base_prefix:0:10}" >&2
+fi
 resource_prefix="${base_prefix:0:10}-${lab_suffix}"
 key_name="${base_key_name}-${lab_suffix}"
 aif_version="$(yq -r '.version' "${source_dir}/charts/aif-operator/Chart.yaml")"
@@ -183,11 +201,27 @@ yq -i '
   }
 ' "${stack_vars}"
 
-cp "${lab_dir}/vars.example.yml" "${lab_vars}"
+merged_lab_vars="$(mktemp "${generated_dir}/vars.merge.XXXXXX")"
+cleanup_merged_vars() {
+  [[ -z "${merged_lab_vars:-}" || ! -e "${merged_lab_vars}" ]] || rm -f -- "${merged_lab_vars}"
+}
+trap cleanup_merged_vars EXIT
+if [[ -f "${lab_vars}" ]]; then
+  yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' \
+    "${lab_dir}/vars.example.yml" "${lab_vars}" > "${merged_lab_vars}"
+else
+  cp "${lab_dir}/vars.example.yml" "${merged_lab_vars}"
+fi
+chmod 600 "${merged_lab_vars}"
+mv "${merged_lab_vars}" "${lab_vars}"
+merged_lab_vars=""
+
 SERVICES_TOKEN="${services_token}" \
 HARBOR_PASSWORD="${harbor_password}" \
 GITEA_PASSWORD="${gitea_password}" \
 AIF_VERSION="${aif_version}" \
+REQUESTED_INSTALL_MODE="${requested_install_mode}" \
+REQUESTED_CA_MODE="${requested_ca_mode}" \
 REGISTRATION_EMAIL="$(yq -r '.registration_email // ""' "${base_vars}")" \
 SLES_CODE="$(yq -r '.sles_registration_code // ""' "${base_vars}")" \
 SLE_MICRO_CODE="$(yq -r '.sle_micro_registration_code // ""' "${base_vars}")" \
@@ -202,27 +236,11 @@ yq -i '
   .scc_registration.sle_micro_code = strenv(SLE_MICRO_CODE) |
   .suse_packages = ["curl", "git", "gzip", "jq", "pciutils", "rsync", "skopeo", "tar"] |
   .aif_version = strenv(AIF_VERSION) |
-  .aif_registry_ca_mode = "settings" |
-  .aif_install_mode = "combined" |
-  .harbor_registry_storage_size = "40Gi" |
+  .aif_registry_ca_mode = strenv(REQUESTED_CA_MODE) |
+  .aif_install_mode = strenv(REQUESTED_INSTALL_MODE) |
   .airgap_remote_bundle_root = "/var/lib/aif-airgap-lab/bundles" |
   .controller_yq_path = "/usr/bin/yq"
 ' "${lab_vars}"
-
-if [[ -n "${existing_services_address}" ]]; then
-  EXISTING_SERVICES_ADDRESS="${existing_services_address}" \
-    yq -i '.airgap_services_address = strenv(EXISTING_SERVICES_ADDRESS)' "${lab_vars}"
-fi
-if [[ "${existing_host_records}" != "[]" ]]; then
-  EXISTING_HOST_RECORDS="${existing_host_records}" \
-    yq -i '.airgap_host_records = (strenv(EXISTING_HOST_RECORDS) | from_json)' "${lab_vars}"
-fi
-REQUESTED_INSTALL_MODE="${requested_install_mode}" \
-  yq -i '.aif_install_mode = strenv(REQUESTED_INSTALL_MODE)' "${lab_vars}"
-if [[ "${existing_gitea_tls}" == true || "${existing_gitea_tls}" == false ]]; then
-  EXISTING_GITEA_TLS="${existing_gitea_tls}" \
-    yq -i '.gitea_tls_enabled = (strenv(EXISTING_GITEA_TLS) == "true")' "${lab_vars}"
-fi
 
 chmod 600 "${stack_vars}" "${lab_vars}"
 
@@ -251,4 +269,5 @@ printf '  Resource prefix: %s\n' "${resource_prefix}"
 printf '  Nodes: management=m6i.2xlarge, downstream=m6i.xlarge, services=m6i.xlarge\n'
 printf '  AIF source: %s (%s)\n' "${aif_commit:0:12}" "${aif_version}"
 printf '  AIF install mode: %s\n' "${requested_install_mode}"
+printf '  AIF registry CA mode: %s\n' "${requested_ca_mode}"
 printf 'Generated credentials remain in ignored mode-0600 files under %s.\n' "${generated_dir}"
