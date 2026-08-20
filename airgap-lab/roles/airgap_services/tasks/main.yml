@@ -5,7 +5,7 @@
       - groups['airgap_services'] | length == 1
       - harbor_hostname | length > 0
       - gitea_hostname | length > 0
-      - airgap_services_address | ansible.utils.ipaddr
+      - (airgap_services_address | regex_search('^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$')) is not none
       - harbor_admin_password != 'REPLACE_WITH_A_STRONG_PASSWORD'
       - harbor_registry_password != 'REPLACE_WITH_A_STRONG_PASSWORD'
       - gitea_admin_password != 'REPLACE_WITH_A_STRONG_PASSWORD'
@@ -31,6 +31,8 @@
     mode: "0700"
   delegate_to: localhost
   become: false
+  vars:
+    ansible_become: false
 
 - name: Generate the lab CA private key
   community.crypto.openssl_privatekey:
@@ -39,6 +41,8 @@
     mode: "0600"
   delegate_to: localhost
   become: false
+  vars:
+    ansible_become: false
 
 - name: Generate the lab CA request
   community.crypto.openssl_csr:
@@ -55,6 +59,8 @@
     mode: "0600"
   delegate_to: localhost
   become: false
+  vars:
+    ansible_become: false
 
 - name: Generate the self-signed lab CA certificate
   community.crypto.x509_certificate:
@@ -66,6 +72,8 @@
     mode: "0644"
   delegate_to: localhost
   become: false
+  vars:
+    ansible_become: false
 
 - name: Generate Harbor private key
   community.crypto.openssl_privatekey:
@@ -74,6 +82,8 @@
     mode: "0600"
   delegate_to: localhost
   become: false
+  vars:
+    ansible_become: false
 
 - name: Generate Harbor certificate request
   community.crypto.openssl_csr:
@@ -91,6 +101,8 @@
     mode: "0600"
   delegate_to: localhost
   become: false
+  vars:
+    ansible_become: false
 
 - name: Sign Harbor certificate with the lab CA
   community.crypto.x509_certificate:
@@ -103,6 +115,8 @@
     mode: "0644"
   delegate_to: localhost
   become: false
+  vars:
+    ansible_become: false
 
 - name: Generate Gitea private key
   community.crypto.openssl_privatekey:
@@ -111,6 +125,8 @@
     mode: "0600"
   delegate_to: localhost
   become: false
+  vars:
+    ansible_become: false
 
 - name: Generate Gitea certificate request
   community.crypto.openssl_csr:
@@ -128,6 +144,8 @@
     mode: "0600"
   delegate_to: localhost
   become: false
+  vars:
+    ansible_become: false
 
 - name: Sign Gitea certificate with the lab CA
   community.crypto.x509_certificate:
@@ -140,6 +158,8 @@
     mode: "0644"
   delegate_to: localhost
   become: false
+  vars:
+    ansible_become: false
 
 - name: Add services hostnames to the services node
   ansible.builtin.lineinfile:
@@ -195,7 +215,8 @@
   loop:
     - harbor
     - gitea
-  changed_when: "'created' in stdout or 'configured' in stdout"
+  register: services_namespace_apply
+  changed_when: "'created' in services_namespace_apply.stdout or 'configured' in services_namespace_apply.stdout"
 
 - name: Install Harbor ingress TLS secret
   ansible.builtin.shell: |
@@ -209,7 +230,8 @@
           --kubeconfig /etc/rancher/rke2/rke2.yaml
   args:
     executable: /bin/bash
-  changed_when: "'created' in stdout or 'configured' in stdout"
+  register: harbor_tls_apply
+  changed_when: "'created' in harbor_tls_apply.stdout or 'configured' in harbor_tls_apply.stdout"
 
 - name: Install Gitea ingress TLS secret
   ansible.builtin.shell: |
@@ -224,7 +246,8 @@
   args:
     executable: /bin/bash
   when: gitea_tls_enabled | bool
-  changed_when: "'created' in stdout or 'configured' in stdout"
+  register: gitea_tls_apply
+  changed_when: "'created' in gitea_tls_apply.stdout or 'configured' in gitea_tls_apply.stdout"
 
 - name: Render Harbor values
   ansible.builtin.template:

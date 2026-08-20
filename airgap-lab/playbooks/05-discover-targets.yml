@@ -1,0 +1,52 @@
+---
+- name: Discover the imported downstream Rancher cluster ID
+  hosts: aif_management
+  gather_facts: false
+  become: true
+  vars:
+    discovered_vars_file: "{{ playbook_dir }}/../generated/discovered-vars.yml"
+  tasks:
+    - name: Wait for the downstream cluster to connect to Rancher
+      ansible.builtin.shell: |
+        set -euo pipefail
+        kubectl=/var/lib/rancher/rke2/bin/kubectl
+        kubeconfig=/etc/rancher/rke2/rke2.yaml
+        deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
+        while (( SECONDS < deadline )); do
+          cluster_id=$("${kubectl}" get clusters.management.cattle.io -o json \
+            --kubeconfig "${kubeconfig}" \
+            | jq -r '.items[]
+              | select(.metadata.name != "local")
+              | select(.spec.displayName == "suse-ai" or .metadata.name == "suse-ai")
+              | select(any(.status.conditions[]?; .type == "Connected" and .status == "True"))
+              | .metadata.name' \
+            | head -n 1)
+          [[ -n "${cluster_id}" ]] && { printf '%s\n' "${cluster_id}"; exit 0; }
+          sleep 10
+        done
+        "${kubectl}" get clusters.management.cattle.io \
+          --kubeconfig "${kubeconfig}" -o wide >&2 || true
+        exit 1
+      args:
+        executable: /bin/bash
+      register: downstream_cluster_id
+      changed_when: false
+
+    - name: Write the single- and multi-cluster target set on the controller
+      ansible.builtin.copy:
+        dest: "{{ discovered_vars_file }}"
+        mode: "0600"
+        content: |
+          ---
+          smoke_target_clusters:
+            - local
+            - {{ downstream_cluster_id.stdout | trim }}
+          downstream_cluster_id: {{ downstream_cluster_id.stdout | trim }}
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_become: false
+
+    - name: Report target discovery without credentials
+      ansible.builtin.debug:
+        msg: "Rancher targets discovered: local and {{ downstream_cluster_id.stdout | trim }}"

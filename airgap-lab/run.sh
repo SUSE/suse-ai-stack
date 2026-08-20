@@ -7,6 +7,7 @@ vars_file="${AIF_AIRGAP_VARS:-${lab_dir}/generated/vars.yml}"
 manifest="${AIF_AIRGAP_MANIFEST:-${lab_dir}/artifacts.yml}"
 bundle_dir="${AIF_AIRGAP_BUNDLE:-${lab_dir}/bundles/current}"
 profile="${AIF_AIRGAP_PROFILE:-core}"
+discovered_vars="${lab_dir}/generated/discovered-vars.yml"
 
 export ANSIBLE_CONFIG="${lab_dir}/ansible.cfg"
 
@@ -18,6 +19,7 @@ usage() {
     "  bootstrap-services  Install CPU-only RKE2 on the services node (connected stage)" \
     "  build-aif-source    Build exact operator/UI images and charts from AIF_SOURCE_DIR" \
     "  services            Install TLS Harbor and authenticated Gitea" \
+    "  transfer-import     Copy the media bundle to services and import from inside the VPC" \
     "  mirror-export       Download selected artifacts into a checksummed transfer bundle" \
     "  mirror-import       Verify and upload a transfer bundle into Harbor" \
     "  mirror              Export and import while seed and Harbor are both reachable" \
@@ -25,6 +27,8 @@ usage() {
     "  install             Install/configure AIF (combined or separate UI mode)" \
     "  isolate             Enable reversible host and pod egress rejection" \
     "  smoke               Create the no-GPU Blueprint workload fixture" \
+    "  discover-targets    Discover the downstream Rancher cluster ID" \
+    "  matrix              Run FleetBundle/GitOps in single- and multi-cluster modes" \
     "  verify              Run positive internal and negative external probes" \
     "  restore             Remove only the lab's nftables isolation table" \
     "  all                 services, mirror, configure, isolate, install, smoke, verify"
@@ -38,7 +42,11 @@ require_config() {
 }
 
 play() {
-  ansible-playbook -i "${inventory}" -e "@${vars_file}" "$@"
+  local args=(-i "${inventory}" -e "@${vars_file}")
+  if [[ -f "${discovered_vars}" ]]; then
+    args+=( -e "@${discovered_vars}" )
+  fi
+  ansible-playbook "${args[@]}" "$@"
 }
 
 mirror() {
@@ -61,6 +69,11 @@ case "${phase}" in
   services)
     require_config
     play "${lab_dir}/playbooks/01-services.yml"
+    ;;
+  transfer-import)
+    require_config
+    play -e "airgap_bundle_dir=${bundle_dir}" -e "airgap_profile=${profile}" \
+      "${lab_dir}/playbooks/01-import-bundle.yml"
     ;;
   mirror-export)
     mirror export
@@ -86,6 +99,25 @@ case "${phase}" in
   smoke)
     require_config
     play "${lab_dir}/playbooks/05-smoke.yml"
+    ;;
+  discover-targets)
+    require_config
+    play "${lab_dir}/playbooks/05-discover-targets.yml"
+    ;;
+  matrix)
+    require_config
+    [[ -f "${discovered_vars}" ]] || {
+      printf 'Run the discover-targets phase before the multi-cluster matrix.\n' >&2
+      exit 2
+    }
+    play -e smoke_strategy=FleetBundle -e smoke_workload_name=airgap-smoke-single \
+      -e '{"smoke_target_clusters":["local"]}' "${lab_dir}/playbooks/05-smoke.yml"
+    play -e smoke_strategy=GitOps -e smoke_workload_name=airgap-smoke-single \
+      -e '{"smoke_target_clusters":["local"]}' "${lab_dir}/playbooks/05-smoke.yml"
+    play -e smoke_strategy=FleetBundle -e smoke_workload_name=airgap-smoke-multi \
+      "${lab_dir}/playbooks/05-smoke.yml"
+    play -e smoke_strategy=GitOps -e smoke_workload_name=airgap-smoke-multi \
+      "${lab_dir}/playbooks/05-smoke.yml"
     ;;
   verify)
     require_config

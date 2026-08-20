@@ -1,0 +1,98 @@
+---
+- name: Read the current RKE2 CoreDNS configuration
+  ansible.builtin.command:
+    argv:
+      - /var/lib/rancher/rke2/bin/kubectl
+      - --namespace
+      - kube-system
+      - get
+      - configmap
+      - rke2-coredns-rke2-coredns
+      - --output
+      - jsonpath={.data.Corefile}
+      - --kubeconfig
+      - /etc/rancher/rke2/rke2.yaml
+  register: airgap_coredns_current
+  changed_when: false
+
+- name: Require the standard RKE2 CoreDNS server block
+  ansible.builtin.assert:
+    that:
+      - airgap_coredns_current.stdout is regex('^\\.:53\\s*\\{')
+      - airgap_host_records | length > 0
+    fail_msg: "The RKE2 CoreDNS ConfigMap is missing or has an unsupported Corefile layout."
+
+- name: Render private air-gap names into CoreDNS
+  ansible.builtin.template:
+    src: Corefile.j2
+    dest: /var/lib/aif-airgap-coredns-Corefile
+    owner: root
+    group: root
+    mode: "0600"
+  register: airgap_coredns_render
+
+- name: Apply the managed CoreDNS configuration
+  ansible.builtin.shell: |
+    set -o pipefail
+    /var/lib/rancher/rke2/bin/kubectl --namespace kube-system create configmap \
+      rke2-coredns-rke2-coredns \
+      --from-file=Corefile=/var/lib/aif-airgap-coredns-Corefile \
+      --dry-run=client --output yaml \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml \
+      | /var/lib/rancher/rke2/bin/kubectl apply --filename - \
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+  args:
+    executable: /bin/bash
+  register: airgap_coredns_apply
+  changed_when: "'created' in airgap_coredns_apply.stdout or 'configured' in airgap_coredns_apply.stdout"
+
+- name: Restart CoreDNS after private names change
+  ansible.builtin.command:
+    argv:
+      - /var/lib/rancher/rke2/bin/kubectl
+      - --namespace
+      - kube-system
+      - rollout
+      - restart
+      - deployment/rke2-coredns-rke2-coredns
+      - --kubeconfig
+      - /etc/rancher/rke2/rke2.yaml
+  when: airgap_coredns_apply.changed
+  changed_when: true
+
+- name: Wait for CoreDNS after private names change
+  ansible.builtin.command:
+    argv:
+      - /var/lib/rancher/rke2/bin/kubectl
+      - --namespace
+      - kube-system
+      - rollout
+      - status
+      - deployment/rke2-coredns-rke2-coredns
+      - --timeout=5m
+      - --kubeconfig
+      - /etc/rancher/rke2/rke2.yaml
+  changed_when: false
+
+- name: Verify Harbor resolves from a cluster DNS client
+  ansible.builtin.shell: |
+    set -o pipefail
+    dns_ip=$(/var/lib/rancher/rke2/bin/kubectl --namespace kube-system \
+      get service rke2-coredns-rke2-coredns \
+      --output jsonpath='{.spec.clusterIP}' \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml)
+    getent ahostsv4 "{{ harbor_hostname }}" \
+      | awk 'NR == 1 { print $1 }' \
+      | grep --fixed-strings --line-regexp "{{ airgap_services_address }}" >/dev/null
+    /var/lib/rancher/rke2/bin/kubectl --namespace kube-system \
+      delete pod aif-airgap-dns-check --ignore-not-found --wait=true \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml >/dev/null
+    /var/lib/rancher/rke2/bin/kubectl \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml --namespace kube-system \
+      run aif-airgap-dns-check --image=registry.suse.com/bci/bci-busybox:15.7 \
+      --restart=Never --rm --attach --quiet \
+      --command -- /usr/bin/nslookup "{{ harbor_hostname }}" "${dns_ip}" \
+      | grep --fixed-strings "{{ airgap_services_address }}" >/dev/null
+  args:
+    executable: /bin/bash
+  changed_when: false

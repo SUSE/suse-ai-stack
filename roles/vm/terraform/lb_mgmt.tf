@@ -14,7 +14,7 @@ resource "aws_lb" "rke2" {
 
 #create target group - rke2
 resource "aws_lb_target_group" "rke2_targetgroup1" {
-  name        = "${aws_lb.rke2.name}-tg1"
+  name        = "${substr(aws_lb.rke2.name, 0, 28)}-tg1"
   port        = 9345
   protocol    = "TCP"
   target_type = "instance"
@@ -22,7 +22,7 @@ resource "aws_lb_target_group" "rke2_targetgroup1" {
 }
 
 resource "aws_lb_target_group" "rke2_targetgroup2" {
-  name        = "${aws_lb.rke2.name}-tg2"
+  name        = "${substr(aws_lb.rke2.name, 0, 28)}-tg2"
   port        = 6443
   protocol    = "TCP"
   target_type = "instance"
@@ -56,8 +56,8 @@ resource "aws_lb_target_group_attachment" "rke2_tg_attachment1_cp_master" {
 
 resource "aws_lb_target_group_attachment" "rke2_tg_attachment1_cp_others" {
   target_group_arn = aws_lb_target_group.rke2_targetgroup1.arn
-  count      = var.cluster["num_cp_nodes"] - 1
-  target_id  = aws_instance.cp_other[count.index].id
+  count            = var.cluster["num_cp_nodes"] - 1
+  target_id        = aws_instance.cp_other[count.index].id
 }
 
 resource "aws_lb_target_group_attachment" "rke2_tg_attachment2_cp_master" {
@@ -67,8 +67,8 @@ resource "aws_lb_target_group_attachment" "rke2_tg_attachment2_cp_master" {
 
 resource "aws_lb_target_group_attachment" "rke2_tg_attachment2_cp_others" {
   target_group_arn = aws_lb_target_group.rke2_targetgroup2.arn
-  count      = var.cluster["num_cp_nodes"] - 1
-  target_id  = aws_instance.cp_other[count.index].id
+  count            = var.cluster["num_cp_nodes"] - 1
+  target_id        = aws_instance.cp_other[count.index].id
 }
 
 
@@ -85,7 +85,7 @@ resource "aws_lb" "ingress" {
 
 #create target group - ingress
 resource "aws_lb_target_group" "ingress_targetgroup1" {
-  name        = "${aws_lb.ingress.name}-tg1"
+  name = "${substr(aws_lb.ingress.name, 0, 28)}-tg1"
 
   port        = 443
   protocol    = "TCP"
@@ -94,7 +94,7 @@ resource "aws_lb_target_group" "ingress_targetgroup1" {
 }
 
 resource "aws_lb_target_group" "ingress_targetgroup2" {
-  name        = "${aws_lb.ingress.name}-tg2"
+  name = "${substr(aws_lb.ingress.name, 0, 28)}-tg2"
 
   port        = 80
   protocol    = "TCP"
@@ -131,8 +131,8 @@ resource "aws_lb_target_group_attachment" "ingress_tg_attachment1_cp_master" {
 
 resource "aws_lb_target_group_attachment" "ingress_tg_attachment1_cp_others" {
   target_group_arn = aws_lb_target_group.ingress_targetgroup1.arn
-  count      = var.cluster["num_cp_nodes"] - 1
-  target_id   = aws_instance.cp_other[count.index].id
+  count            = var.cluster["num_cp_nodes"] - 1
+  target_id        = aws_instance.cp_other[count.index].id
 }
 
 resource "aws_lb_target_group_attachment" "ingress_tg_attachment2_cp_master" {
@@ -142,32 +142,32 @@ resource "aws_lb_target_group_attachment" "ingress_tg_attachment2_cp_master" {
 
 resource "aws_lb_target_group_attachment" "ingress_tg_attachment2_cp_others" {
   target_group_arn = aws_lb_target_group.ingress_targetgroup2.arn
-  count      = var.cluster["num_cp_nodes"] - 1
-  target_id   = aws_instance.cp_other[count.index].id
+  count            = var.cluster["num_cp_nodes"] - 1
+  target_id        = aws_instance.cp_other[count.index].id
 }
 
 resource "aws_lb_target_group_attachment" "ingress_tg_attachment1_worker_gpu" {
   target_group_arn = aws_lb_target_group.ingress_targetgroup1.arn
-  count      = var.cluster["num_worker_nodes_gpu"]
-  target_id   = aws_instance.worker_gpu[count.index].id
+  count            = var.cluster["num_worker_nodes_gpu"]
+  target_id        = aws_instance.worker_gpu[count.index].id
 }
 
 resource "aws_lb_target_group_attachment" "ingress_tg_attachment2_worker_gpu" {
   target_group_arn = aws_lb_target_group.ingress_targetgroup2.arn
-  count      = var.cluster["num_worker_nodes_gpu"]
-  target_id   = aws_instance.worker_gpu[count.index].id
+  count            = var.cluster["num_worker_nodes_gpu"]
+  target_id        = aws_instance.worker_gpu[count.index].id
 }
 
 resource "aws_lb_target_group_attachment" "ingress_tg_attachment1_worker_nongpu" {
   target_group_arn = aws_lb_target_group.ingress_targetgroup1.arn
-  count      = var.cluster["num_worker_nodes_nongpu"]
-  target_id   = aws_instance.worker_nongpu[count.index].id
+  count            = var.cluster["num_worker_nodes_nongpu"]
+  target_id        = aws_instance.worker_nongpu[count.index].id
 }
 
 resource "aws_lb_target_group_attachment" "ingress_tg_attachment2_worker_nongpu" {
   target_group_arn = aws_lb_target_group.ingress_targetgroup2.arn
-  count      = var.cluster["num_worker_nodes_nongpu"]
-  target_id   = aws_instance.worker_nongpu[count.index].id
+  count            = var.cluster["num_worker_nodes_nongpu"]
+  target_id        = aws_instance.worker_nongpu[count.index].id
 }
 
 data "aws_lb" "rke2" {

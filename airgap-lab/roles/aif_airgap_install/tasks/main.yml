@@ -39,7 +39,8 @@
   loop:
     - "{{ aif_namespace }}"
     - cattle-ui-plugin-system
-  changed_when: "'created' in stdout or 'configured' in stdout"
+  register: aif_namespace_apply
+  changed_when: "'created' in aif_namespace_apply.stdout or 'configured' in aif_namespace_apply.stdout"
 
 - name: Copy the lab CA into the AIF staging directory
   ansible.builtin.copy:
@@ -127,6 +128,29 @@
     group: root
     mode: "0600"
 
+- name: Remove a standalone UI release before a combined-mode qualification
+  when: aif_install_mode == 'combined'
+  block:
+    - name: Check for the standalone UI Helm release
+      ansible.builtin.command:
+        cmd: >-
+          helm status {{ aif_ui_release_name }}
+          --namespace cattle-ui-plugin-system
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+      register: standalone_ui_status
+      failed_when: false
+      changed_when: false
+
+    - name: Uninstall the standalone UI Helm release
+      ansible.builtin.command:
+        cmd: >-
+          helm uninstall {{ aif_ui_release_name }}
+          --namespace cattle-ui-plugin-system
+          --wait --timeout 5m
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+      when: standalone_ui_status.rc == 0
+      changed_when: true
+
 - name: Install or upgrade the AIF operator from Harbor
   ansible.builtin.command:
     cmd: >-
@@ -150,6 +174,17 @@
       deployment/{{ aif_release_name }} --timeout=8m
       --kubeconfig /etc/rancher/rke2/rke2.yaml
   changed_when: false
+
+- name: Trigger combined-mode extension reconciliation after private DNS is ready
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace }} annotate
+      installaiextension/{{ aif_ui_release_name }}
+      airgap-lab.suse.com/reconciled-at={{ ansible_facts['date_time']['iso8601_basic_short'] }}
+      --overwrite
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  when: aif_install_mode == 'combined'
+  changed_when: true
 
 - name: Wait for combined-mode extension readiness
   ansible.builtin.command:

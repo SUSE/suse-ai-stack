@@ -83,6 +83,8 @@
     mode: "0700"
   delegate_to: localhost
   become: false
+  vars:
+    ansible_become: false
   run_once: true
 
 - name: Fetch node evidence to the controller

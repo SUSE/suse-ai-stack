@@ -4,7 +4,7 @@
     that:
       - airgap_allowed_ipv4_cidrs | length > 0
       - airgap_pod_ipv4_cidrs | length > 0
-      - airgap_services_address | ansible.utils.ipaddr
+      - (airgap_services_address | regex_search('^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$')) is not none
       - "'0.0.0.0/0' not in airgap_allowed_ipv4_cidrs"
       - "'::/0' not in airgap_allowed_ipv6_cidrs"
     fail_msg: >-
@@ -13,13 +13,13 @@
 - name: Validate every configured IPv4 network and resolver
   ansible.builtin.assert:
     that:
-      - item | ansible.utils.ipaddr
+      - (item | regex_search('^(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:/[0-9]{1,2})?$')) is not none
   loop: "{{ airgap_allowed_ipv4_cidrs + airgap_pod_ipv4_cidrs + airgap_dns_servers }}"
 
 - name: Validate every configured IPv6 network
   ansible.builtin.assert:
     that:
-      - item | ansible.utils.ipaddr
+      - (item | regex_search('^[0-9A-Fa-f:]+(?:/[0-9]{1,3})?$')) is not none
   loop: "{{ airgap_allowed_ipv6_cidrs + airgap_pod_ipv6_cidrs }}"
 
 - name: Install nftables before closing the gate

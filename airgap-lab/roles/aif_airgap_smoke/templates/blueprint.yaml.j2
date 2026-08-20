@@ -1,9 +1,9 @@
 apiVersion: ai-factory.suse.com/v1alpha1
 kind: Blueprint
 metadata:
-  name: aif-airgap-smoke-0-1-0
+  name: {{ smoke_workload_name }}-{{ smoke_strategy | lower }}-0-1-0
   labels:
-    ai-factory.suse.com/blueprint-name: aif-airgap-smoke
+    ai-factory.suse.com/blueprint-name: {{ smoke_workload_name }}-{{ smoke_strategy | lower }}
     ai-factory.suse.com/blueprint-version: 0.1.0
 spec:
   displayName: AI Factory air-gap smoke
@@ -16,6 +16,7 @@ spec:
       chartVersion: 0.1.0
       vendor: suse
       values:
+        fullnameOverride: {{ smoke_workload_name }}-{{ smoke_strategy | lower }}
         image:
           registry: registry.suse.com
           repository: bci/bci-busybox

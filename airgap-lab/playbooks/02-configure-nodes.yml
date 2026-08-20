@@ -3,6 +3,9 @@
   hosts: airgap_services:airgap_isolated
   gather_facts: true
   become: true
+  environment:
+    PATH: /usr/local/bin:/var/lib/rancher/rke2/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
   vars:
     airgap_ca_source: "{{ playbook_dir }}/../generated/pki/ca.crt"
   tasks:
@@ -11,6 +14,8 @@
         path: "{{ airgap_ca_source }}"
       delegate_to: localhost
       become: false
+      vars:
+        ansible_become: false
       run_once: true
       register: lab_ca
 
@@ -43,10 +48,26 @@
       when: host_ca.changed
       changed_when: true
 
+- name: Publish private service names through each RKE2 cluster DNS
+  hosts: rke2_airgap_nodes
+  serial: 1
+  gather_facts: false
+  become: true
+  environment:
+    PATH: /usr/local/bin:/var/lib/rancher/rke2/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
+  roles:
+    - role: rke2_airgap_dns
+      tags:
+        - airgap_dns
+
 - name: Add the lab CA to Rancher before the gate closes
   hosts: aif_management
   gather_facts: false
   become: true
+  environment:
+    PATH: /usr/local/bin:/var/lib/rancher/rke2/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
   vars:
     airgap_ca_source: "{{ playbook_dir }}/../generated/pki/ca.crt"
   roles:
@@ -57,6 +78,9 @@
   serial: 1
   gather_facts: true
   become: true
+  environment:
+    PATH: /usr/local/bin:/var/lib/rancher/rke2/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
   vars:
     airgap_ca_source: "{{ playbook_dir }}/../generated/pki/ca.crt"
   roles:

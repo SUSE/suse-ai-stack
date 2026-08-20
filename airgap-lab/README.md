@@ -28,6 +28,63 @@ provide an escape path. Keeping it connected avoids the registry-bootstrap
 chicken-and-egg problem and lets it be rebuilt. Management, workload, and
 optional browser nodes receive both host-output and pod-forward nftables rules.
 
+## One-command AWS lab
+
+For the repository's normal AWS workflow, keep the provider, SCC and vendor
+credentials in the ignored top-level `extra_vars.yml`, then run:
+
+```console
+./setup_airgap_lab.sh
+```
+
+The command creates three CPU-only nodes, installs Rancher/RKE2, Harbor and
+Gitea, builds the exact sibling AIF checkout, transfers a checksummed core
+bundle, applies the network gate, and runs the FleetBundle/GitOps single- and
+multi-cluster matrix. It is resumable: completed phases have ignored markers
+under `airgap-lab/generated/state/`, so run the same command after correcting a
+failure. Useful lifecycle commands are:
+
+```console
+./setup_airgap_lab.sh --prepare-only  # validate and render; no AWS writes
+./setup_airgap_lab.sh --status
+./setup_airgap_lab.sh --reset-progress # retain resources, reconcile all phases
+./destroy_airgap_lab.sh                # guarded dedicated-workspace destroy
+```
+
+The lab uses the dedicated `suseai-882-airgap` OpenTofu workspace and appends a
+lab suffix to resource/key names. It never operates on the default workspace.
+Generated AWS credentials, Rancher/Harbor/Gitea passwords, CA private keys,
+inventories and state markers are mode `0600` and ignored by Git. The default
+AWS shape is `m6i.2xlarge` for management and `m6i.xlarge` for downstream and
+services, with no GPU instances. These are billable resources; always use the
+guarded destroy command when the QA session ends.
+
+By default the sibling checkout `../aif` is qualified and native Settings CA
+propagation is required (`aif_registry_ca_mode: settings`). Override only when
+needed:
+
+```console
+AIF_SOURCE_DIR=/path/to/aif AIF_AIRGAP_PROFILE=core ./setup_airgap_lab.sh
+AIF_AIRGAP_INSTALL_MODE=separate ./setup_airgap_lab.sh
+```
+
+The install mode defaults to `combined`. Each `combined` or `separate` run has
+independent resumable qualification markers and a mode-specific evidence file,
+while the expensive AWS, build and mirror phases are reused. The runner records
+the mode currently active on the management cluster, so switching modes always
+forces installation, matrix and verification to run again. Switching back to
+combined mode also removes the standalone UI release before reconciling the
+operator-managed extension.
+
+The services security group exposes SSH only to the controller's detected
+public `/32`; Harbor and Gitea are reachable only from the private VPC. Set
+`AIF_AIRGAP_CONTROLLER_CIDR` explicitly when the controller uses a stable VPN
+or NAT address. Management/workload isolation retains only established admin
+responses, private VPC/pod/service networks and AWS DNS while rejecting new
+public egress. The configure phase publishes the private Harbor, Gitea and
+Rancher records through each RKE2 cluster's CoreDNS; pod-side controllers cannot
+rely on host `/etc/hosts` entries.
+
 ## What is automated
 
 - a connected-stage, single-node, CPU-only RKE2 services cluster;
@@ -41,6 +98,9 @@ optional browser nodes receive both host-output and pod-forward nftables rules.
 - RKE2 `registries.yaml` on every schedulable management/workload node, Harbor
   authentication/CA, per-source rewrites, and
   `disable-default-registry-endpoint: true`;
+- one managed CoreDNS `hosts` block per RKE2 cluster for Harbor, Gitea and the
+  private Rancher endpoint, including consolidation of the base stack's Rancher
+  record;
 - AIF combined operator+UI or separate operator/UI installation from Harbor;
 - Settings endpoints for mirrored AppCo, SUSE Registry and NVIDIA charts, plus
   the internal Gitea Fleet repository;
@@ -48,6 +108,9 @@ optional browser nodes receive both host-output and pod-forward nftables rules.
 - reversible egress denial and positive/negative verification probes.
 
 ## Prerequisites
+
+The manual/provider-independent workflow below remains useful for local VMs or
+custom infrastructure. AWS users normally use the one-command path above.
 
 1. Use `suse-ai-stack` to create the Rancher management cluster and, for the
    multi-cluster test, a CPU-only `suse_ai_cluster`. Set GPU worker counts and
@@ -62,7 +125,8 @@ optional browser nodes receive both host-output and pod-forward nftables rules.
    much larger; size the seed, transfer media, services disk, and
    `harbor_registry_storage_size` from an actual export (start around 250 GiB,
    then retain headroom) rather than assuming the core sizing.
-2. Supply a third SUSE VM for `airgap_services`. It can be created with the same
+2. Supply a third SUSE VM for `airgap_services`. The one-command AWS workflow
+   provisions it automatically. For other providers it can be created with the same
    SLES/SLE Micro image, VPC, key, and security group as the stack. Local
    libvirt works equally well. Use private addresses between all three nodes.
 3. Install Ansible collections and local tools on the seed/controller:
@@ -86,9 +150,10 @@ optional browser nodes receive both host-output and pod-forward nftables rules.
    add your normal vault arguments to `play()` in a local copy of `run.sh` or
    invoke the playbooks directly.
 
-5. Make the names in `airgap_host_records` resolve to private addresses. The
-   playbook writes `/etc/hosts` on lab nodes, but the seed and browser also need
-   the records. On AWS, do not use the public IPs returned by the current stack.
+5. Set `airgap_host_records` to private addresses. The configure playbook writes
+   the records to node `/etc/hosts` and each RKE2 CoreDNS ConfigMap. The seed and
+   browser still need equivalent local DNS or host records. On AWS, do not use
+   the public IPs returned by the current stack.
 
 ## Run order
 
@@ -146,11 +211,11 @@ This does not flush or replace the host's other firewall tables.
 
 ## Install-mode matrix
 
-Run the same gate twice, changing `aif_install_mode` in the generated vars. Use
-a fresh management cluster for each qualification run (preferred), or fully
-remove the previous AIF operator/UI releases and `InstallAIExtension` resources
-before changing modes; this lab does not treat an in-place mode conversion as
-part of either installation journey.
+Run the same gate twice by setting `AIF_AIRGAP_INSTALL_MODE` to `combined` and
+`separate`. The one-command AWS workflow reuses the infrastructure and staged
+artifacts while reconciling the UI ownership for the requested mode. A fresh
+management cluster remains the strongest evidence for a pristine customer
+installation; the in-place runs are the fast regression path.
 
 | Mode | Operator chart | UI chart | Expected result |
 |---|---|---|---|

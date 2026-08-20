@@ -26,7 +26,8 @@
               --kubeconfig /etc/rancher/rke2/rke2.yaml
       args:
         executable: /bin/bash
-      changed_when: "'created' in stdout or 'configured' in stdout"
+      register: rancher_ca_secret_apply
+      changed_when: "'created' in rancher_ca_secret_apply.stdout or 'configured' in rancher_ca_secret_apply.stdout"
 
     - name: Read the installed Rancher chart version
       ansible.builtin.shell: |

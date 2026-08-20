@@ -8,7 +8,7 @@ spec:
   source:
     sourceType: Blueprint
     blueprint:
-      name: aif-airgap-smoke
+      name: {{ smoke_workload_name }}-{{ smoke_strategy | lower }}
       version: 0.1.0
   targetNamespace: {{ smoke_namespace }}
   targetClusters:

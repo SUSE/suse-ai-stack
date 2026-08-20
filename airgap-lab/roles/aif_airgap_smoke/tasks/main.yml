@@ -11,6 +11,32 @@
         or (smoke_strategy == 'GitOps' and (gitea_tls_enabled | bool))
     fail_msg: "Choose FleetBundle or GitOps and at least one unique Rancher cluster ID."
 
+- name: Remove the previous matrix workload before a deterministic retry
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    "${kubectl}" get namespace "{{ smoke_namespace }}" \
+      --kubeconfig "${kubeconfig}" >/dev/null 2>&1 || exit 0
+    "${kubectl}" -n "{{ smoke_namespace }}" delete aiworkload \
+      "{{ smoke_workload_name }}-{{ smoke_strategy | lower }}" \
+      --ignore-not-found=true --wait=true --timeout=5m \
+      --kubeconfig "${kubeconfig}"
+  args:
+    executable: /bin/bash
+  register: smoke_previous_workload_delete
+  changed_when: "'deleted' in smoke_previous_workload_delete.stdout"
+
+- name: Remove the previous matrix Blueprint before a deterministic retry
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl delete blueprint
+      {{ smoke_workload_name }}-{{ smoke_strategy | lower }}-0-1-0
+      --ignore-not-found=true --wait=true --timeout=2m
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  register: smoke_previous_blueprint_delete
+  changed_when: "'deleted' in smoke_previous_blueprint_delete.stdout"
+
 - name: Create smoke staging directory
   ansible.builtin.file:
     path: /var/lib/aif-airgap-smoke
@@ -39,7 +65,8 @@
           --kubeconfig /etc/rancher/rke2/rke2.yaml
   args:
     executable: /bin/bash
-  changed_when: "'created' in stdout or 'configured' in stdout"
+  register: smoke_namespace_apply
+  changed_when: "'created' in smoke_namespace_apply.stdout or 'configured' in smoke_namespace_apply.stdout"
 
 - name: Apply the smoke Blueprint
   ansible.builtin.command:
@@ -97,15 +124,16 @@
       until: gitea_workload_file.status == 200
       no_log: true
 
-    - name: Wait for Fleet to observe the internal Git repository
+    - name: Wait for Fleet to apply this workload from the internal Git repository
       ansible.builtin.shell: |
         set -o pipefail
+        bundle={{ smoke_bundle_name.stdout | trim | quote }}
         deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
         while (( SECONDS < deadline )); do
-          ready=$(/var/lib/rancher/rke2/bin/kubectl -n fleet-local get gitrepo suse-ai-fleet-repo \
-            --kubeconfig /etc/rancher/rke2/rke2.yaml \
-            -o jsonpath='{range .status.conditions[?(@.type=="Ready")]}{.status}{end}' 2>/dev/null || true)
-          [[ "${ready}" == "True" ]] && exit 0
+          /var/lib/rancher/rke2/bin/kubectl get helmop --all-namespaces \
+            --output custom-columns=NAME:.metadata.name --no-headers \
+            --kubeconfig /etc/rancher/rke2/rke2.yaml 2>/dev/null \
+            | grep --fixed-strings --line-regexp "${bundle}" >/dev/null && exit 0
           sleep 5
         done
         /var/lib/rancher/rke2/bin/kubectl -n fleet-local get gitrepo suse-ai-fleet-repo -o yaml \
@@ -162,7 +190,9 @@
         --kubeconfig /etc/rancher/rke2/rke2.yaml \
         -o jsonpath='{.status.phase}' 2>/dev/null || true)
       [[ "${phase}" == "Running" ]] && exit 0
-      [[ "${phase}" == "Failed" || "${phase}" == "Degraded" ]] && break
+      # Degraded is transient while one target is still progressing. Preserve
+      # the bounded wait and fail fast only for the terminal Failed phase.
+      [[ "${phase}" == "Failed" ]] && break
       sleep 5
     done
     /var/lib/rancher/rke2/bin/kubectl -n "{{ smoke_namespace }}" \

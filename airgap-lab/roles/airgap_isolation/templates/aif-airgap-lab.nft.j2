@@ -5,6 +5,7 @@ table inet aif_airgap_lab {
     type filter hook output priority 20; policy accept;
 
     oifname "lo" counter accept comment "loopback"
+    ct state established,related counter accept comment "responses to allowed inbound administration"
 
 {% if airgap_allowed_ipv4_cidrs | length > 0 %}
     ip daddr { {{ airgap_allowed_ipv4_cidrs | join(', ') }} } counter accept comment "internal IPv4 destinations"
@@ -26,6 +27,8 @@ table inet aif_airgap_lab {
 
   chain pod_forward {
     type filter hook forward priority 20; policy accept;
+
+    ct state established,related counter accept comment "responses to allowed inbound services"
 
 {% if airgap_pod_ipv4_cidrs | length > 0 %}
     ip saddr { {{ airgap_pod_ipv4_cidrs | join(', ') }} } ip daddr { {{ airgap_allowed_ipv4_cidrs | join(', ') }} } counter accept comment "pods to internal IPv4"

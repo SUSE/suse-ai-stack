@@ -1,0 +1,16 @@
+{% set unmanaged = airgap_coredns_current.stdout
+  | regex_replace('(?ms)^[ \\t]*# BEGIN AIF AIRGAP LAB HOSTS\\n.*?^[ \\t]*# END AIF AIRGAP LAB HOSTS\\n?', '')
+  | regex_replace('(?ms)^[ \\t]*hosts[ \\t]*\\{\\n.*?^[ \\t]*\\}\\n?', '') %}
+{% for line in unmanaged.splitlines() %}
+{{ line }}
+{% if loop.first %}
+    # BEGIN AIF AIRGAP LAB HOSTS
+    hosts {
+{% for record in airgap_host_records %}
+        {{ record.ip }} {{ record.names | join(' ') }}
+{% endfor %}
+        fallthrough
+    }
+    # END AIF AIRGAP LAB HOSTS
+{% endif %}
+{% endfor %}

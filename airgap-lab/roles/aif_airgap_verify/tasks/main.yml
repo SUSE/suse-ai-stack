@@ -28,13 +28,14 @@
 
 - name: Confirm AIF deployments use direct Harbor image references
   ansible.builtin.shell: |
-    set -o pipefail
+    set -euo pipefail
+    ui_deployment={{ (aif_ui_release_name ~ ('-server' if aif_install_mode == 'combined' else '')) | quote }}
     operator_image=$(/var/lib/rancher/rke2/bin/kubectl -n "{{ aif_namespace }}" \
       get deployment "{{ aif_release_name }}" \
       --kubeconfig /etc/rancher/rke2/rke2.yaml \
       -o jsonpath='{.spec.template.spec.containers[0].image}')
     ui_image=$(/var/lib/rancher/rke2/bin/kubectl -n cattle-ui-plugin-system \
-      get deployment "{{ aif_ui_release_name }}" \
+      get deployment "${ui_deployment}" \
       --kubeconfig /etc/rancher/rke2/rke2.yaml \
       -o jsonpath='{.spec.template.spec.containers[0].image}')
     [[ "${operator_image}" == "{{ harbor_hostname }}/"* ]]
@@ -143,7 +144,7 @@
       "${kubectl}" get aiworkload -A -o yaml --kubeconfig "${kubeconfig}"
       "${kubectl}" get pods -A -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,IMAGE:.spec.containers[*].image,IMAGE_ID:.status.containerStatuses[*].imageID,PHASE:.status.phase' --kubeconfig "${kubeconfig}"
       "${kubectl}" get events -A --sort-by=.lastTimestamp --kubeconfig "${kubeconfig}" | tail -n 200
-    } > /var/lib/aif-airgap-evidence/control-plane.txt
+    } > /var/lib/aif-airgap-evidence/control-plane-{{ aif_install_mode }}.txt
   args:
     executable: /bin/bash
   changed_when: true
@@ -155,11 +156,13 @@
     mode: "0700"
   delegate_to: localhost
   become: false
+  vars:
+    ansible_become: false
   run_once: true
 
 - name: Fetch control-plane evidence to the controller
   ansible.builtin.fetch:
-    src: /var/lib/aif-airgap-evidence/control-plane.txt
+    src: /var/lib/aif-airgap-evidence/control-plane-{{ aif_install_mode }}.txt
     dest: "{{ airgap_evidence_dir }}/management/"
     flat: false
 

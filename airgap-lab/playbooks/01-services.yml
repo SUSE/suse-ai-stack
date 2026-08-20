@@ -3,6 +3,9 @@
   hosts: airgap_services
   gather_facts: true
   become: true
+  environment:
+    PATH: /usr/local/bin:/var/lib/rancher/rke2/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
   vars:
     airgap_generated_dir: "{{ playbook_dir }}/../generated"
   roles:

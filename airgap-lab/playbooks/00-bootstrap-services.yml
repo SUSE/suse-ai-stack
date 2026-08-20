@@ -3,6 +3,9 @@
   hosts: airgap_services
   gather_facts: true
   become: true
+  environment:
+    PATH: /usr/local/bin:/var/lib/rancher/rke2/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
   vars:
     nvidia:
       driver_install: false
@@ -36,6 +39,14 @@
       ansible.builtin.include_role:
         name: install-packages
 
+    - name: Ensure the root shell profile expected by the RKE2 role exists
+      ansible.builtin.file:
+        path: /root/.bashrc
+        state: touch
+        mode: "0600"
+        modification_time: preserve
+        access_time: preserve
+
     - name: Install RKE2 server
       ansible.builtin.include_role:
         name: rke2_server
@@ -59,7 +70,7 @@
     - name: Wait for the services node to be Ready
       ansible.builtin.command:
         cmd: >-
-          /var/lib/rancher/rke2/bin/kubectl wait node/{{ inventory_hostname }}
+          /var/lib/rancher/rke2/bin/kubectl wait nodes --all
           --for=condition=Ready --timeout=5m
           --kubeconfig /etc/rancher/rke2/rke2.yaml
       changed_when: false

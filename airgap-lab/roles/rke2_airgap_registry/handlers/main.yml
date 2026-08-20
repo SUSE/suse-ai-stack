@@ -11,7 +11,7 @@
     state: restarted
   when:
     - ansible_facts.services['rke2-server.service'] is defined
-    - ansible_facts.services['rke2-server.service'].status != 'not-found'
+    - ansible_facts.services['rke2-server.service'].state == 'running'
 
 - name: Restart RKE2 agent
   ansible.builtin.systemd_service:
@@ -19,4 +19,4 @@
     state: restarted
   when:
     - ansible_facts.services['rke2-agent.service'] is defined
-    - ansible_facts.services['rke2-agent.service'].status != 'not-found'
+    - ansible_facts.services['rke2-agent.service'].state == 'running'
