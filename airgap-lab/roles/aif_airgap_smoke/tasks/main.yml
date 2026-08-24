@@ -221,6 +221,10 @@
     location={{ smoke_helmop_location.stdout | trim | quote }}
     helmop_namespace="${location%%/*}"
     helmop_name="${location#*/}"
+    ca=$(/usr/bin/base64 -w 0 /var/lib/aif-airgap-lab-ca.crt)
+    helm_secret=$("${kubectl}" -n "${helmop_namespace}" get helmop "${helmop_name}" \
+      -o jsonpath='{.spec.helmSecretName}' --kubeconfig "${kubeconfig}")
+    [[ -n "${helm_secret}" ]]
     deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
     while (( SECONDS < deadline )); do
       accepted=$("${kubectl}" -n "${helmop_namespace}" get helmop "${helmop_name}" \
@@ -228,6 +232,15 @@
         | jq -r '[.status.conditions[]? | select(.type == "Accepted") | .status][-1] // ""' \
         || true)
       [[ "${accepted}" == "True" ]] && exit 0
+      # The compatibility path races the AIF controller, which may regenerate
+      # this Secret without cacerts after the HelmOp first appears. Restore the
+      # CA on every retry and retrigger Fleet until it observes the patched copy.
+      "${kubectl}" -n "${helmop_namespace}" patch secret "${helm_secret}" \
+        --type merge --patch "{\"data\":{\"cacerts\":\"${ca}\"}}" \
+        --kubeconfig "${kubeconfig}" >/dev/null
+      "${kubectl}" -n "${helmop_namespace}" annotate helmop "${helmop_name}" \
+        airgap-lab.suse.com/ca-retry="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite \
+        --kubeconfig "${kubeconfig}" >/dev/null
       sleep 5
     done
     printf 'Fleet did not accept compatibility-CA HelmOp %s/%s\n' \

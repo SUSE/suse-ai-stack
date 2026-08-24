@@ -45,7 +45,9 @@ require_config() {
 
 play() {
   local args=(-i "${inventory}" -e "@${vars_file}")
-  if [[ -f "${discovered_vars}" ]]; then
+  # Discovery produces this file, so importing a previous run's copy would
+  # make its output variables override the task's newly registered result.
+  if [[ "${phase:-}" != discover-targets && -f "${discovered_vars}" ]]; then
     args+=( -e "@${discovered_vars}" )
   fi
   ansible-playbook "${args[@]}" "$@"
