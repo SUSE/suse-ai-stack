@@ -11,6 +11,10 @@ service:
   http:
     type: {{ ('ClusterIP' if (gitea_tls_enabled | bool) else 'NodePort') | quote }}
     port: 3000
+    # Override the chart's headless default. Keeping a normal allocated
+    # ClusterIP makes HTTP -> HTTPS/Ingress transitions upgrade-safe because
+    # Kubernetes does not need to replace this immutable Service field.
+    clusterIP: ""
 {% if not (gitea_tls_enabled | bool) %}
     nodePort: {{ gitea_http_node_port }}
 {% endif %}
