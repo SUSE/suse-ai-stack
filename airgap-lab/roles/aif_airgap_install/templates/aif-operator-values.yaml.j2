@@ -6,7 +6,7 @@ manager:
   image:
     registry: {{ harbor_hostname | quote }}
     repository: "{{ aif_image_project }}/ghcr.io/suse/aif-operator"
-    tag: {{ aif_version | quote }}
+    tag: {{ aif_image_tag | quote }}
     pullPolicy: Always
   allowedRegistryHosts:
     - {{ harbor_hostname | quote }}
@@ -38,7 +38,7 @@ aiExtension:
         image:
           registry: {{ harbor_hostname | quote }}
           repository: "{{ aif_image_project }}/ghcr.io/suse/aif-ui"
-          tag: {{ aif_version | quote }}
+          tag: {{ aif_image_tag | quote }}
           pullPolicy: Always
         appCatalog:
           useStaticCatalog: {{ aif_use_static_catalog | bool | lower }}

@@ -30,7 +30,8 @@
   ansible.builtin.shell: |
     set -euo pipefail
     ui_deployment={{ (aif_ui_release_name ~ ('-server' if aif_install_mode == 'combined' else '')) | quote }}
-    harbor_prefix={{ (harbor_hostname ~ '/') | quote }}
+    expected_operator={{ (harbor_hostname ~ '/' ~ aif_image_project ~ '/ghcr.io/suse/aif-operator:' ~ aif_image_tag) | quote }}
+    expected_ui={{ (harbor_hostname ~ '/' ~ aif_image_project ~ '/ghcr.io/suse/aif-ui:' ~ aif_image_tag) | quote }}
     operator_image=$(/var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace | quote }} \
       get deployment {{ aif_release_name | quote }} \
       --kubeconfig /etc/rancher/rke2/rke2.yaml \
@@ -39,8 +40,8 @@
       get deployment "${ui_deployment}" \
       --kubeconfig /etc/rancher/rke2/rke2.yaml \
       -o jsonpath='{.spec.template.spec.containers[0].image}')
-    [[ "${operator_image}" == "${harbor_prefix}"* ]]
-    [[ "${ui_image}" == "${harbor_prefix}"* ]]
+    [[ "${operator_image}" == "${expected_operator}" ]]
+    [[ "${ui_image}" == "${expected_ui}" ]]
     printf 'operator=%s\nui=%s\n' "${operator_image}" "${ui_image}"
   args:
     executable: /bin/bash
@@ -184,6 +185,7 @@
     {
       printf 'captured_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
       printf 'install_mode=%s\n' {{ aif_install_mode | quote }}
+      printf 'source_image_tag=%s\n' {{ aif_image_tag | quote }}
       printf 'registry_ca_mode=%s\n' {{ aif_registry_ca_mode | quote }}
       printf 'git_transport=%s\n' {{ ('https' if (gitea_tls_enabled | bool) else 'http') | quote }}
       printf '%s\n' {{ aif_deployment_images.stdout | quote }}

@@ -255,10 +255,12 @@ lockfile inside a disposable Git-archive checkout, copies the source charts
 under `generated/`, and emits a manifest that reads the locally built
 single-platform images through Skopeo's Docker-daemon transport. A cached image
 whose revision label differs from the requested commit is rebuilt automatically.
-The exported bundle records the source commit, version, image transport, and
-exact image digests before Harbor import.
-Set `aif_version` in `generated/vars.yml` to the version printed by the build;
-the install role and source manifest must describe the same release.
+The source images use an immutable `<version>-<12-character-Git-commit>` tag,
+so qualifying another commit always changes the Kubernetes pod template. The
+exported bundle records the source commit, version, image tag, transport, and
+exact image digests before Harbor import. Set both `aif_version` and
+`aif_image_tag` in `generated/vars.yml` to the values printed by the build; the
+AWS preparation workflow does this automatically.
 
 Native chart-registry CA propagation (for example AIF PR `#200`) is the default.
 Its equivalent explicit setting in `generated/vars.yml` is:

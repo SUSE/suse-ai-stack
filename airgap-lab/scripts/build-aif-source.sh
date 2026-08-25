@@ -82,9 +82,13 @@ commit="$(git -C "${source_dir}" rev-parse HEAD)"
 short_commit="${commit:0:12}"
 branch="$(git -C "${source_dir}" branch --show-current)"
 source_url="https://github.com/SUSE/aif"
+image_tag="${version}-${short_commit}"
 build_root="${lab_dir}/generated/aif-source/${commit}"
-operator_image="${image_prefix}/aif-operator:${version}"
-ui_image="${image_prefix}/aif-ui:${version}"
+operator_image="${image_prefix}/aif-operator:${image_tag}"
+ui_image="${image_prefix}/aif-ui:${image_tag}"
+# Rancher's publisher derives this local intermediate tag from package.json.
+# The final Dockerfile copies its payload into the commit-qualified image.
+ui_publisher_image="${image_prefix}/aif-ui:${version}"
 build_checkout="$(mktemp -d /tmp/aif-source-build.XXXXXX)"
 cleanup_build_checkout() {
   rm -rf -- "${build_checkout}"
@@ -150,7 +154,7 @@ if [[ "${rebuild}" == "true" || "${ui_revision}" != "${commit}" ]]; then
   )
   docker build \
     -f "${build_checkout}/build/Dockerfile.ui" \
-    --build-arg "BASE=${ui_image}" \
+    --build-arg "BASE=${ui_publisher_image}" \
     --label "org.opencontainers.image.revision=${commit}" \
     --label "org.opencontainers.image.source=${source_url}" \
     -t "${ui_image}" \
@@ -193,6 +197,7 @@ AIF_SOURCE_COMMIT="${commit}" \
 AIF_SOURCE_BRANCH="${branch}" \
 AIF_SOURCE_SHORT_COMMIT="${short_commit}" \
 AIF_SOURCE_VERSION="${version}" \
+AIF_SOURCE_IMAGE_TAG="${image_tag}" \
 AIF_OPERATOR_CHART_SOURCE="${operator_chart_source}" \
 AIF_UI_CHART_SOURCE="${ui_chart_source}" \
 AIF_SMOKE_CHART_SOURCE="${smoke_chart_source}" \
@@ -203,6 +208,7 @@ yq -i '
   .metadata.annotations."airgap.ai-factory.suse.com/source-commit" = strenv(AIF_SOURCE_COMMIT) |
   .metadata.annotations."airgap.ai-factory.suse.com/source-branch" = strenv(AIF_SOURCE_BRANCH) |
   .metadata.annotations."airgap.ai-factory.suse.com/source-version" = strenv(AIF_SOURCE_VERSION) |
+  .metadata.annotations."airgap.ai-factory.suse.com/source-image-tag" = strenv(AIF_SOURCE_IMAGE_TAG) |
   (.spec.charts[] | select(.id == "aif-operator") | .sourceType) = "local" |
   (.spec.charts[] | select(.id == "aif-operator") | .source) = strenv(AIF_OPERATOR_CHART_SOURCE) |
   (.spec.charts[] | select(.id == "aif-operator") | .version) = strenv(AIF_SOURCE_VERSION) |
@@ -214,12 +220,12 @@ yq -i '
   (.spec.charts[] | select(.sourceType == "local" and .id != "aif-operator" and .id != "aif-ui") | .source) = strenv(AIF_SMOKE_CHART_SOURCE) |
   (.spec.images[] | select(.id == "aif-operator") | .source) = strenv(AIF_OPERATOR_IMAGE) |
   (.spec.images[] | select(.id == "aif-operator") | .sourceTransport) = "docker-daemon" |
-  (.spec.images[] | select(.id == "aif-operator") | .bundlePath) = "ghcr.io_suse_aif-operator_" + strenv(AIF_SOURCE_VERSION) + ".dir" |
-  (.spec.images[] | select(.id == "aif-operator") | .target) = "aif-images/ghcr.io/suse/aif-operator:" + strenv(AIF_SOURCE_VERSION) |
+  (.spec.images[] | select(.id == "aif-operator") | .bundlePath) = "ghcr.io_suse_aif-operator_" + strenv(AIF_SOURCE_IMAGE_TAG) + ".dir" |
+  (.spec.images[] | select(.id == "aif-operator") | .target) = "aif-images/ghcr.io/suse/aif-operator:" + strenv(AIF_SOURCE_IMAGE_TAG) |
   (.spec.images[] | select(.id == "aif-ui") | .source) = strenv(AIF_UI_IMAGE) |
   (.spec.images[] | select(.id == "aif-ui") | .sourceTransport) = "docker-daemon" |
-  (.spec.images[] | select(.id == "aif-ui") | .bundlePath) = "ghcr.io_suse_aif-ui_" + strenv(AIF_SOURCE_VERSION) + ".dir" |
-  (.spec.images[] | select(.id == "aif-ui") | .target) = "aif-images/ghcr.io/suse/aif-ui:" + strenv(AIF_SOURCE_VERSION)
+  (.spec.images[] | select(.id == "aif-ui") | .bundlePath) = "ghcr.io_suse_aif-ui_" + strenv(AIF_SOURCE_IMAGE_TAG) + ".dir" |
+  (.spec.images[] | select(.id == "aif-ui") | .target) = "aif-images/ghcr.io/suse/aif-ui:" + strenv(AIF_SOURCE_IMAGE_TAG)
 ' "${output_manifest}"
 
 helm lint "${build_root}/charts/aif-operator"
@@ -227,6 +233,7 @@ helm lint "${build_root}/charts/aif-ui"
 
 printf 'Built AIF source artifacts for %s (%s)\n' "${commit}" "${branch:-detached}"
 printf 'Set aif_version: %s in the lab vars used for installation.\n' "${version}"
+printf 'Set aif_image_tag: %s in the lab vars used for installation.\n' "${image_tag}"
 printf 'Generated manifest: %s\n' "${output_manifest}"
 printf 'Use a unique bundle, for example:\n'
 printf '  AIF_AIRGAP_MANIFEST=%q AIF_AIRGAP_BUNDLE=%q %q mirror\n' \

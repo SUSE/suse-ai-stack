@@ -148,6 +148,7 @@ resource_prefix="${base_prefix:0:10}-${lab_suffix}"
 key_name="${base_key_name}-${lab_suffix}"
 aif_version="$(yq -r '.version' "${source_dir}/charts/aif-operator/Chart.yaml")"
 aif_commit="$(git -C "${source_dir}" rev-parse HEAD)"
+aif_image_tag="${aif_version}-${aif_commit:0:12}"
 
 cp "${base_vars}" "${stack_vars}"
 MANAGEMENT_TOKEN="${management_token}" \
@@ -228,6 +229,7 @@ SERVICES_TOKEN="${services_token}" \
 HARBOR_PASSWORD="${harbor_password}" \
 GITEA_PASSWORD="${gitea_password}" \
 AIF_VERSION="${aif_version}" \
+AIF_IMAGE_TAG="${aif_image_tag}" \
 REQUESTED_INSTALL_MODE="${requested_install_mode}" \
 REQUESTED_CA_MODE="${requested_ca_mode}" \
 REQUESTED_GITEA_TLS="${requested_gitea_tls}" \
@@ -245,6 +247,7 @@ yq -i '
   .scc_registration.sle_micro_code = strenv(SLE_MICRO_CODE) |
   .suse_packages = ["curl", "git", "gzip", "jq", "pciutils", "rsync", "skopeo", "tar"] |
   .aif_version = strenv(AIF_VERSION) |
+  .aif_image_tag = strenv(AIF_IMAGE_TAG) |
   .aif_registry_ca_mode = strenv(REQUESTED_CA_MODE) |
   .aif_install_mode = strenv(REQUESTED_INSTALL_MODE) |
   .gitea_tls_enabled = (strenv(REQUESTED_GITEA_TLS) == "true") |
@@ -260,6 +263,7 @@ LAB_VARS="${lab_vars}" \
 LAB_SOURCE_DIR="${source_dir}" \
 LAB_SOURCE_COMMIT="${aif_commit}" \
 LAB_AIF_VERSION="${aif_version}" \
+LAB_AIF_IMAGE_TAG="${aif_image_tag}" \
 yq -n '
   {
     "workspace": strenv(LAB_WORKSPACE),
@@ -267,7 +271,8 @@ yq -n '
     "labVars": strenv(LAB_VARS),
     "sourceDir": strenv(LAB_SOURCE_DIR),
     "sourceCommit": strenv(LAB_SOURCE_COMMIT),
-    "aifVersion": strenv(LAB_AIF_VERSION)
+    "aifVersion": strenv(LAB_AIF_VERSION),
+    "aifImageTag": strenv(LAB_AIF_IMAGE_TAG)
   }
 ' > "${generated_dir}/lab-metadata.yml"
 chmod 600 "${generated_dir}/lab-metadata.yml"
@@ -278,6 +283,7 @@ printf '  Region: %s\n' "$(yq -r '.aws_region' "${stack_vars}")"
 printf '  Resource prefix: %s\n' "${resource_prefix}"
 printf '  Nodes: management=m6i.2xlarge, downstream=m6i.xlarge, services=m6i.xlarge\n'
 printf '  AIF source: %s (%s)\n' "${aif_commit:0:12}" "${aif_version}"
+printf '  AIF image tag: %s\n' "${aif_image_tag}"
 printf '  AIF install mode: %s\n' "${requested_install_mode}"
 printf '  AIF registry CA mode: %s\n' "${requested_ca_mode}"
 printf 'Generated credentials remain in ignored mode-0600 files under %s.\n' "${generated_dir}"

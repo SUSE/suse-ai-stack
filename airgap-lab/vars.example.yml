@@ -50,6 +50,10 @@ nvidia:
 
 # AIF installation -----------------------------------------------------------
 aif_version: "2.2.0-dev.1"
+# Published artifacts normally use the chart version. Source qualification
+# overrides this with <version>-<12-character-Git-commit> so a new commit
+# always changes the pod template and can never reuse a mutable cached image.
+aif_image_tag: "{{ aif_version }}"
 aif_namespace: "aif-operator"
 aif_release_name: "aif-operator"
 aif_ui_release_name: "aif-ui"

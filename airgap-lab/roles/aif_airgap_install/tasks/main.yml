@@ -5,6 +5,7 @@
       - aif_install_mode in ['combined', 'separate']
       - aif_registry_ca_mode in ['workaround', 'settings']
       - aif_version | length > 0
+      - aif_image_tag | length > 0
       - aif_release_name == 'aif-operator'
       - aif_ui_release_name == 'aif-ui'
       - aif_namespace is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
@@ -504,7 +505,7 @@
 - name: Report AIF install mode and endpoints
   ansible.builtin.debug:
     msg:
-      - "AIF {{ aif_version }} installed in {{ aif_install_mode }} mode from {{ harbor_hostname }}."
+      - "AIF {{ aif_version }} (images {{ aif_image_tag }}) installed in {{ aif_install_mode }} mode from {{ harbor_hostname }}."
       - "AppCo endpoint: oci://{{ harbor_hostname }}/{{ appco_chart_project }}"
       - "SUSE endpoint: oci://{{ harbor_hostname }}/{{ suse_chart_project }}"
       - "NVIDIA endpoint: oci://{{ harbor_hostname }}/{{ nvidia_chart_project }}"
