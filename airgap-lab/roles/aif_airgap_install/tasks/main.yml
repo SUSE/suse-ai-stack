@@ -397,6 +397,15 @@
       --kubeconfig /etc/rancher/rke2/rke2.yaml
   changed_when: false
 
+- name: Invalidate Rancher's cached combined-mode UI bundle
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl -n cattle-ui-plugin-system delete
+      uiplugin/{{ aif_ui_release_name }} --ignore-not-found --wait=true
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  when: aif_install_mode == 'combined'
+  changed_when: true
+
 - name: Trigger combined-mode extension reconciliation after private DNS is ready
   ansible.builtin.command:
     cmd: >-
@@ -429,6 +438,14 @@
         group: root
         mode: "0600"
 
+    - name: Invalidate Rancher's cached standalone UI bundle
+      ansible.builtin.command:
+        cmd: >-
+          /var/lib/rancher/rke2/bin/kubectl -n cattle-ui-plugin-system delete
+          uiplugin/{{ aif_ui_release_name }} --ignore-not-found --wait=true
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+      changed_when: true
+
     - name: Install or upgrade the standalone UI chart
       ansible.builtin.command:
         cmd: >-
@@ -452,6 +469,29 @@
           deployment/{{ aif_ui_release_name }} --timeout=8m
           --kubeconfig /etc/rancher/rke2/rke2.yaml
       changed_when: false
+
+- name: Require Rancher to cache the refreshed UI extension
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
+    while (( SECONDS < deadline )); do
+      plugin=$("${kubectl}" -n cattle-ui-plugin-system get uiplugin {{ aif_ui_release_name | quote }} \
+        -o json --kubeconfig "${kubeconfig}" 2>/dev/null || true)
+      ready=$(jq -r '.status.ready // false' <<<"${plugin}")
+      cache_state=$(jq -r '.status.cacheState // ""' <<<"${plugin}")
+      if [[ "${ready}" == true && "${cache_state}" == cached ]]; then
+        exit 0
+      fi
+      sleep 5
+    done
+    "${kubectl}" -n cattle-ui-plugin-system get uiplugin {{ aif_ui_release_name | quote }} \
+      -o yaml --kubeconfig "${kubeconfig}" >&2 || true
+    exit 1
+  args:
+    executable: /bin/bash
+  changed_when: false
 
 - name: Render the Settings merge patch
   ansible.builtin.template:
