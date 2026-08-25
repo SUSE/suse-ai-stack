@@ -8,6 +8,7 @@ smoke_blueprint_reference_name: >-
 smoke_blueprint_resource_name: >-
   {{ smoke_blueprint_reference_name ~ '-' ~
      (smoke_chart_version | regex_replace('[^0-9A-Za-z]+', '-') | lower) }}
+smoke_release_name: "{{ smoke_workload_name }}-{{ smoke_strategy | lower }}"
 smoke_application_mode: "direct"
 smoke_application_name: "airgap.smoke"
 smoke_application_source_ref: "application-collection"

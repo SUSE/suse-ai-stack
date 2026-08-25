@@ -142,6 +142,9 @@ smoke_target_clusters:
   - "local"  # Rancher cluster IDs, for example local and c-m-abcde
 smoke_namespace: "aif-airgap-smoke"
 smoke_workload_name: "airgap-smoke-local"
+# Every matrix case installs into the same namespace, so its Helm release must
+# be distinct. This also makes retries independent of another case's history.
+smoke_release_name: "{{ smoke_workload_name }}-{{ smoke_strategy | lower }}"
 smoke_chart_version: "0.1.0"
 smoke_timeout_seconds: 900
 smoke_application_mode: "direct"  # direct | logical
