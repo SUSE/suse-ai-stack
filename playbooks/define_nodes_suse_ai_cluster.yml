@@ -73,10 +73,6 @@
         [all:vars]
         ansible_user="{{ vm_ansible_user | default('ai') }}"
 
-  - name: Set python-PyYAML package name
-    set_fact:
-      suse_ai_pyyaml_package_name: "{{ 'python313-PyYAML' if suse_ai_cluster.image_distro == 'sles' and suse_ai_cluster.image_distro_version.startswith('16') else 'python311-PyYAML' }}"
-
   - name: Save cp extra vars for suse ai cluster
     copy:
       dest: "../suse-ai_extra_vars.yml"
@@ -110,7 +106,5 @@
         suse_packages: {{
           (["open-iscsi", "nfs-client", "cryptsetup", "device-mapper"]
           if enable_longhorn | default(false) else [])
-          + ["jq",
-            suse_ai_pyyaml_package_name,
-            "curl", "git", "pciutils"]
+          + ["jq", "curl", "git", "pciutils"]
         }}
