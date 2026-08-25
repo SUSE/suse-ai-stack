@@ -184,6 +184,20 @@ if [[ -f "${state_root}/stack.complete" ]] && ! stack_state_present; then
   find "${state_root}" -type f -name '*.complete' -delete
 fi
 
+# A reset removes the stack marker but deliberately retains the nodes. Those
+# nodes may still carry the previous qualification's fail-closed nftables
+# table, which would make the connected bootstrap wait forever for SUSE cloud
+# registration. Remove only the lab-owned isolation rules before reconciling
+# the connected stage; the isolate phase installs them again before AIF is
+# qualified.
+if stack_state_present \
+   && [[ ! -f "${state_root}/stack.complete" ]] \
+   && [[ -f "${lab_dir}/generated/inventory.yml" ]]; then
+  printf '[mode] Reopening egress for connected stack reconciliation.\n'
+  env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
+    "${lab_dir}/run.sh" restore
+fi
+
 run_step "${run_state}/collections.complete" "Install Ansible collections" \
   ansible-galaxy collection install -r "${lab_dir}/requirements.yml"
 
