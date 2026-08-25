@@ -397,15 +397,6 @@
       --kubeconfig /etc/rancher/rke2/rke2.yaml
   changed_when: false
 
-- name: Invalidate Rancher's cached combined-mode UI bundle
-  ansible.builtin.command:
-    cmd: >-
-      /var/lib/rancher/rke2/bin/kubectl -n cattle-ui-plugin-system delete
-      uiplugin/{{ aif_ui_release_name }} --ignore-not-found --wait=true
-      --kubeconfig /etc/rancher/rke2/rke2.yaml
-  when: aif_install_mode == 'combined'
-  changed_when: true
-
 - name: Trigger combined-mode extension reconciliation after private DNS is ready
   ansible.builtin.command:
     cmd: >-
@@ -438,14 +429,6 @@
         group: root
         mode: "0600"
 
-    - name: Invalidate Rancher's cached standalone UI bundle
-      ansible.builtin.command:
-        cmd: >-
-          /var/lib/rancher/rke2/bin/kubectl -n cattle-ui-plugin-system delete
-          uiplugin/{{ aif_ui_release_name }} --ignore-not-found --wait=true
-          --kubeconfig /etc/rancher/rke2/rke2.yaml
-      changed_when: true
-
     - name: Install or upgrade the standalone UI chart
       ansible.builtin.command:
         cmd: >-
@@ -462,13 +445,56 @@
       delay: 15
       until: aif_ui_install.rc == 0
 
-    - name: Wait for the standalone UI deployment
-      ansible.builtin.command:
-        cmd: >-
-          /var/lib/rancher/rke2/bin/kubectl -n cattle-ui-plugin-system rollout status
-          deployment/{{ aif_ui_release_name }} --timeout=8m
-          --kubeconfig /etc/rancher/rke2/rke2.yaml
-      changed_when: false
+- name: Wait for the expected UI image to roll out
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    deployment={{ (aif_ui_release_name ~ ('-server' if aif_install_mode == 'combined' else '')) | quote }}
+    expected_image={{ (harbor_hostname ~ '/' ~ aif_image_project ~ '/ghcr.io/suse/aif-ui:' ~ aif_image_tag) | quote }}
+    deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
+    while (( SECONDS < deadline )); do
+      current_image=$("${kubectl}" -n cattle-ui-plugin-system get deployment "${deployment}" \
+        -o jsonpath='{.spec.template.spec.containers[0].image}' \
+        --kubeconfig "${kubeconfig}" 2>/dev/null || true)
+      if [[ "${current_image}" == "${expected_image}" ]]; then
+        "${kubectl}" -n cattle-ui-plugin-system rollout status "deployment/${deployment}" \
+          --timeout=8m --kubeconfig "${kubeconfig}"
+        exit 0
+      fi
+      sleep 5
+    done
+    printf 'UI deployment %s did not select expected image %s\n' \
+      "${deployment}" "${expected_image}" >&2
+    exit 1
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Refresh Rancher's UI cache after the new bundle is serving
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    plugin_manifest=$(mktemp /var/lib/aif-airgap-uiplugin.XXXXXX.json)
+    trap 'rm -f "${plugin_manifest}"' EXIT
+    "${kubectl}" -n cattle-ui-plugin-system get uiplugin {{ aif_ui_release_name | quote }} \
+      -o json --kubeconfig "${kubeconfig}" \
+      | jq 'del(
+          .metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
+          .metadata.creationTimestamp,
+          .metadata.generation,
+          .metadata.managedFields,
+          .metadata.resourceVersion,
+          .metadata.uid,
+          .status
+        )' >"${plugin_manifest}"
+    "${kubectl}" -n cattle-ui-plugin-system delete uiplugin/{{ aif_ui_release_name }} \
+      --wait=true --kubeconfig "${kubeconfig}"
+    "${kubectl}" create -f "${plugin_manifest}" --kubeconfig "${kubeconfig}"
+  args:
+    executable: /bin/bash
+  changed_when: true
 
 - name: Require Rancher to cache the refreshed UI extension
   ansible.builtin.shell: |
