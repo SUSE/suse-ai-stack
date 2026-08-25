@@ -3,17 +3,71 @@
   ansible.builtin.assert:
     that:
       - smoke_strategy in ['FleetBundle', 'GitOps']
+      - smoke_application_mode in ['direct', 'logical']
+      - smoke_blueprint_mode in ['rendered', 'preprovisioned']
+      - smoke_git_auth_type in ['current', 'token', 'basic']
+      - smoke_blueprint_mode != 'preprovisioned' or smoke_application_mode == 'logical'
       - smoke_target_clusters | length > 0
       - smoke_target_clusters | unique | list | length == smoke_target_clusters | length
       - smoke_timeout_seconds | int >= 60
       - smoke_chart_version is regex('^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$')
       - smoke_namespace is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
       - smoke_workload_name is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
+      - smoke_application_name is regex('^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$')
+      - smoke_application_source_ref is regex('^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$')
+      - smoke_switch_source_ref is regex('^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$')
       - aif_namespace is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
-      - >-
-        not (smoke_expect_git_ca_failure | default(false) | bool)
-        or (smoke_strategy == 'GitOps' and (gitea_tls_enabled | bool))
     fail_msg: "Choose FleetBundle or GitOps and at least one unique Rancher cluster ID."
+
+- name: Switch the private Git authentication mode for this matrix case
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace | quote }} patch settings settings
+      --type merge
+      --patch {{ {'spec': {'fleet': {
+        'authType': smoke_git_auth_type,
+        'username': (gitea_admin_username if smoke_git_auth_type == 'token' else none)
+      }}} | to_json | quote }}
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  when: smoke_git_auth_type != 'current'
+  changed_when: true
+
+- name: Require AIF and Fleet to observe the selected private Git authentication
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
+    while (( SECONDS < deadline )); do
+      settings=$("${kubectl}" -n {{ aif_namespace | quote }} get settings settings \
+        -o json --kubeconfig "${kubeconfig}")
+      generation=$(jq -r '.metadata.generation' <<<"${settings}")
+      observed=$(jq -r '.status.observedGeneration // 0' <<<"${settings}")
+      auth_type=$(jq -r '.spec.fleet.authType // ""' <<<"${settings}")
+      mirror_username=$("${kubectl}" -n fleet-local get secret gitops-credentials \
+        -o jsonpath='{.data.username}' --kubeconfig "${kubeconfig}" 2>/dev/null \
+        | base64 -d || true)
+      git_ready=$("${kubectl}" -n fleet-local get gitrepo suse-ai-fleet-repo \
+        -o json --kubeconfig "${kubeconfig}" 2>/dev/null \
+        | jq -r '[.status.conditions[]? | select(.type == "GitPolling") | .status][-1] // ""' \
+        || true)
+      if [[ "${generation}" == "${observed}" \
+         && "${auth_type}" == {{ smoke_git_auth_type | quote }} \
+         && "${mirror_username}" == {{ gitea_admin_username | quote }} \
+         && "${git_ready}" == "True" ]]; then
+        exit 0
+      fi
+      sleep 5
+    done
+    "${kubectl}" -n {{ aif_namespace | quote }} get settings settings -o yaml \
+      --kubeconfig "${kubeconfig}" >&2 || true
+    "${kubectl}" -n fleet-local get gitrepo suse-ai-fleet-repo -o yaml \
+      --kubeconfig "${kubeconfig}" >&2 || true
+    exit 1
+  args:
+    executable: /bin/bash
+  when: smoke_git_auth_type != 'current'
+  changed_when: false
 
 - name: Remove the previous matrix workload before a deterministic retry
   ansible.builtin.shell: |
@@ -57,11 +111,12 @@
   ansible.builtin.command:
     cmd: >-
       /var/lib/rancher/rke2/bin/kubectl delete blueprint
-      {{ smoke_workload_name }}-{{ smoke_strategy | lower }}-{{ smoke_chart_version | regex_replace('[^0-9A-Za-z]+', '-') | lower }}
+      {{ smoke_blueprint_resource_name }}
       --ignore-not-found=true --wait=true --timeout=2m
       --kubeconfig /etc/rancher/rke2/rke2.yaml
   register: smoke_previous_blueprint_delete
   changed_when: "'deleted' in smoke_previous_blueprint_delete.stdout"
+  when: smoke_blueprint_mode == 'rendered'
 
 - name: Create smoke staging directory
   ansible.builtin.file:
@@ -79,8 +134,25 @@
     group: root
     mode: "0600"
   loop:
-    - { src: blueprint.yaml.j2, dest: blueprint.yaml }
     - { src: aiworkload.yaml.j2, dest: aiworkload.yaml }
+
+- name: Render the no-GPU Blueprint
+  ansible.builtin.template:
+    src: blueprint.yaml.j2
+    dest: /var/lib/aif-airgap-smoke/blueprint.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  when: smoke_blueprint_mode == 'rendered'
+
+- name: Render the logical Application mapping
+  ansible.builtin.template:
+    src: application.yaml.j2
+    dest: /var/lib/aif-airgap-smoke/application.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  when: smoke_application_mode == 'logical'
 
 - name: Create the smoke target namespace
   ansible.builtin.shell: |
@@ -94,6 +166,16 @@
   register: smoke_namespace_apply
   changed_when: "'created' in smoke_namespace_apply.stdout or 'configured' in smoke_namespace_apply.stdout"
 
+- name: Apply the logical Application mapping
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl apply
+      --filename /var/lib/aif-airgap-smoke/application.yaml
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  when: smoke_application_mode == 'logical'
+  register: smoke_application_apply
+  changed_when: "'created' in smoke_application_apply.stdout or 'configured' in smoke_application_apply.stdout"
+
 - name: Apply the smoke Blueprint
   ansible.builtin.command:
     cmd: >-
@@ -102,6 +184,35 @@
       --kubeconfig /etc/rancher/rke2/rke2.yaml
   register: smoke_blueprint_apply
   changed_when: "'created' in smoke_blueprint_apply.stdout or 'configured' in smoke_blueprint_apply.stdout"
+  when: smoke_blueprint_mode == 'rendered'
+
+- name: Wait for the Blueprint delivered from private Gitea
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl wait blueprint/{{ smoke_blueprint_resource_name }}
+      --for=jsonpath='{.metadata.labels.airgap-lab\.suse\.com/source}'=private-gitea
+      --timeout={{ smoke_timeout_seconds | int }}s
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  when: smoke_blueprint_mode == 'preprovisioned'
+  changed_when: false
+
+- name: Require the stored logical Blueprint to remain source-independent
+  ansible.builtin.shell: |
+    set -euo pipefail
+    /var/lib/rancher/rke2/bin/kubectl get blueprint \
+      {{ smoke_blueprint_resource_name | quote }} \
+      -o json --kubeconfig /etc/rancher/rke2/rke2.yaml \
+      | jq -e --arg application {{ smoke_application_name | quote }} '
+          .spec.components | length > 0 and
+          all(.[].applicationRef.name == $application) and
+          all((.[].chartRepo // "") == "") and
+          all((.[].chartName // "") == "") and
+          all((.[].chartVersion // "") == "")'
+  args:
+    executable: /bin/bash
+  when:
+    - smoke_application_mode == 'logical'
+  changed_when: false
 
 - name: Apply the smoke AIWorkload
   ansible.builtin.command:
@@ -131,9 +242,7 @@
   changed_when: false
 
 - name: Wait for GitOps publication when selected
-  when:
-    - smoke_strategy == 'GitOps'
-    - not (smoke_expect_git_ca_failure | default(false) | bool)
+  when: smoke_strategy == 'GitOps'
   block:
     - name: Wait for the workload file in private Gitea
       ansible.builtin.uri:
@@ -152,7 +261,6 @@
 
 
 - name: Wait for Fleet to materialize this workload's HelmOp
-  when: not (smoke_expect_git_ca_failure | default(false) | bool)
   ansible.builtin.shell: |
     set -euo pipefail
     bundle={{ smoke_bundle_name.stdout | trim | quote }}
@@ -187,7 +295,6 @@
 - name: Reapply the compatibility CA after AIF materializes the HelmOp
   when:
     - aif_registry_ca_mode == 'workaround'
-    - not (smoke_expect_git_ca_failure | default(false) | bool)
   ansible.builtin.shell: |
     set -euo pipefail
     kubectl=/var/lib/rancher/rke2/bin/kubectl
@@ -213,7 +320,6 @@
 - name: Require Fleet to accept the compatibility-CA HelmOp
   when:
     - aif_registry_ca_mode == 'workaround'
-    - not (smoke_expect_git_ca_failure | default(false) | bool)
   ansible.builtin.shell: |
     set -euo pipefail
     kubectl=/var/lib/rancher/rke2/bin/kubectl
@@ -252,44 +358,7 @@
     executable: /bin/bash
   changed_when: false
 
-- name: Assert the known private-CA Git client failure
-  when: smoke_expect_git_ca_failure | default(false) | bool
-  block:
-    - name: Wait for the operator to report the untrusted Gitea certificate
-      ansible.builtin.shell: |
-        set -euo pipefail
-        deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
-        while (( SECONDS < deadline )); do
-          logs=$(/var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace | quote }} \
-            logs {{ ('deployment/' ~ aif_release_name) | quote }} --all-containers=true --since=15m \
-            --kubeconfig /etc/rancher/rke2/rke2.yaml 2>&1 || true)
-          if grep -Eq 'x509: certificate signed by unknown authority|certificate signed by unknown authority' <<<"${logs}"; then
-            printf '%s\n' "${logs}" \
-              | grep -E 'x509: certificate signed by unknown authority|certificate signed by unknown authority' \
-              | tail -n 20 \
-              > /var/lib/aif-airgap-smoke/expected-git-ca-failure.txt
-            exit 0
-          fi
-          sleep 5
-        done
-        /var/lib/rancher/rke2/bin/kubectl -n {{ smoke_namespace | quote }} \
-          get aiworkload {{ (smoke_workload_name ~ '-gitops') | quote }} -o yaml \
-          --kubeconfig /etc/rancher/rke2/rke2.yaml >&2 || true
-        exit 1
-      args:
-        executable: /bin/bash
-      changed_when: false
-
-    - name: Report the asserted private-CA gap
-      ansible.builtin.debug:
-        msg: >-
-          Expected failure AG-003 reproduced: the host trusts {{ gitea_url }},
-          but the AIF operator Git client rejected its private CA. Evidence is
-          on the management node at
-          /var/lib/aif-airgap-smoke/expected-git-ca-failure.txt.
-
 - name: Wait for the smoke AIWorkload to become Running
-  when: not (smoke_expect_git_ca_failure | default(false) | bool)
   ansible.builtin.shell: |
     set -euo pipefail
     deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
@@ -314,11 +383,87 @@
     executable: /bin/bash
   changed_when: false
 
+- name: Capture the logical Blueprint spec before switching its Application source
+  ansible.builtin.shell: |
+    set -euo pipefail
+    /var/lib/rancher/rke2/bin/kubectl get blueprint \
+      {{ smoke_blueprint_resource_name | quote }} \
+      -o json --kubeconfig /etc/rancher/rke2/rke2.yaml \
+      | jq -cS '.spec' | sha256sum | awk '{print $1}'
+  args:
+    executable: /bin/bash
+  when:
+    - smoke_application_mode == 'logical'
+    - smoke_verify_source_switch | bool
+  register: smoke_blueprint_spec_before_switch
+  changed_when: false
+
+- name: Switch only the logical Application to the second private source
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl patch application
+      {{ smoke_application_name | quote }} --type merge
+      --patch {{ {'spec': {'chart': {'sourceRef': smoke_switch_source_ref}}} | to_json | quote }}
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  when:
+    - smoke_application_mode == 'logical'
+    - smoke_verify_source_switch | bool
+  changed_when: true
+
+- name: Wait for Fleet to accept the chart from the switched private source
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    location={{ smoke_helmop_location.stdout | trim | quote }}
+    namespace="${location%%/*}"
+    name="${location#*/}"
+    expected={{ smoke_switch_repo_url | quote }}
+    deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
+    while (( SECONDS < deadline )); do
+      object=$("${kubectl}" -n "${namespace}" get helmop "${name}" -o json \
+        --kubeconfig "${kubeconfig}" 2>/dev/null || true)
+      repo=$(jq -r '.spec.helm.repo // ""' <<<"${object}")
+      generation=$(jq -r '.metadata.generation // 0' <<<"${object}")
+      observed=$(jq -r '.status.observedGeneration // 0' <<<"${object}")
+      accepted=$(jq -r '[.status.conditions[]? | select(.type == "Accepted") | .status][-1] // ""' <<<"${object}")
+      if [[ "${repo}" == "${expected}" && "${observed}" == "${generation}" && "${accepted}" == "True" ]]; then
+        exit 0
+      fi
+      sleep 5
+    done
+    "${kubectl}" -n "${namespace}" get helmop "${name}" -o yaml \
+      --kubeconfig "${kubeconfig}" >&2 || true
+    exit 1
+  args:
+    executable: /bin/bash
+  when:
+    - smoke_application_mode == 'logical'
+    - smoke_verify_source_switch | bool
+  changed_when: false
+
+- name: Prove the source switch did not mutate the Blueprint requirement
+  ansible.builtin.shell: |
+    set -euo pipefail
+    after=$(/var/lib/rancher/rke2/bin/kubectl get blueprint \
+      {{ smoke_blueprint_resource_name | quote }} \
+      -o json --kubeconfig /etc/rancher/rke2/rke2.yaml \
+      | jq -cS '.spec' | sha256sum | awk '{print $1}')
+    [[ "${after}" == {{ smoke_blueprint_spec_before_switch.stdout | trim | quote }} ]]
+  args:
+    executable: /bin/bash
+  when:
+    - smoke_application_mode == 'logical'
+    - smoke_verify_source_switch | bool
+  changed_when: false
+
 - name: Report the successful smoke journey
-  when: not (smoke_expect_git_ca_failure | default(false) | bool)
   ansible.builtin.debug:
     msg: >-
       Blueprint {{ smoke_strategy }} workload
       {{ smoke_namespace }}/{{ smoke_workload_name }}-{{ smoke_strategy | lower }}
       is Running through bundle {{ smoke_bundle_name.stdout | trim }} on
-      {{ smoke_target_clusters | join(', ') }}.
+      {{ smoke_target_clusters | join(', ') }}{{
+        '; its logical Application switched sources without changing the Blueprint'
+        if (smoke_application_mode == 'logical' and (smoke_verify_source_switch | bool))
+        else '' }}.

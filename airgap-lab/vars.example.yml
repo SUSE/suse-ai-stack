@@ -17,19 +17,17 @@ harbor_registry_storage_size: "40Gi"  # raise substantially for vendor images
 harbor_registry_username: "admin"
 harbor_registry_password: "REPLACE_WITH_A_STRONG_PASSWORD"
 
-# AIF's Git client currently hard-codes the HTTP Basic username to "token".
-# Using that as the Gitea lab account makes the supported HTTP path testable and
-# leaves the product limitation visible in the assessment instead of hiding it.
+# Token authentication uses HTTP Basic and defaults the username to "token".
+# Keeping that account name makes the default and explicit-username paths
+# equivalent while the lab focuses on private CA trust.
 gitea_admin_username: "token"
 gitea_admin_password: "REPLACE_WITH_A_STRONG_PASSWORD"
 gitea_admin_email: "aif-qa@airgap.test"
 gitea_repository: "aif-gitops"
 gitea_http_node_port: 30030
-# false is the authenticated HTTP passing baseline for the current product.
-# true terminates a private-CA certificate at the RKE2 ingress and intentionally
-# exercises AG-003; GitOps is expected to fail until AIF and Fleet can consume
-# the configured Git CA.
-gitea_tls_enabled: false
+# Private-CA HTTPS is the qualified baseline. Set false only when diagnosing an
+# HTTP-only compatibility path; it is not acceptable release evidence.
+gitea_tls_enabled: true
 gitea_url: >-
   {{ ('https://' ~ gitea_hostname)
      if (gitea_tls_enabled | bool)
@@ -142,7 +140,13 @@ smoke_namespace: "aif-airgap-smoke"
 smoke_workload_name: "airgap-smoke-local"
 smoke_chart_version: "0.1.0"
 smoke_timeout_seconds: 900
-smoke_expect_git_ca_failure: false
+smoke_application_mode: "direct"  # direct | logical
+smoke_application_name: "airgap.smoke"
+smoke_application_source_ref: "application-collection"
+smoke_verify_source_switch: false
+smoke_switch_source_ref: "suse-ai-registry"
+smoke_switch_repo_url: "oci://{{ harbor_hostname }}/{{ suse_chart_project }}/airgap-smoke"
+smoke_git_auth_type: "current"  # current | token | basic
 
 # Where playbook 06 fetches redacted command evidence on the controller.
 airgap_evidence_dir: "{{ airgap_generated_dir }}/evidence"

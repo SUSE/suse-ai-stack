@@ -1,0 +1,9 @@
+apiVersion: ai-factory.suse.com/v1alpha1
+kind: Application
+metadata:
+  name: {{ smoke_application_name | quote }}
+spec:
+  chart:
+    name: airgap-smoke
+    sourceRef: {{ smoke_application_source_ref | quote }}
+  credentialProfile: suse

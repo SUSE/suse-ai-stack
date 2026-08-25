@@ -84,6 +84,34 @@
     executable: /bin/bash
   changed_when: false
 
+- name: Confirm private-CA Gitea is trusted by both AIF and Fleet
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    settings=$("${kubectl}" -n {{ aif_namespace | quote }} get settings.ai-factory.suse.com settings \
+      -o json --kubeconfig "${kubeconfig}")
+    gitrepo=$("${kubectl}" -n fleet-local get gitrepo suse-ai-fleet-repo \
+      -o json --kubeconfig "${kubeconfig}")
+    expected_ca=$("${kubectl}" -n {{ aif_namespace | quote }} get secret harbor-ca \
+      -o jsonpath='{.data.ca\.crt}' --kubeconfig "${kubeconfig}" | base64 -d)
+    configured_ca=$(jq -r '.spec.caBundle // ""' <<<"${gitrepo}")
+    [[ $(jq -r '.spec.fleet.repoURL' <<<"${settings}") == https://{{ gitea_hostname }}/* ]]
+    [[ $(jq -r '.spec.fleet.caBundleSecretRef.name' <<<"${settings}") == harbor-ca ]]
+    [[ "${configured_ca}" == "${expected_ca}" ]]
+    jq -e '
+      .spec.paths == ["blueprints", "workloads"] and
+      any(.status.conditions[]?; .type == "GitPolling" and .status == "True") and
+      any(.status.conditions[]?; .type == "Accepted" and .status == "True")' \
+      <<<"${gitrepo}" >/dev/null
+    "${kubectl}" get blueprint git-sourced-airgap-0-1-0 \
+      -o jsonpath='{.metadata.labels.airgap-lab\.suse\.com/source}' \
+      --kubeconfig "${kubeconfig}" | grep -Fx private-gitea >/dev/null
+  args:
+    executable: /bin/bash
+  when: gitea_tls_enabled | bool
+  changed_when: false
+
 - name: Render the pod-level negative egress probe
   ansible.builtin.template:
     src: public-egress-probe.yaml.j2
@@ -157,16 +185,19 @@
       printf 'captured_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
       printf 'install_mode=%s\n' {{ aif_install_mode | quote }}
       printf 'registry_ca_mode=%s\n' {{ aif_registry_ca_mode | quote }}
+      printf 'git_transport=%s\n' {{ ('https' if (gitea_tls_enabled | bool) else 'http') | quote }}
       printf '%s\n' {{ aif_deployment_images.stdout | quote }}
       printf 'pod_probe=%s\n' {{ pod_probe_log.stdout | trim | quote }}
       helm list --all-namespaces --kubeconfig "${kubeconfig}"
       "${kubectl}" get settings -A -o yaml --kubeconfig "${kubeconfig}"
       "${kubectl}" get clusterrepo application-collection suse-ai-registry nvidia -o yaml --kubeconfig "${kubeconfig}"
+      "${kubectl}" -n fleet-local get gitrepo suse-ai-fleet-repo -o yaml --kubeconfig "${kubeconfig}"
+      "${kubectl}" get application,blueprint -o yaml --kubeconfig "${kubeconfig}"
       "${kubectl}" get gitrepo,helmop,bundle -A -o wide --kubeconfig "${kubeconfig}"
       "${kubectl}" get aiworkload -A -o yaml --kubeconfig "${kubeconfig}"
       "${kubectl}" get pods -A -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,IMAGE:.spec.containers[*].image,IMAGE_ID:.status.containerStatuses[*].imageID,PHASE:.status.phase' --kubeconfig "${kubeconfig}"
       "${kubectl}" get events -A --sort-by=.lastTimestamp --kubeconfig "${kubeconfig}" | tail -n 200
-    } > /var/lib/aif-airgap-evidence/control-plane-{{ aif_install_mode }}-{{ aif_registry_ca_mode }}.txt
+    } > /var/lib/aif-airgap-evidence/control-plane-{{ aif_install_mode }}-{{ aif_registry_ca_mode }}-git-{{ 'https' if (gitea_tls_enabled | bool) else 'http' }}.txt
   args:
     executable: /bin/bash
   changed_when: true
@@ -184,7 +215,7 @@
 
 - name: Fetch control-plane evidence to the controller
   ansible.builtin.fetch:
-    src: /var/lib/aif-airgap-evidence/control-plane-{{ aif_install_mode }}-{{ aif_registry_ca_mode }}.txt
+    src: /var/lib/aif-airgap-evidence/control-plane-{{ aif_install_mode }}-{{ aif_registry_ca_mode }}-git-{{ 'https' if (gitea_tls_enabled | bool) else 'http' }}.txt
     dest: "{{ airgap_evidence_dir }}/management/"
     flat: false
 

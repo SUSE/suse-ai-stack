@@ -8,7 +8,7 @@ spec:
   source:
     sourceType: Blueprint
     blueprint:
-      name: {{ smoke_workload_name }}-{{ smoke_strategy | lower }}
+      name: {{ smoke_blueprint_reference_name }}
       version: 0.1.0
   targetNamespace: {{ smoke_namespace }}
   targetClusters:

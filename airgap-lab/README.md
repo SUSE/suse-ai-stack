@@ -15,7 +15,7 @@ connected seed/controller
   v
 services RKE2 cluster/VM
   |- Harbor (private projects, TLS, authentication)
-  `- Gitea (authentication; HTTP baseline or private-CA HTTPS gap test)
+  `- Gitea (private-CA HTTPS and authentication)
             ^                         ^
             | private CIDRs only      | private CIDRs only
 management RKE2                 downstream RKE2
@@ -70,18 +70,20 @@ qualification axes and for a nonstandard SSH key:
 AIF_SOURCE_DIR=/path/to/aif AIF_AIRGAP_PROFILE=core ./setup_airgap_lab.sh
 AIF_AIRGAP_INSTALL_MODE=separate ./setup_airgap_lab.sh
 AIF_AIRGAP_CA_MODE=workaround ./setup_airgap_lab.sh
+AIF_AIRGAP_GITEA_TLS=false ./setup_airgap_lab.sh  # diagnostic only
 AIF_AIRGAP_SSH_KEY=/path/to/aws-private-key ./setup_airgap_lab.sh
 ```
 
-The install mode defaults to `combined`; the CA mode defaults to `settings` in
-`vars.example.yml`. Each install/CA combination has independent resumable
-qualification markers and an evidence file, while the expensive AWS, build and
-mirror phases are reused. The runner records the combination currently active
-on the management cluster, so switching either axis always forces installation,
-matrix and verification to run again. Switching back to combined mode also
-removes the standalone UI release before reconciling the operator-managed
-extension. A `workaround` pass remains useful for comparison, but is not native
-CA-propagation evidence.
+The install mode defaults to `combined`, the CA mode to `settings`, and Gitea
+to private-CA HTTPS in `vars.example.yml`. Each install/CA/Git-transport
+combination has independent resumable qualification markers and an evidence
+file, while the expensive AWS, build and mirror phases are reused. The runner
+records the combination currently active on the management cluster, so
+switching an axis always forces installation, matrix and verification to run
+again; changing Gitea transport also reconciles the services phase. Switching
+back to combined mode removes the standalone UI release before reconciling the
+operator-managed extension. A `workaround` or HTTP pass remains useful for
+diagnosis, but is not native air-gap evidence.
 
 The services security group exposes SSH only to the controller's detected
 public `/32`; Harbor and Gitea are reachable only from the private VPC. Set
@@ -323,20 +325,18 @@ application is runnable. The QA assertion is limited to catalog readiness,
 chart pull, HelmOp/Git commit creation and secret shape. Full NIM/model testing
 belongs in a GPU/model-cache suite.
 
-## Secure Git expected-failure mode
+## Secure private Git baseline
 
-The passing baseline uses authenticated HTTP Gitea because the current AIF Git
-client cannot consume a private CA and the generated Fleet `GitRepo` omits its
-CA bundle. To reproduce AG-003, set `gitea_tls_enabled: true`,
-`smoke_strategy: GitOps`, and `smoke_expect_git_ca_failure: true`; rerun
-`services` while connected, then execute `configure`, `isolate`, `install`, and
-`smoke`. Harbor and node-level Gitea health checks remain green with the lab CA,
-while the smoke role passes only after the AIF operator logs the expected
-certificate-authority rejection. Do not enable insecure TLS to make the normal
-GitOps path pass.
+The qualified path uses authenticated, private-CA HTTPS Gitea. One Fleet
+setting references the CA Secret; AIF loads it into go-git and the Settings
+controller writes the same PEM bundle to the generated Fleet `GitRepo`. The
+matrix performs real Git writes with both token and basic authentication and
+checks that AIF and Fleet observe an in-place mode change. The repository's
+`blueprints/` path delivers source-independent Blueprint CRs while `workloads/`
+carries AIF-generated Fleet resources. Insecure TLS is never used.
 
-The one-command path preserves all three values in `generated/vars.yml` on
-subsequent runs; they are not part of a hand-maintained preservation allow-list.
+Set `AIF_AIRGAP_GITEA_TLS=false` only to diagnose an HTTP compatibility path;
+that result is not accepted as release evidence.
 
 ## Evidence to retain
 

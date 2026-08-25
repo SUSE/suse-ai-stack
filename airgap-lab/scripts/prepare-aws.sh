@@ -107,9 +107,12 @@ harbor_password="$(existing_value "${lab_vars}" '.harbor_admin_password')"
 gitea_password="$(existing_value "${lab_vars}" '.gitea_admin_password')"
 existing_install_mode="$(existing_value "${lab_vars}" '.aif_install_mode')"
 existing_ca_mode="$(existing_value "${lab_vars}" '.aif_registry_ca_mode')"
+existing_gitea_tls="$(existing_value "${lab_vars}" '.gitea_tls_enabled')"
 requested_install_mode="${AIF_AIRGAP_INSTALL_MODE:-${existing_install_mode:-combined}}"
 default_ca_mode="$(yq -r '.aif_registry_ca_mode' "${lab_dir}/vars.example.yml")"
 requested_ca_mode="${AIF_AIRGAP_CA_MODE:-${existing_ca_mode:-${default_ca_mode}}}"
+default_gitea_tls="$(yq -r '.gitea_tls_enabled' "${lab_dir}/vars.example.yml")"
+requested_gitea_tls="${AIF_AIRGAP_GITEA_TLS:-${existing_gitea_tls:-${default_gitea_tls}}}"
 
 [[ "${requested_install_mode}" == combined || "${requested_install_mode}" == separate ]] || {
   printf 'AIF_AIRGAP_INSTALL_MODE must be combined or separate, got: %s\n' \
@@ -119,6 +122,11 @@ requested_ca_mode="${AIF_AIRGAP_CA_MODE:-${existing_ca_mode:-${default_ca_mode}}
 [[ "${requested_ca_mode}" == settings || "${requested_ca_mode}" == workaround ]] || {
   printf 'AIF_AIRGAP_CA_MODE must be settings or workaround, got: %s\n' \
     "${requested_ca_mode}" >&2
+  exit 2
+}
+[[ "${requested_gitea_tls}" == true || "${requested_gitea_tls}" == false ]] || {
+  printf 'AIF_AIRGAP_GITEA_TLS must be true or false, got: %s\n' \
+    "${requested_gitea_tls}" >&2
   exit 2
 }
 
@@ -222,6 +230,7 @@ GITEA_PASSWORD="${gitea_password}" \
 AIF_VERSION="${aif_version}" \
 REQUESTED_INSTALL_MODE="${requested_install_mode}" \
 REQUESTED_CA_MODE="${requested_ca_mode}" \
+REQUESTED_GITEA_TLS="${requested_gitea_tls}" \
 REGISTRATION_EMAIL="$(yq -r '.registration_email // ""' "${base_vars}")" \
 SLES_CODE="$(yq -r '.sles_registration_code // ""' "${base_vars}")" \
 SLE_MICRO_CODE="$(yq -r '.sle_micro_registration_code // ""' "${base_vars}")" \
@@ -238,6 +247,7 @@ yq -i '
   .aif_version = strenv(AIF_VERSION) |
   .aif_registry_ca_mode = strenv(REQUESTED_CA_MODE) |
   .aif_install_mode = strenv(REQUESTED_INSTALL_MODE) |
+  .gitea_tls_enabled = (strenv(REQUESTED_GITEA_TLS) == "true") |
   .airgap_remote_bundle_root = "/var/lib/aif-airgap-lab/bundles" |
   .controller_yq_path = "/usr/bin/yq"
 ' "${lab_vars}"

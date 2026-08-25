@@ -47,6 +47,12 @@ aif_commit="$(yq -r '.sourceCommit' "${metadata}")"
 short_commit="${aif_commit:0:12}"
 install_mode="$(yq -r '.aif_install_mode' "${lab_vars}")"
 ca_mode="$(yq -r '.aif_registry_ca_mode' "${lab_vars}")"
+gitea_tls_enabled="$(yq -r '.gitea_tls_enabled' "${lab_vars}")"
+if [[ "${gitea_tls_enabled}" == true ]]; then
+  git_transport=https
+else
+  git_transport=http
+fi
 manifest="${lab_dir}/generated/artifacts-aif-source.yml"
 bundle="${AIF_AIRGAP_BUNDLE:-${lab_dir}/bundles/aif-${short_commit}-${profile}}"
 bundle_local_sources_match() {
@@ -81,9 +87,10 @@ if [[ -z "${AIF_AIRGAP_BUNDLE:-}" && ! -d "${bundle}" ]]; then
 fi
 state_root="${lab_dir}/generated/state/${workspace}"
 run_state="${state_root}/runs/${short_commit}-${profile}"
-qualification_key="${install_mode}-${ca_mode}"
+qualification_key="${install_mode}-${ca_mode}-git-${git_transport}"
 qualification_state="${run_state}/qualifications/${qualification_key}"
 active_qualification_file="${run_state}/active-qualification"
+services_git_transport_file="${state_root}/services-git-transport"
 mkdir -p "${state_root}" "${run_state}" "${qualification_state}"
 chmod 700 "${state_root}" "${state_root}/runs" "${run_state}" \
   "${run_state}/qualifications" "${qualification_state}"
@@ -110,6 +117,7 @@ if [[ "${mode}" == status ]]; then
   printf 'Source commit: %s\n' "${short_commit}"
   printf 'Requested AIF install mode: %s\n' "${install_mode}"
   printf 'Requested registry CA mode: %s\n' "${ca_mode}"
+  printf 'Requested Git transport: %s\n' "${git_transport}"
   if [[ -f "${active_qualification_file}" ]]; then
     printf 'Active qualified AIF profile: %s\n' "$(<"${active_qualification_file}")"
   else
@@ -198,9 +206,18 @@ run_step "${state_root}/services-bootstrap.complete" "Bootstrap the connected CP
   env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
     "${lab_dir}/run.sh" bootstrap-services
 
+if [[ -f "${state_root}/services.complete" ]] \
+   && [[ ! -f "${services_git_transport_file}" \
+      || "$(<"${services_git_transport_file}")" != "${git_transport}" ]]; then
+  printf '[mode] Gitea transport changed; reconciling the services phase.\n'
+  rm -f "${state_root}/services.complete"
+fi
 run_step "${state_root}/services.complete" "Install private-CA Harbor and authenticated Gitea" \
   env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
     "${lab_dir}/run.sh" services
+printf '%s\n' "${git_transport}" > "${services_git_transport_file}.tmp"
+chmod 600 "${services_git_transport_file}.tmp"
+mv "${services_git_transport_file}.tmp" "${services_git_transport_file}"
 
 run_step "${run_state}/bundle-import.complete" "Transfer and import the media bundle inside the gated VPC" \
   env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \

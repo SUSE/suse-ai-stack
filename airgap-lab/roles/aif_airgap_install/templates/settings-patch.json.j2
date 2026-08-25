@@ -9,10 +9,12 @@
       "repoURL": {{ (gitea_url ~ '/' ~ gitea_admin_username ~ '/' ~ gitea_repository ~ '.git') | to_json }},
       "branch": "main",
       "authType": "token",
+      "username": {{ gitea_admin_username | to_json }},
       "credSecretRef": {
         "name": "gitops-credentials",
         "key": "token"
-      }
+      },
+      "caBundleSecretRef": {% if gitea_tls_enabled | bool %}{ "name": "harbor-ca", "key": "ca.crt" }{% else %}null{% endif %}
     },
     "applicationCollection": {
       {{ registry_auth() }}

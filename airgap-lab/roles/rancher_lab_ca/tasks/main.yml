@@ -73,10 +73,9 @@
         executable: /bin/bash
       changed_when: false
 
-- name: Warn about the remaining AIF Git custom-CA limitation
+- name: Report the private CA trust boundaries
   ansible.builtin.debug:
     msg: >-
-      Rancher/Fleet now trust the lab CA. The AIF operator's direct go-git client
-      does not consume Rancher's additional CA, so the passing GitOps baseline
-      intentionally uses authenticated HTTP Gitea; HTTPS/private-CA is retained
-      as an expected-failure test.
+      Rancher trusts the lab CA through tls-ca-additional. AIF Settings must
+      independently reference the same CA for go-git and the Fleet GitRepo;
+      the install and verify phases assert both consumers.

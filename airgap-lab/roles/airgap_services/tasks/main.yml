@@ -380,6 +380,39 @@
     status_code: 200
   no_log: true
 
+- name: Inspect the private-Git Blueprint fixture in Gitea
+  ansible.builtin.uri:
+    url: "{{ gitea_url }}/api/v1/repos/{{ gitea_admin_username }}/{{ gitea_repository }}/contents/blueprints/git-sourced-airgap.yaml?ref=main"
+    method: GET
+    url_username: "{{ gitea_admin_username }}"
+    url_password: "{{ gitea_admin_password }}"
+    force_basic_auth: true
+    ca_path: "{{ '/etc/pki/trust/anchors/aif-airgap-lab-ca.crt' if (gitea_tls_enabled | bool) else omit }}"
+    status_code: [200, 404]
+  register: gitea_blueprint_fixture
+  no_log: true
+
+- name: Publish the Blueprint fixture to private Gitea
+  ansible.builtin.uri:
+    url: "{{ gitea_url }}/api/v1/repos/{{ gitea_admin_username }}/{{ gitea_repository }}/contents/blueprints/git-sourced-airgap.yaml"
+    method: "{{ 'PUT' if gitea_blueprint_fixture.status == 200 else 'POST' }}"
+    url_username: "{{ gitea_admin_username }}"
+    url_password: "{{ gitea_admin_password }}"
+    force_basic_auth: true
+    ca_path: "{{ '/etc/pki/trust/anchors/aif-airgap-lab-ca.crt' if (gitea_tls_enabled | bool) else omit }}"
+    body_format: json
+    body:
+      branch: main
+      message: "test: publish private Git Blueprint fixture"
+      content: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../fixtures/blueprints/git-sourced-airgap.yaml') | b64encode }}"
+      sha: "{{ gitea_blueprint_fixture.json.sha if gitea_blueprint_fixture.status == 200 else omit }}"
+    status_code: [200, 201]
+  when: >-
+    gitea_blueprint_fixture.status != 200 or
+    (gitea_blueprint_fixture.json.content | b64decode) !=
+    lookup('ansible.builtin.file', playbook_dir ~ '/../fixtures/blueprints/git-sourced-airgap.yaml')
+  no_log: true
+
 - name: Report services endpoints
   ansible.builtin.debug:
     msg:
