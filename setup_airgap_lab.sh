@@ -18,7 +18,7 @@ usage() {
     "" \
     "  --status          Show completed phase markers and current AWS workspace" \
     "  --prepare-only    Generate ignored configuration without creating AWS resources" \
-    "  --reset-progress  Forget phase markers; resources are retained and reconciled"
+    "  --reset-progress  Forget source/qualification markers; retain infrastructure checkpoints"
 }
 
 mode=run
@@ -138,8 +138,11 @@ if [[ "${mode}" == prepare ]]; then
 fi
 
 if [[ "${mode}" == reset ]]; then
-  find "${state_root}" -type f -name '*.complete' -delete
-  printf 'Progress markers reset. AWS resources and generated credentials were retained.\n'
+  find "${run_state}" -type f -name '*.complete' -delete
+  rm -f "${active_qualification_file}"
+  printf '%s\n' \
+    'Source and qualification progress markers reset.' \
+    'AWS resources, generated credentials, and verified infrastructure checkpoints were retained.'
   exit 0
 fi
 
