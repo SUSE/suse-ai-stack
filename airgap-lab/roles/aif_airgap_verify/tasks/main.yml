@@ -95,7 +95,7 @@
     gitrepo=$("${kubectl}" -n fleet-local get gitrepo suse-ai-fleet-repo \
       -o json --kubeconfig "${kubeconfig}")
     expected_ca=$("${kubectl}" -n {{ aif_namespace | quote }} get secret harbor-ca \
-      -o jsonpath='{.data.ca\.crt}' --kubeconfig "${kubeconfig}" | base64 -d)
+      -o jsonpath='{.data.ca\.crt}' --kubeconfig "${kubeconfig}")
     configured_ca=$(jq -r '.spec.caBundle // ""' <<<"${gitrepo}")
     [[ $(jq -r '.spec.fleet.repoURL' <<<"${settings}") == https://{{ gitea_hostname }}/* ]]
     [[ $(jq -r '.spec.fleet.caBundleSecretRef.name' <<<"${settings}") == harbor-ca ]]

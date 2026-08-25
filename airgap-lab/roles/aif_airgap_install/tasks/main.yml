@@ -426,7 +426,7 @@
     {% if gitea_tls_enabled | bool %}
       git_ca=$("${kubectl}" -n fleet-local get gitrepo suse-ai-fleet-repo \
         --kubeconfig "${kubeconfig}" -o json 2>/dev/null \
-        | jq -r '.spec.caBundle | @base64' || true)
+        | jq -r '.spec.caBundle // ""' || true)
       [[ "${git_ca}" == "${rotated_ca}" ]] || rotated=false
     {% endif %}
       [[ "${rotated}" == true ]] && break
@@ -450,7 +450,7 @@
     {% if gitea_tls_enabled | bool %}
       git_ca=$("${kubectl}" -n fleet-local get gitrepo suse-ai-fleet-repo \
         --kubeconfig "${kubeconfig}" -o json 2>/dev/null \
-        | jq -r '.spec.caBundle | @base64' || true)
+        | jq -r '.spec.caBundle // ""' || true)
       [[ "${git_ca}" == "${rotated_ca}" ]] || \
         printf 'rotated CA did not reach Fleet GitRepo suse-ai-fleet-repo\n' >&2
     {% endif %}
@@ -473,7 +473,7 @@
     {% if gitea_tls_enabled | bool %}
       git_ca=$("${kubectl}" -n fleet-local get gitrepo suse-ai-fleet-repo \
         --kubeconfig "${kubeconfig}" -o json 2>/dev/null \
-        | jq -r '.spec.caBundle | @base64' || true)
+        | jq -r '.spec.caBundle // ""' || true)
       [[ "${git_ca}" == "${original_ca}" ]] || restored=false
     {% endif %}
       [[ "${restored}" == true ]] && break
@@ -491,7 +491,7 @@
     {% if gitea_tls_enabled | bool %}
       git_ca=$("${kubectl}" -n fleet-local get gitrepo suse-ai-fleet-repo \
         --kubeconfig "${kubeconfig}" -o json 2>/dev/null \
-        | jq -r '.spec.caBundle | @base64' || true)
+        | jq -r '.spec.caBundle // ""' || true)
       [[ "${git_ca}" == "${original_ca}" ]] || \
         printf 'original CA was not restored to Fleet GitRepo suse-ai-fleet-repo\n' >&2
     {% endif %}
