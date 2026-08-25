@@ -203,11 +203,12 @@
       {{ smoke_blueprint_resource_name | quote }} \
       -o json --kubeconfig /etc/rancher/rke2/rke2.yaml \
       | jq -e --arg application {{ smoke_application_name | quote }} '
-          .spec.components | length > 0 and
-          all(.[].applicationRef.name == $application) and
-          all((.[].chartRepo // "") == "") and
-          all((.[].chartName // "") == "") and
-          all((.[].chartVersion // "") == "")'
+          .spec.components as $components |
+          ($components | length > 0) and
+          ($components | all(.applicationRef.name == $application)) and
+          ($components | all((.chartRepo // "") == "")) and
+          ($components | all((.chartName // "") == "")) and
+          ($components | all((.chartVersion // "") == ""))'
   args:
     executable: /bin/bash
   when:
