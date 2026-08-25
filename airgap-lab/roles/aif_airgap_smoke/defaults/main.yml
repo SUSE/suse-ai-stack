@@ -16,3 +16,4 @@ smoke_verify_source_switch: false
 smoke_switch_source_ref: "suse-ai-registry"
 smoke_switch_repo_url: "oci://{{ harbor_hostname }}/{{ suse_chart_project }}/airgap-smoke"
 smoke_git_auth_type: "current"
+smoke_fleet_resource_kind: "helmop"

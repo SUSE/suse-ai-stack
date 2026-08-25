@@ -14,6 +14,12 @@
       - harbor_registry_password != 'REPLACE_WITH_A_STRONG_PASSWORD'
       - gitea_admin_username == 'token'
       - gitea_admin_password != 'REPLACE_WITH_A_STRONG_PASSWORD'
+      - gitea_chart_repository is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
+      - gitea_chart_clusterrepo is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
+      - rancher_url is regex('^https://')
+      - rancher_admin_username | length > 0
+      - rancher_bootstrap_password != 'REPLACE_WITH_THE_RANCHER_BOOTSTRAP_PASSWORD'
+      - rancher_catalog_token_secret is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
     fail_msg: >-
       Use combined/separate, retain the qualified aif-operator/aif-ui release
       names, and replace every registry/Git credential placeholder.
@@ -52,6 +58,134 @@
     owner: root
     group: root
     mode: "0644"
+
+- name: Export the Rancher ingress CA for authenticated API calls
+  ansible.builtin.shell: |
+    set -euo pipefail
+    /var/lib/rancher/rke2/bin/kubectl get settings.management.cattle.io cacerts \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml \
+      -o jsonpath='{.value}' > /var/lib/aif-airgap-rancher-ca.crt
+    test -s /var/lib/aif-airgap-rancher-ca.crt
+    chmod 0600 /var/lib/aif-airgap-rancher-ca.crt
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Read an existing AIF Rancher catalog token
+  ansible.builtin.shell: |
+    set -euo pipefail
+    /var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace | quote }} get secret \
+      {{ rancher_catalog_token_secret | quote }} \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml \
+      -o jsonpath='{.data.token}' | base64 -d
+  args:
+    executable: /bin/bash
+  register: existing_rancher_catalog_token
+  failed_when: false
+  changed_when: false
+  no_log: true
+
+- name: Validate the existing AIF Rancher catalog token
+  ansible.builtin.uri:
+    url: "{{ rancher_url }}/v1/catalog.cattle.io.clusterrepos?limit=1"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ existing_rancher_catalog_token.stdout }}"
+    ca_path: /var/lib/aif-airgap-rancher-ca.crt
+    status_code: [200, 401, 403]
+  when:
+    - existing_rancher_catalog_token.rc == 0
+    - existing_rancher_catalog_token.stdout | length > 0
+  register: existing_rancher_catalog_probe
+  no_log: true
+
+- name: Log in to Rancher before minting a replacement catalog token
+  ansible.builtin.uri:
+    url: "{{ rancher_url }}/v3-public/localProviders/local?action=login"
+    method: POST
+    body_format: json
+    body:
+      username: "{{ rancher_admin_username }}"
+      password: "{{ rancher_bootstrap_password }}"
+    ca_path: /var/lib/aif-airgap-rancher-ca.crt
+    status_code: 201
+  when: >-
+    existing_rancher_catalog_token.rc != 0 or
+    existing_rancher_catalog_token.stdout | length == 0 or
+    existing_rancher_catalog_probe.status | default(0) != 200
+  register: rancher_login
+  no_log: true
+
+- name: Mint a Rancher API token for git-backed chart downloads
+  ansible.builtin.uri:
+    url: "{{ rancher_url }}/v3/token"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ rancher_login.json.token }}"
+    body_format: json
+    body:
+      type: token
+      description: "AI Factory air-gap qualification"
+      ttl: 0
+    ca_path: /var/lib/aif-airgap-rancher-ca.crt
+    status_code: 201
+  when: >-
+    existing_rancher_catalog_token.rc != 0 or
+    existing_rancher_catalog_token.stdout | length == 0 or
+    existing_rancher_catalog_probe.status | default(0) != 200
+  register: minted_rancher_catalog_token
+  no_log: true
+
+- name: Select the validated Rancher catalog token
+  ansible.builtin.set_fact:
+    active_rancher_catalog_token: >-
+      {{ minted_rancher_catalog_token.json.token
+         if minted_rancher_catalog_token is not skipped
+         else existing_rancher_catalog_token.stdout }}
+    active_rancher_catalog_token_name: >-
+      {{ minted_rancher_catalog_token.json.id | default('')
+         if minted_rancher_catalog_token is not skipped
+         else '' }}
+    active_rancher_catalog_token_expiry: >-
+      {{ minted_rancher_catalog_token.json.expiresAt | default('')
+         if minted_rancher_catalog_token is not skipped
+         else '' }}
+  no_log: true
+
+- name: Store the Rancher catalog token only in the operator namespace
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    "${kubectl}" -n {{ aif_namespace | quote }} create secret generic \
+      {{ rancher_catalog_token_secret | quote }} \
+      --from-literal=token="${RANCHER_CATALOG_TOKEN}" \
+      --dry-run=client -o yaml --kubeconfig "${kubeconfig}" \
+      | "${kubectl}" apply -f - --kubeconfig "${kubeconfig}"
+  args:
+    executable: /bin/bash
+  environment:
+    RANCHER_CATALOG_TOKEN: "{{ active_rancher_catalog_token }}"
+  no_log: true
+  changed_when: true
+
+- name: Record the newly minted Rancher token identity and expiry
+  ansible.builtin.command:
+    argv:
+      - /var/lib/rancher/rke2/bin/kubectl
+      - -n
+      - "{{ aif_namespace }}"
+      - annotate
+      - secret
+      - "{{ rancher_catalog_token_secret }}"
+      - "ai-factory.suse.com/token-name={{ active_rancher_catalog_token_name }}"
+      - "ai-factory.suse.com/token-expires-at={{ active_rancher_catalog_token_expiry }}"
+      - --overwrite
+      - --kubeconfig
+      - /etc/rancher/rke2/rke2.yaml
+  when: minted_rancher_catalog_token is not skipped
+  no_log: true
+  changed_when: true
 
 - name: Apply Harbor credentials, CA and pull secrets in AIF namespaces
   ansible.builtin.shell: |
@@ -106,6 +240,80 @@
     GITEA_PASSWORD: "{{ gitea_admin_password }}"
   no_log: true
   changed_when: true
+
+- name: Apply the private Gitea chart credential for Rancher
+  ansible.builtin.shell: |
+    set -euo pipefail
+    /var/lib/rancher/rke2/bin/kubectl -n cattle-system create secret generic \
+      {{ (gitea_chart_clusterrepo ~ '-auth') | quote }} \
+      --type=kubernetes.io/basic-auth \
+      --from-literal=username="${GITEA_USERNAME}" \
+      --from-literal=password="${GITEA_PASSWORD}" \
+      --dry-run=client -o yaml \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml \
+      | /var/lib/rancher/rke2/bin/kubectl apply -f - \
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+  args:
+    executable: /bin/bash
+  environment:
+    GITEA_USERNAME: "{{ gitea_admin_username }}"
+    GITEA_PASSWORD: "{{ gitea_admin_password }}"
+  no_log: true
+  changed_when: true
+
+- name: Encode the Gitea CA in Rancher's ClusterRepo format
+  ansible.builtin.shell: |
+    set -euo pipefail
+    openssl x509 -outform DER -in /var/lib/aif-airgap-lab-ca.crt | base64 -w 0
+  args:
+    executable: /bin/bash
+  when: gitea_tls_enabled | bool
+  register: private_gitea_clusterrepo_ca
+  changed_when: false
+
+- name: Render the private Gitea chart ClusterRepo
+  ansible.builtin.template:
+    src: private-gitea-clusterrepo.yaml.j2
+    dest: /var/lib/aif-airgap-private-gitea-clusterrepo.yaml
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Apply the private Gitea chart ClusterRepo
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl apply
+      --filename /var/lib/aif-airgap-private-gitea-clusterrepo.yaml
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  register: private_gitea_clusterrepo_apply
+  changed_when: >-
+    'created' in private_gitea_clusterrepo_apply.stdout or
+    'configured' in private_gitea_clusterrepo_apply.stdout
+
+- name: Require Rancher to index the authenticated private-Gitea chart source
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
+    while (( SECONDS < deadline )); do
+      object=$("${kubectl}" get clusterrepo {{ gitea_chart_clusterrepo | quote }} \
+        -o json --kubeconfig "${kubeconfig}" 2>/dev/null || true)
+      generation=$(jq -r '.metadata.generation // 0' <<<"${object}")
+      observed=$(jq -r '.status.observedGeneration // 0' <<<"${object}")
+      downloaded=$(jq -r '[.status.conditions[]? | select(.type == "Downloaded") | .status][-1] // ""' <<<"${object}")
+      commit=$(jq -r '.status.commit // ""' <<<"${object}")
+      if [[ "${generation}" == "${observed}" && "${downloaded}" == "True" && -n "${commit}" ]]; then
+        exit 0
+      fi
+      sleep 5
+    done
+    "${kubectl}" get clusterrepo {{ gitea_chart_clusterrepo | quote }} -o yaml \
+      --kubeconfig "${kubeconfig}" >&2 || true
+    exit 1
+  args:
+    executable: /bin/bash
+  changed_when: false
 
 - name: Log Helm into gated Harbor without exposing the password
   ansible.builtin.shell: |

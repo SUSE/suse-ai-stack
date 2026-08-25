@@ -99,9 +99,9 @@ rely on host `/etc/hosts` entries.
 - a connected-stage, single-node, CPU-only RKE2 services cluster;
 - Harbor 2.15.2 through chart 1.19.2, private projects, authentication and a
   generated lab CA;
-- Gitea 1.27.0 through chart 12.7.0, a pre-initialized GitOps repository, and a
-  low-footprint SQLite/standalone configuration, with a switchable private-CA
-  HTTPS ingress;
+- Gitea 1.27.0 through chart 12.7.0, separate private repositories for
+  Blueprint/GitOps resources and Helm charts, and a low-footprint
+  SQLite/standalone configuration, with a switchable private-CA HTTPS ingress;
 - checksummed chart and multi-architecture image export/import with Skopeo and
   Helm (no `docker save`, no silent skips, no password-on-command-line login);
 - RKE2 `registries.yaml` on every schedulable management/workload node, Harbor
@@ -112,7 +112,9 @@ rely on host `/etc/hosts` entries.
   record;
 - AIF combined operator+UI or separate operator/UI installation from Harbor;
 - Settings endpoints for mirrored AppCo, SUSE Registry and NVIDIA charts, plus
-  the internal Gitea Fleet repository;
+  the internal Gitea Fleet repository and Rancher catalog credential;
+- an authenticated Rancher `ClusterRepo` that indexes the private Gitea Helm
+  repository with its private CA;
 - a tiny CPU-only chart/Blueprint fixture for FleetBundle and GitOps paths;
 - reversible egress denial and positive/negative verification probes.
 
@@ -270,11 +272,12 @@ aif_registry_ca_mode: settings
 ```
 
 That mode writes `caBundleSecretRef` for all three mirrored registry settings,
-disables the lab's compatibility patch, verifies all nine generated Fleet/Rancher
-Secret copies, rotates the source CA without changing its trust semantics, and
-requires every ClusterRepo to receive a new `spec.forceUpdate`. The source CA
-and all copies are restored before installation continues. A successful run in
-`workaround` mode is not evidence for the native product implementation.
+disables the lab's compatibility patch, verifies the three Fleet/Rancher Secret
+copies generated for each registry, rotates the source CA without changing its
+trust semantics, and requires every ClusterRepo to receive a new
+`spec.forceUpdate`. The source CA and all copies are restored before
+installation continues. A successful run in `workaround` mode is not evidence
+for the native product implementation.
 In compatibility mode, AIF rewrites the generated auth Secrets while creating
 each AIWorkload; the smoke role therefore reapplies the CA after its HelmOp
 appears and requires Fleet to accept the retried HelmOp. That timing-dependent
@@ -336,6 +339,21 @@ matrix performs real Git writes with both token and basic authentication and
 checks that AIF and Fleet observe an in-place mode change. The repository's
 `blueprints/` path delivers source-independent Blueprint CRs while `workloads/`
 carries AIF-generated Fleet resources. Insecure TLS is never used.
+
+A separate private Gitea repository is also a Helm chart source. Rancher clones
+it with a `ClusterRepo` credential and private CA, while AIF uses a Rancher API
+token stored only in its namespace to retrieve the indexed chart archive. The
+lab token inherits the lab administrator's access and lasts for the disposable
+environment; a production installation must define least-privilege access,
+expiry, rotation, and revocation for that credential.
+
+The acceptance matrix contains eleven deployments: direct and logical
+Blueprints, pre-provisioned Blueprints from private Git, both FleetBundle and
+GitOps strategies, local and downstream targets, an in-place source switch,
+both Git authentication modes, and private-Gitea-backed application charts.
+The last two cases require the chart to be embedded in Bundles in both Fleet
+workspaces, proving that the workload no longer depends on Gitea at install
+time.
 
 Set `AIF_AIRGAP_GITEA_TLS=false` only to diagnose an HTTP compatibility path;
 that result is not accepted as release evidence.

@@ -6,6 +6,8 @@
       - smoke_application_mode in ['direct', 'logical']
       - smoke_blueprint_mode in ['rendered', 'preprovisioned']
       - smoke_git_auth_type in ['current', 'token', 'basic']
+      - smoke_fleet_resource_kind in ['helmop', 'bundle']
+      - not (smoke_verify_source_switch | bool) or smoke_fleet_resource_kind == 'helmop'
       - smoke_blueprint_mode != 'preprovisioned' or smoke_application_mode == 'logical'
       - smoke_target_clusters | length > 0
       - smoke_target_clusters | unique | list | length == smoke_target_clusters | length
@@ -263,10 +265,11 @@
       no_log: true
 
 
-- name: Wait for Fleet to materialize this workload's HelmOp in every target workspace
+- name: Wait for Fleet to materialize this workload in every target workspace
   ansible.builtin.shell: |
     set -euo pipefail
     bundle={{ smoke_bundle_name.stdout | trim | quote }}
+    kind={{ smoke_fleet_resource_kind | quote }}
     targets={{ smoke_target_clusters | to_json | quote }}
     kubectl=/var/lib/rancher/rke2/bin/kubectl
     kubeconfig=/etc/rancher/rke2/rke2.yaml
@@ -280,11 +283,24 @@
     while (( SECONDS < deadline )); do
       missing=false
       for namespace in "${namespaces[@]}"; do
-        if ! "${kubectl}" -n "${namespace}" get helmop "${bundle}" \
+        if ! "${kubectl}" -n "${namespace}" get "${kind}" "${bundle}" \
           --kubeconfig "${kubeconfig}" >/dev/null 2>&1; then
           missing=true
         fi
       done
+      if [[ "${missing}" == false ]]; then
+        if [[ "${kind}" == bundle ]]; then
+          for namespace in "${namespaces[@]}"; do
+            object=$("${kubectl}" -n "${namespace}" get bundle "${bundle}" \
+              -o json --kubeconfig "${kubeconfig}")
+            jq -e '
+              (.spec.helm.chart == "airgap-smoke") and
+              any(.spec.resources[]?; .name == "airgap-smoke/Chart.yaml") and
+              ((.spec.targets // []) | length > 0)
+            ' <<<"${object}" >/dev/null || { missing=true; break; }
+          done
+        fi
+      fi
       if [[ "${missing}" == false ]]; then
         for namespace in "${namespaces[@]}"; do
           printf '%s/%s\n' "${namespace}" "${bundle}"
@@ -293,7 +309,7 @@
       fi
       sleep 5
     done
-    "${kubectl}" get helmop --all-namespaces -o wide \
+    "${kubectl}" get "${kind}" --all-namespaces -o wide \
       --kubeconfig "${kubeconfig}" >&2 || true
     if [[ {{ (smoke_strategy == 'GitOps') | lower }} == true ]]; then
       "${kubectl}" -n fleet-local get gitrepo suse-ai-fleet-repo -o yaml \
@@ -307,6 +323,7 @@
 - name: Reapply the compatibility CA after AIF materializes the HelmOp
   when:
     - aif_registry_ca_mode == 'workaround'
+    - smoke_fleet_resource_kind == 'helmop'
   ansible.builtin.shell: |
     set -euo pipefail
     kubectl=/var/lib/rancher/rke2/bin/kubectl
@@ -339,6 +356,7 @@
 - name: Require Fleet to accept the compatibility-CA HelmOp
   when:
     - aif_registry_ca_mode == 'workaround'
+    - smoke_fleet_resource_kind == 'helmop'
   ansible.builtin.shell: |
     set -euo pipefail
     kubectl=/var/lib/rancher/rke2/bin/kubectl

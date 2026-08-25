@@ -228,6 +228,7 @@ merged_lab_vars=""
 SERVICES_TOKEN="${services_token}" \
 HARBOR_PASSWORD="${harbor_password}" \
 GITEA_PASSWORD="${gitea_password}" \
+RANCHER_PASSWORD="${rancher_password}" \
 AIF_VERSION="${aif_version}" \
 AIF_IMAGE_TAG="${aif_image_tag}" \
 REQUESTED_INSTALL_MODE="${requested_install_mode}" \
@@ -240,6 +241,7 @@ yq -i '
   .harbor_admin_password = strenv(HARBOR_PASSWORD) |
   .harbor_registry_password = strenv(HARBOR_PASSWORD) |
   .gitea_admin_password = strenv(GITEA_PASSWORD) |
+  .rancher_bootstrap_password = strenv(RANCHER_PASSWORD) |
   .rke2.token = strenv(SERVICES_TOKEN) |
   .rke2.version = "v1.34.4+rke2r1" |
   .scc_registration.email = strenv(REGISTRATION_EMAIL) |

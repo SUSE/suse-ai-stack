@@ -24,6 +24,8 @@ gitea_admin_username: "token"
 gitea_admin_password: "REPLACE_WITH_A_STRONG_PASSWORD"
 gitea_admin_email: "aif-qa@airgap.test"
 gitea_repository: "aif-gitops"
+gitea_chart_repository: "aif-charts"
+gitea_chart_clusterrepo: "private-gitea-applications"
 gitea_http_node_port: 30030
 # Private-CA HTTPS is the qualified baseline. Set false only when diagnosing an
 # HTTP-only compatibility path; it is not acceptable release evidence.
@@ -81,6 +83,10 @@ rancher_release_name: "rancher"
 rancher_namespace: "cattle-system"
 rancher_chart_repo_name: "rancher-stable"
 rancher_chart_repo_url: "https://releases.rancher.com/server-charts/stable"
+rancher_url: "https://suse-rancher.demo"
+rancher_admin_username: "admin"
+rancher_bootstrap_password: "REPLACE_WITH_THE_RANCHER_BOOTSTRAP_PASSWORD"
+rancher_catalog_token_secret: "aif-rancher-token"
 
 # Node registry redirection --------------------------------------------------
 # Every registry named by any selected chart must be listed. RKE2's default
@@ -154,6 +160,7 @@ smoke_verify_source_switch: false
 smoke_switch_source_ref: "suse-ai-registry"
 smoke_switch_repo_url: "oci://{{ harbor_hostname }}/{{ suse_chart_project }}/airgap-smoke"
 smoke_git_auth_type: "current"  # current | token | basic
+smoke_fleet_resource_kind: "helmop"  # helmop | bundle
 
 # Where playbook 06 fetches redacted command evidence on the controller.
 airgap_evidence_dir: "{{ airgap_generated_dir }}/evidence"

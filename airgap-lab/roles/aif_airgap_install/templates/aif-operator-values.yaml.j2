@@ -2,6 +2,11 @@ global:
   imagePullSecrets:
     - name: harbor-pull
 
+rancherCatalog:
+  tokenSecret:
+    name: {{ rancher_catalog_token_secret | quote }}
+    key: token
+
 manager:
   image:
     registry: {{ harbor_hostname | quote }}

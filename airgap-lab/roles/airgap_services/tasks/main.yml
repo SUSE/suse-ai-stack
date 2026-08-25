@@ -5,6 +5,8 @@
       - groups['airgap_services'] | length == 1
       - harbor_hostname | length > 0
       - gitea_hostname | length > 0
+      - gitea_chart_repository is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
+      - gitea_chart_clusterrepo is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
       - (airgap_services_address | regex_search('^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$')) is not none
       - harbor_admin_password != 'REPLACE_WITH_A_STRONG_PASSWORD'
       - harbor_registry_password != 'REPLACE_WITH_A_STRONG_PASSWORD'
@@ -380,6 +382,123 @@
     status_code: 200
   no_log: true
 
+- name: Create the private Gitea chart repository
+  ansible.builtin.uri:
+    url: "{{ gitea_url }}/api/v1/user/repos"
+    method: POST
+    url_username: "{{ gitea_admin_username }}"
+    url_password: "{{ gitea_admin_password }}"
+    force_basic_auth: true
+    ca_path: "{{ '/etc/pki/trust/anchors/aif-airgap-lab-ca.crt' if (gitea_tls_enabled | bool) else omit }}"
+    body_format: json
+    body:
+      name: "{{ gitea_chart_repository }}"
+      private: true
+      auto_init: true
+      default_branch: main
+      description: "Private Helm charts for AI Factory air-gap qualification"
+    status_code: [201, 409, 422]
+  no_log: true
+
+- name: Create the generated private-Git chart staging directory
+  ansible.builtin.file:
+    path: "{{ airgap_generated_dir }}/git-chart-repo/assets/airgap-smoke"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_become: false
+
+- name: Package the private-Git smoke chart
+  ansible.builtin.command:
+    argv:
+      - helm
+      - package
+      - "{{ playbook_dir }}/../fixtures/charts/airgap-smoke"
+      - --destination
+      - "{{ airgap_generated_dir }}/git-chart-repo/assets/airgap-smoke"
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_become: false
+  changed_when: true
+
+- name: Generate the private-Git Helm index
+  ansible.builtin.command:
+    argv:
+      - helm
+      - repo
+      - index
+      - "{{ airgap_generated_dir }}/git-chart-repo/assets/airgap-smoke"
+      - --url
+      - assets/airgap-smoke
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_become: false
+  changed_when: true
+
+- name: Read the generated private-Git chart archive and index
+  ansible.builtin.slurp:
+    src: "{{ item }}"
+  loop:
+    - "{{ airgap_generated_dir }}/git-chart-repo/assets/airgap-smoke/airgap-smoke-{{ smoke_chart_version }}.tgz"
+    - "{{ airgap_generated_dir }}/git-chart-repo/assets/airgap-smoke/index.yaml"
+  register: private_git_chart_files
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_become: false
+  no_log: true
+
+- name: Inspect the private-Git chart files in Gitea
+  ansible.builtin.uri:
+    url: >-
+      {{ gitea_url }}/api/v1/repos/{{ gitea_admin_username }}/{{ gitea_chart_repository
+      }}/contents/{{ item }}?ref=main
+    method: GET
+    url_username: "{{ gitea_admin_username }}"
+    url_password: "{{ gitea_admin_password }}"
+    force_basic_auth: true
+    ca_path: "{{ '/etc/pki/trust/anchors/aif-airgap-lab-ca.crt' if (gitea_tls_enabled | bool) else omit }}"
+    status_code: [200, 404]
+  loop:
+    - "assets/airgap-smoke/airgap-smoke-{{ smoke_chart_version }}.tgz"
+    - index.yaml
+  register: private_git_chart_existing
+  no_log: true
+
+- name: Publish the chart archive and index to private Gitea
+  ansible.builtin.uri:
+    url: >-
+      {{ gitea_url }}/api/v1/repos/{{ gitea_admin_username }}/{{ gitea_chart_repository
+      }}/contents/{{ item.path }}
+    method: "{{ 'PUT' if private_git_chart_existing.results[item.index].status == 200 else 'POST' }}"
+    url_username: "{{ gitea_admin_username }}"
+    url_password: "{{ gitea_admin_password }}"
+    force_basic_auth: true
+    ca_path: "{{ '/etc/pki/trust/anchors/aif-airgap-lab-ca.crt' if (gitea_tls_enabled | bool) else omit }}"
+    body_format: json
+    body:
+      branch: main
+      message: "test: publish private Helm repository fixture"
+      content: "{{ private_git_chart_files.results[item.index].content }}"
+      sha: >-
+        {{ private_git_chart_existing.results[item.index].json.sha
+           if private_git_chart_existing.results[item.index].status == 200 else omit }}
+    status_code: [200, 201]
+  loop:
+    - index: 0
+      path: "assets/airgap-smoke/airgap-smoke-{{ smoke_chart_version }}.tgz"
+    - index: 1
+      path: index.yaml
+  when: >-
+    private_git_chart_existing.results[item.index].status != 200 or
+    private_git_chart_existing.results[item.index].json.content !=
+    private_git_chart_files.results[item.index].content
+  no_log: true
+
 - name: Inspect the private-Git Blueprint fixture in Gitea
   ansible.builtin.uri:
     url: "{{ gitea_url }}/api/v1/repos/{{ gitea_admin_username }}/{{ gitea_repository }}/contents/blueprints/git-sourced-airgap.yaml?ref=main"
@@ -418,4 +537,5 @@
     msg:
       - "Harbor: https://{{ harbor_hostname }}"
       - "Gitea: {{ gitea_url }}/{{ gitea_admin_username }}/{{ gitea_repository }}.git"
+      - "Private chart Git: {{ gitea_url }}/{{ gitea_admin_username }}/{{ gitea_chart_repository }}.git"
       - "CA: {{ airgap_generated_dir }}/pki/ca.crt on the Ansible controller"

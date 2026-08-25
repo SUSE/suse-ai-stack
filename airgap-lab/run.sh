@@ -141,6 +141,16 @@ case "${phase}" in
       -e smoke_workload_name=airgap-logical-multi \
       -e smoke_verify_source_switch=true \
       "${lab_dir}/playbooks/05-smoke.yml"
+    play -e smoke_strategy=FleetBundle -e smoke_application_mode=logical \
+      -e smoke_application_source_ref=private-gitea-applications \
+      -e smoke_fleet_resource_kind=bundle \
+      -e smoke_workload_name=airgap-git-chart-multi \
+      "${lab_dir}/playbooks/05-smoke.yml"
+    play -e smoke_strategy=GitOps -e smoke_application_mode=logical \
+      -e smoke_application_source_ref=private-gitea-applications \
+      -e smoke_fleet_resource_kind=bundle \
+      -e smoke_workload_name=airgap-git-chart-multi \
+      "${lab_dir}/playbooks/05-smoke.yml"
     ;;
   verify)
     require_config

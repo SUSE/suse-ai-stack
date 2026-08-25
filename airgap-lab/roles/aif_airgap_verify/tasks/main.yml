@@ -85,6 +85,95 @@
     executable: /bin/bash
   changed_when: false
 
+- name: Confirm the private-Gitea application chart source configuration
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    repo={{ gitea_chart_clusterrepo | quote }}
+    expected_url={{ (gitea_url ~ '/' ~ gitea_admin_username ~ '/' ~ gitea_chart_repository ~ '.git') | quote }}
+    token_secret={{ rancher_catalog_token_secret | quote }}
+
+    settings=$("${kubectl}" -n {{ aif_namespace | quote }} get settings settings \
+      -o json --kubeconfig "${kubeconfig}")
+    jq -e --arg secret "${token_secret}" '
+      .spec.rancherCatalog.tokenSecretRef == {name: $secret, key: "token"}
+    ' <<<"${settings}" >/dev/null
+
+    object=$("${kubectl}" get clusterrepo "${repo}" -o json --kubeconfig "${kubeconfig}")
+    jq -e --arg url "${expected_url}" --arg secret "${repo}-auth" '
+      .spec.gitRepo == $url and
+      .spec.gitBranch == "main" and
+      .spec.clientSecret.name == $secret and
+      .spec.clientSecret.namespace == "cattle-system" and
+      (.status.commit | length > 0) and
+      .metadata.generation == .status.observedGeneration and
+      any(.status.conditions[]?; .type == "Downloaded" and .status == "True")
+    ' <<<"${object}" >/dev/null
+
+    expected_ca=$(openssl x509 -outform DER -in /var/lib/aif-airgap-lab-ca.crt | sha256sum | awk '{print $1}')
+    configured_ca=$(jq -r '.spec.caBundle' <<<"${object}" | base64 -d | sha256sum | awk '{print $1}')
+    [[ "${configured_ca}" == "${expected_ca}" ]]
+    "${kubectl}" -n cattle-system get secret "${repo}-auth" -o json \
+      --kubeconfig "${kubeconfig}" \
+      | jq -e '.type == "kubernetes.io/basic-auth" and .data.username and .data.password' >/dev/null
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Download the private-Gitea chart through AIF's Rancher catalog credential
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    repo={{ gitea_chart_clusterrepo | quote }}
+    token_secret={{ rancher_catalog_token_secret | quote }}
+    chart_archive=$(mktemp /var/lib/aif-airgap-git-chart.XXXXXX.tgz)
+    cleanup() { rm -f -- "${chart_archive}"; }
+    trap cleanup EXIT
+    token=$("${kubectl}" -n {{ aif_namespace | quote }} get secret "${token_secret}" \
+      -o jsonpath='{.data.token}' --kubeconfig "${kubeconfig}" | base64 -d)
+    [[ -n "${token}" ]]
+    curl --silent --show-error --fail \
+      --cacert /var/lib/aif-airgap-rancher-ca.crt \
+      --header "Authorization: Bearer ${token}" \
+      "{{ rancher_url }}/v1/catalog.cattle.io.clusterrepos/${repo}?link=chart&chartName=airgap-smoke&version={{ smoke_chart_version }}" \
+      --output "${chart_archive}"
+    chart_metadata=$(helm show chart "${chart_archive}")
+    name=$(awk '/^name:/ {print $2; exit}' <<<"${chart_metadata}")
+    version=$(awk '/^version:/ {print $2; exit}' <<<"${chart_metadata}")
+    if [[ "${name}" != airgap-smoke || "${version}" != {{ smoke_chart_version | quote }} ]]; then
+      printf 'unexpected chart metadata: name=%s version=%s\n' "${name}" "${version}" >&2
+      exit 1
+    fi
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Confirm the private-Gitea chart deployed through both Fleet workspaces
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    for namespace in fleet-local fleet-default; do
+      bundle="airgap-git-chart-multi-gitops-airgap-smoke"
+      "${kubectl}" -n "${namespace}" get bundle "${bundle}" -o json \
+        --kubeconfig "${kubeconfig}" \
+        | jq -e '
+            (.spec.helm.chart == "airgap-smoke") and
+            any(.spec.resources[]?; .name == "airgap-smoke/Chart.yaml")
+          ' >/dev/null
+    done
+    "${kubectl}" -n {{ smoke_namespace | quote }} get aiworkload \
+      airgap-git-chart-multi-gitops -o json --kubeconfig "${kubeconfig}" \
+      | jq -e '
+          .status.phase == "Running" and
+          ([.status.clusterStatuses[] | select(.phase == "Running")] | length == 2)
+        ' >/dev/null
+  args:
+    executable: /bin/bash
+  changed_when: false
+
 - name: Confirm private-CA Gitea is trusted by both AIF and Fleet
   ansible.builtin.shell: |
     set -euo pipefail
@@ -192,7 +281,7 @@
       printf 'pod_probe=%s\n' {{ pod_probe_log.stdout | trim | quote }}
       helm list --all-namespaces --kubeconfig "${kubeconfig}"
       "${kubectl}" get settings -A -o yaml --kubeconfig "${kubeconfig}"
-      "${kubectl}" get clusterrepo application-collection suse-ai-registry nvidia -o yaml --kubeconfig "${kubeconfig}"
+      "${kubectl}" get clusterrepo application-collection suse-ai-registry nvidia {{ gitea_chart_clusterrepo | quote }} -o yaml --kubeconfig "${kubeconfig}"
       "${kubectl}" -n fleet-local get gitrepo suse-ai-fleet-repo -o yaml --kubeconfig "${kubeconfig}"
       "${kubectl}" get application,blueprint -o yaml --kubeconfig "${kubeconfig}"
       "${kubectl}" get gitrepo,helmop,bundle -A -o wide --kubeconfig "${kubeconfig}"
@@ -224,6 +313,7 @@
 - name: Report verification result
   ansible.builtin.debug:
     msg:
-      - "AIF and UI are Ready from Harbor; all three private catalogs have downloaded."
+      - "AIF and UI are Ready from Harbor; all four private application catalogs have downloaded."
+      - "The authenticated private-Gitea chart source deployed through both Fleet workspaces."
       - "Host and pod public TCP probes were rejected while Harbor and Gitea stayed reachable."
       - "Redacted evidence was fetched under {{ airgap_evidence_dir }}."

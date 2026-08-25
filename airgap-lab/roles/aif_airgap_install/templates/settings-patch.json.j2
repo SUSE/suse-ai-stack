@@ -5,6 +5,12 @@
 {%- endmacro %}
 {
   "spec": {
+    "rancherCatalog": {
+      "tokenSecretRef": {
+        "name": {{ rancher_catalog_token_secret | to_json }},
+        "key": "token"
+      }
+    },
     "fleet": {
       "repoURL": {{ (gitea_url ~ '/' ~ gitea_admin_username ~ '/' ~ gitea_repository ~ '.git') | to_json }},
       "branch": "main",
