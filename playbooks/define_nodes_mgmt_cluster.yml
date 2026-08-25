@@ -73,16 +73,6 @@
         [all:vars]
         ansible_user="{{ vm_ansible_user | default('ai') }}"
 
-  - name: Set python-PyYAML package name
-    set_fact:
-      mgmt_pyyaml_package_name: "{{ 'python313-PyYAML' if cluster.image_distro == 'sles' and cluster.image_distro_version.startswith('16')  else 'python311-PyYAML' }}"
-    when: cluster is defined
-
-  - name: Set python-PyYAML package name
-    set_fact:
-      mgmt_pyyaml_package_name: 'python311-PyYAML'
-    when: cluster is not defined
-
   # Resolve the SUSE AI Factory (aif-operator) chart version.
   # Precedence: suse_ai_factory.version from extra_vars (explicit override),
   # otherwise the latest chart version published to the OCI registry. By default
@@ -180,9 +170,7 @@
         suse_packages: {{
           (["open-iscsi", "nfs-client", "cryptsetup", "device-mapper"]
           if enable_longhorn | default(false) else [])
-          + ["jq",
-            mgmt_pyyaml_package_name,
-            "curl", "git", "pciutils"]
+          + ["jq", "curl", "git", "pciutils"]
         }}
 
         suse_ai_factory:

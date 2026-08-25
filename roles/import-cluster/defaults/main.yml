@@ -1,0 +1,3 @@
+---
+# OpenTofu version to install for importing the cluster.
+tofu_version: "1.12.6"

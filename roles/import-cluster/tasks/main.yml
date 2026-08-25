@@ -1,17 +1,5 @@
 ---
 
-# Since unzip is not available in sle-micro, this is a workaround.
-- name: Install unzip package required to install opentofu on sle-micro
-  become: true
-  shell: |
-    transactional-update --continue -n pkg install --auto-agree-with-licenses https://download.opensuse.org/distribution/leap/15.6/repo/oss/{{ ansible_facts.architecture }}/unzip-6.00-150000.4.11.1.{{ ansible_facts.architecture }}.rpm
-  when: ansible_distribution == 'SL-Micro'
-
-- name: Install unzip package on SLES
-  become: true
-  shell: |
-    zypper install -y unzip
-  when: ansible_distribution == 'SLES'
 
 - name: Check AWS configuration
   fail:
@@ -35,13 +23,31 @@
       -H 'Content-Type: application/json' \
       --data-binary "{\"name\": \"server-url\", \"value\":\"${RANCHER_URL}\"}"
 
-- name: Download OpenTofu Installer script and install it
-  shell: |
-    curl --proto '=https' --tlsv1.2 -fsSL https://get.opentofu.org/install-opentofu.sh -o install-opentofu.sh
-    chmod +x install-opentofu.sh
-    ./install-opentofu.sh --install-method standalone
-  register: opentofu_install_result
-  failed_when: "'Error' in opentofu_install_result.stdout"
+# Install OpenTofu by downloading the release archive directly and extracting
+# it with Python's zipfile module. This avoids the standalone installer's
+# dependency on the `unzip` binary, which is not available (and cannot be made
+# available without a reboot) on immutable SL-Micro hosts.
+- name: Determine OpenTofu download architecture
+  set_fact:
+    tofu_arch: "{{ 'amd64' if ansible_facts.architecture == 'x86_64' else 'arm64' }}"
+
+- name: Download OpenTofu release archive
+  ansible.builtin.get_url:
+    url: "https://github.com/opentofu/opentofu/releases/download/v{{ tofu_version }}/tofu_{{ tofu_version }}_linux_{{ tofu_arch }}.zip"
+    dest: "/tmp/tofu_{{ tofu_version }}_linux_{{ tofu_arch }}.zip"
+    mode: '0644'
+
+- name: Install tofu binary to /usr/local/bin (no unzip dependency)
+  become: true
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import zipfile
+    with zipfile.ZipFile("/tmp/tofu_{{ tofu_version }}_linux_{{ tofu_arch }}.zip") as z:
+        z.extract("tofu", "/usr/local/bin")
+    PY
+    chmod +x /usr/local/bin/tofu
+  args:
+    creates: /usr/local/bin/tofu
 
 - name: Create ~/terraform-import-cluster directory
   ansible.builtin.file:

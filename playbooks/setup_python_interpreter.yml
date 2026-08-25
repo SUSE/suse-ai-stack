@@ -32,20 +32,20 @@
 
     - name: Set mgmt cluster python_interpreter sles
       set_fact:
-        python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3.11') }}"
+        python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3.13' if cluster.image_distro_version | string is match('^16') else '/usr/bin/python3.11') }}"
       when:
         - cluster is defined and cluster.image_distro == "sles"
 
     - name: Set suse-ai cluster python_interpreter sles
       set_fact:
-        suse_ai_python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3.11') }}"
+        suse_ai_python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3.13' if (suse_ai_cluster.image_distro_version if suse_ai_cluster is defined else cluster.image_distro_version) | string is match('^16') else '/usr/bin/python3.11') }}"
       when: >
         (suse_ai_cluster is not defined and cluster is defined and cluster.image_distro == "sles") or
         (suse_ai_cluster is defined and suse_ai_cluster.image_distro == "sles")
 
     - name: Set suse-observability cluster python_interpreter sles
       set_fact:
-        suse_observability_python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3.11') }}"
+        suse_observability_python_interpreter: "{{ vm_python_interpreter | default('/usr/bin/python3.13' if (suse_observability_cluster.image_distro_version if suse_observability_cluster is defined else cluster.image_distro_version) | string is match('^16') else '/usr/bin/python3.11') }}"
       when: >
         (suse_observability_cluster is not defined and cluster is defined and cluster.image_distro == "sles") or
         (suse_observability_cluster is defined and suse_observability_cluster.image_distro == "sles")

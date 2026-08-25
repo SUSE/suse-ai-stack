@@ -66,7 +66,7 @@ suse_ai_cluster:
   root_volume_size: 350
   image_arch: "x86_64" # options supported "x86_64" and "arm64". Please update the instance type based on the chosen image_arch.
   image_distro: "sles" # options supported are "sles" and "sle-micro"
-  image_distro_version: "15-sp7" # "15-sp7" for sles and "6.0" for sle-micro as example
+  image_distro_version: "15-sp7" # "15-sp7" or "16-0" for sles and "6.0" for sle-micro as example
   instance_type_cp: "g4dn.2xlarge"
   instance_type_gpu: "g4dn.2xlarge" #g4dn instance type has GPU
   instance_type_nongpu: "m5d.2xlarge"
@@ -85,7 +85,7 @@ suse_observability_cluster:
   root_volume_size: 350
   image_arch: "x86_64" # options supported "x86_64" and "arm64". Please update the instance type based on the chosen image_arch.
   image_distro: "sles" # options supported are "sles" and "sle-micro"
-  image_distro_version: "15-sp7" # "15-sp7" for sles and "6.0" for sle-micro as example
+  image_distro_version: "15-sp7" # "15-sp7" or "16-0" for sles and "6.0" for sle-micro as example
   instance_type_cp: "t3a.2xlarge"
   instance_type_worker: "t3a.2xlarge"
   num_cp_nodes: 1
