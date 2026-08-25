@@ -263,22 +263,32 @@
       no_log: true
 
 
-- name: Wait for Fleet to materialize this workload's HelmOp
+- name: Wait for Fleet to materialize this workload's HelmOp in every target workspace
   ansible.builtin.shell: |
     set -euo pipefail
     bundle={{ smoke_bundle_name.stdout | trim | quote }}
+    targets={{ smoke_target_clusters | to_json | quote }}
     kubectl=/var/lib/rancher/rke2/bin/kubectl
     kubeconfig=/etc/rancher/rke2/rke2.yaml
+    mapfile -t namespaces < <(
+      jq -r '
+        (if index("local") then "fleet-local" else empty end),
+        (if any(. != "local") then "fleet-default" else empty end)
+      ' <<<"${targets}"
+    )
     deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
     while (( SECONDS < deadline )); do
-      location=$("${kubectl}" get helmop --all-namespaces -o json \
-        --kubeconfig "${kubeconfig}" 2>/dev/null \
-        | jq -r --arg bundle "${bundle}" \
-            '[.items[] | select(.metadata.name == $bundle)][0]
-             | if . == null then empty else .metadata.namespace + "/" + .metadata.name end' \
-        || true)
-      if [[ -n "${location}" ]]; then
-        printf '%s\n' "${location}"
+      missing=false
+      for namespace in "${namespaces[@]}"; do
+        if ! "${kubectl}" -n "${namespace}" get helmop "${bundle}" \
+          --kubeconfig "${kubeconfig}" >/dev/null 2>&1; then
+          missing=true
+        fi
+      done
+      if [[ "${missing}" == false ]]; then
+        for namespace in "${namespaces[@]}"; do
+          printf '%s/%s\n' "${namespace}" "${bundle}"
+        done
         exit 0
       fi
       sleep 5
@@ -292,7 +302,6 @@
     exit 1
   args:
     executable: /bin/bash
-  register: smoke_helmop_location
   changed_when: false
 
 - name: Reapply the compatibility CA after AIF materializes the HelmOp
@@ -302,9 +311,14 @@
     set -euo pipefail
     kubectl=/var/lib/rancher/rke2/bin/kubectl
     kubeconfig=/etc/rancher/rke2/rke2.yaml
-    location={{ smoke_helmop_location.stdout | trim | quote }}
-    helmop_namespace="${location%%/*}"
-    helmop_name="${location#*/}"
+    bundle={{ smoke_bundle_name.stdout | trim | quote }}
+    targets={{ smoke_target_clusters | to_json | quote }}
+    mapfile -t namespaces < <(
+      jq -r '
+        (if index("local") then "fleet-local" else empty end),
+        (if any(. != "local") then "fleet-default" else empty end)
+      ' <<<"${targets}"
+    )
     ca=$(/usr/bin/base64 -w 0 /var/lib/aif-airgap-lab-ca.crt)
     for namespace in cattle-system fleet-local fleet-default; do
       for secret in application-collection-auth suse-ai-registry-auth ngc-helm-auth; do
@@ -313,9 +327,11 @@
           --kubeconfig "${kubeconfig}" >/dev/null
       done
     done
-    "${kubectl}" -n "${helmop_namespace}" annotate helmop "${helmop_name}" \
-      airgap-lab.suse.com/ca-retry="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite \
-      --kubeconfig "${kubeconfig}" >/dev/null
+    for namespace in "${namespaces[@]}"; do
+      "${kubectl}" -n "${namespace}" annotate helmop "${bundle}" \
+        airgap-lab.suse.com/ca-retry="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite \
+        --kubeconfig "${kubeconfig}" >/dev/null
+    done
   args:
     executable: /bin/bash
   changed_when: true
@@ -327,35 +343,46 @@
     set -euo pipefail
     kubectl=/var/lib/rancher/rke2/bin/kubectl
     kubeconfig=/etc/rancher/rke2/rke2.yaml
-    location={{ smoke_helmop_location.stdout | trim | quote }}
-    helmop_namespace="${location%%/*}"
-    helmop_name="${location#*/}"
+    bundle={{ smoke_bundle_name.stdout | trim | quote }}
+    targets={{ smoke_target_clusters | to_json | quote }}
+    mapfile -t namespaces < <(
+      jq -r '
+        (if index("local") then "fleet-local" else empty end),
+        (if any(. != "local") then "fleet-default" else empty end)
+      ' <<<"${targets}"
+    )
     ca=$(/usr/bin/base64 -w 0 /var/lib/aif-airgap-lab-ca.crt)
-    helm_secret=$("${kubectl}" -n "${helmop_namespace}" get helmop "${helmop_name}" \
-      -o jsonpath='{.spec.helmSecretName}' --kubeconfig "${kubeconfig}")
-    [[ -n "${helm_secret}" ]]
     deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
     while (( SECONDS < deadline )); do
-      accepted=$("${kubectl}" -n "${helmop_namespace}" get helmop "${helmop_name}" \
-        -o json --kubeconfig "${kubeconfig}" 2>/dev/null \
-        | jq -r '[.status.conditions[]? | select(.type == "Accepted") | .status][-1] // ""' \
-        || true)
-      [[ "${accepted}" == "True" ]] && exit 0
-      # The compatibility path races the AIF controller, which may regenerate
-      # this Secret without cacerts after the HelmOp first appears. Restore the
-      # CA on every retry and retrigger Fleet until it observes the patched copy.
-      "${kubectl}" -n "${helmop_namespace}" patch secret "${helm_secret}" \
-        --type merge --patch "{\"data\":{\"cacerts\":\"${ca}\"}}" \
-        --kubeconfig "${kubeconfig}" >/dev/null
-      "${kubectl}" -n "${helmop_namespace}" annotate helmop "${helmop_name}" \
-        airgap-lab.suse.com/ca-retry="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite \
-        --kubeconfig "${kubeconfig}" >/dev/null
+      all_accepted=true
+      for namespace in "${namespaces[@]}"; do
+        object=$("${kubectl}" -n "${namespace}" get helmop "${bundle}" \
+          -o json --kubeconfig "${kubeconfig}" 2>/dev/null || true)
+        helm_secret=$(jq -r '.spec.helmSecretName // ""' <<<"${object}")
+        accepted=$(jq -r '[.status.conditions[]? | select(.type == "Accepted") | .status][-1] // ""' <<<"${object}")
+        if [[ -n "${helm_secret}" && "${accepted}" == "True" ]]; then
+          continue
+        fi
+        all_accepted=false
+        [[ -n "${helm_secret}" ]] || continue
+        # The compatibility path races the AIF controller, which may regenerate
+        # this Secret without cacerts after the HelmOp first appears. Restore the
+        # CA on every retry and retrigger Fleet until it observes the patched copy.
+        "${kubectl}" -n "${namespace}" patch secret "${helm_secret}" \
+          --type merge --patch "{\"data\":{\"cacerts\":\"${ca}\"}}" \
+          --kubeconfig "${kubeconfig}" >/dev/null
+        "${kubectl}" -n "${namespace}" annotate helmop "${bundle}" \
+          airgap-lab.suse.com/ca-retry="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite \
+          --kubeconfig "${kubeconfig}" >/dev/null
+      done
+      [[ "${all_accepted}" == true ]] && exit 0
       sleep 5
     done
-    printf 'Fleet did not accept compatibility-CA HelmOp %s/%s\n' \
-      "${helmop_namespace}" "${helmop_name}" >&2
-    "${kubectl}" -n "${helmop_namespace}" get helmop "${helmop_name}" -o yaml \
-      --kubeconfig "${kubeconfig}" >&2 || true
+    printf 'Fleet did not accept every compatibility-CA HelmOp for %s\n' "${bundle}" >&2
+    for namespace in "${namespaces[@]}"; do
+      "${kubectl}" -n "${namespace}" get helmop "${bundle}" -o yaml \
+        --kubeconfig "${kubeconfig}" >&2 || true
+    done
     exit 1
   args:
     executable: /bin/bash
@@ -364,13 +391,23 @@
 - name: Wait for the smoke AIWorkload to become Running
   ansible.builtin.shell: |
     set -euo pipefail
+    expected={{ smoke_target_clusters | to_json | quote }}
     deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
     while (( SECONDS < deadline )); do
-      phase=$(/var/lib/rancher/rke2/bin/kubectl -n {{ smoke_namespace | quote }} \
+      object=$(/var/lib/rancher/rke2/bin/kubectl -n {{ smoke_namespace | quote }} \
         get aiworkload {{ (smoke_workload_name ~ '-' ~ (smoke_strategy | lower)) | quote }} \
         --kubeconfig /etc/rancher/rke2/rke2.yaml \
-        -o jsonpath='{.status.phase}' 2>/dev/null || true)
-      [[ "${phase}" == "Running" ]] && exit 0
+        -o json 2>/dev/null || true)
+      if jq -e --argjson expected "${expected}" '
+          . as $workload |
+          ($workload.status.phase == "Running") and
+          ($expected | all(. as $cluster |
+            any($workload.status.clusterStatuses[]?;
+              .clusterId == $cluster and .phase == "Running")))
+        ' <<<"${object}" >/dev/null 2>&1; then
+        exit 0
+      fi
+      phase=$(jq -r '.status.phase // ""' <<<"${object}")
       # Degraded is transient while one target is still progressing. Preserve
       # the bounded wait and fail fast only for the terminal Failed phase.
       [[ "${phase}" == "Failed" ]] && break
@@ -401,6 +438,41 @@
   register: smoke_blueprint_spec_before_switch
   changed_when: false
 
+- name: Capture Fleet reconciliation state before switching the Application source
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    bundle={{ smoke_bundle_name.stdout | trim | quote }}
+    targets={{ smoke_target_clusters | to_json | quote }}
+    mapfile -t namespaces < <(
+      jq -r '
+        (if index("local") then "fleet-local" else empty end),
+        (if any(. != "local") then "fleet-default" else empty end)
+      ' <<<"${targets}"
+    )
+    state='{}'
+    for namespace in "${namespaces[@]}"; do
+      object=$("${kubectl}" -n "${namespace}" get helmop "${bundle}" -o json \
+        --kubeconfig "${kubeconfig}")
+      resource_version=$(jq -r '.metadata.resourceVersion' <<<"${object}")
+      ready_time=$(jq -r '[.status.conditions[]? | select(.type == "Ready") | .lastUpdateTime][-1] // ""' <<<"${object}")
+      state=$(jq -c \
+        --arg namespace "${namespace}" \
+        --arg resource_version "${resource_version}" \
+        --arg ready_time "${ready_time}" \
+        '. + {($namespace): {resourceVersion: $resource_version, readyTime: $ready_time}}' \
+        <<<"${state}")
+    done
+    printf '%s\n' "${state}"
+  args:
+    executable: /bin/bash
+  when:
+    - smoke_application_mode == 'logical'
+    - smoke_verify_source_switch | bool
+  register: smoke_helmops_before_switch
+  changed_when: false
+
 - name: Switch only the logical Application to the second private source
   ansible.builtin.command:
     cmd: >-
@@ -413,30 +485,101 @@
     - smoke_verify_source_switch | bool
   changed_when: true
 
-- name: Wait for Fleet to accept the chart from the switched private source
+- name: Wait for every Fleet workspace to reconcile the switched private source
   ansible.builtin.shell: |
     set -euo pipefail
     kubectl=/var/lib/rancher/rke2/bin/kubectl
     kubeconfig=/etc/rancher/rke2/rke2.yaml
-    location={{ smoke_helmop_location.stdout | trim | quote }}
-    namespace="${location%%/*}"
-    name="${location#*/}"
+    bundle={{ smoke_bundle_name.stdout | trim | quote }}
+    targets={{ smoke_target_clusters | to_json | quote }}
+    baseline={{ smoke_helmops_before_switch.stdout | trim | quote }}
     expected={{ smoke_switch_repo_url | quote }}
+    source_ref={{ smoke_switch_source_ref | quote }}
+    mapfile -t namespaces < <(
+      jq -r '
+        (if index("local") then "fleet-local" else empty end),
+        (if any(. != "local") then "fleet-default" else empty end)
+      ' <<<"${targets}"
+    )
+    expected_secret=$("${kubectl}" get clusterrepo "${source_ref}" \
+      -o jsonpath='{.spec.clientSecret.name}' --kubeconfig "${kubeconfig}")
+    [[ -n "${expected_secret}" ]]
     deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
     while (( SECONDS < deadline )); do
-      object=$("${kubectl}" -n "${namespace}" get helmop "${name}" -o json \
-        --kubeconfig "${kubeconfig}" 2>/dev/null || true)
-      repo=$(jq -r '.spec.helm.repo // ""' <<<"${object}")
-      generation=$(jq -r '.metadata.generation // 0' <<<"${object}")
-      observed=$(jq -r '.status.observedGeneration // 0' <<<"${object}")
-      accepted=$(jq -r '[.status.conditions[]? | select(.type == "Accepted") | .status][-1] // ""' <<<"${object}")
-      if [[ "${repo}" == "${expected}" && "${observed}" == "${generation}" && "${accepted}" == "True" ]]; then
+      all_ready=true
+      for namespace in "${namespaces[@]}"; do
+        object=$("${kubectl}" -n "${namespace}" get helmop "${bundle}" -o json \
+          --kubeconfig "${kubeconfig}" 2>/dev/null || true)
+        before_resource_version=$(jq -r --arg namespace "${namespace}" \
+          '.[$namespace].resourceVersion // ""' <<<"${baseline}")
+        before_ready_time=$(jq -r --arg namespace "${namespace}" \
+          '.[$namespace].readyTime // ""' <<<"${baseline}")
+        repo=$(jq -r '.spec.helm.repo // ""' <<<"${object}")
+        helm_secret=$(jq -r '.spec.helmSecretName // ""' <<<"${object}")
+        resource_version=$(jq -r '.metadata.resourceVersion // ""' <<<"${object}")
+        ready_time=$(jq -r '[.status.conditions[]? | select(.type == "Ready") | .lastUpdateTime][-1] // ""' <<<"${object}")
+        accepted=$(jq -r '[.status.conditions[]? | select(.type == "Accepted") | .status][-1] // ""' <<<"${object}")
+        ready=$(jq -r '[.status.conditions[]? | select(.type == "Ready") | .status][-1] // ""' <<<"${object}")
+        desired=$(jq -r '.status.desiredReadyClusters // 0' <<<"${object}")
+        actual=$(jq -r '.status.readyClusters // 0' <<<"${object}")
+        if [[ "${repo}" != "${expected}" \
+           || "${helm_secret}" != "${expected_secret}" \
+           || -z "${resource_version}" \
+           || "${resource_version}" == "${before_resource_version}" \
+           || -z "${ready_time}" \
+           || "${ready_time}" == "${before_ready_time}" \
+           || "${accepted}" != "True" \
+           || "${ready}" != "True" \
+           || "${desired}" == 0 \
+           || "${actual}" != "${desired}" ]]; then
+          all_ready=false
+        fi
+        if ! "${kubectl}" -n "${namespace}" get secret "${expected_secret}" -o json \
+          --kubeconfig "${kubeconfig}" 2>/dev/null \
+          | jq -e '.data.username and .data.password and .data.cacerts' >/dev/null; then
+          all_ready=false
+        fi
+      done
+      if [[ "${all_ready}" == true ]]; then
         exit 0
       fi
       sleep 5
     done
-    "${kubectl}" -n "${namespace}" get helmop "${name}" -o yaml \
-      --kubeconfig "${kubeconfig}" >&2 || true
+    for namespace in "${namespaces[@]}"; do
+      "${kubectl}" -n "${namespace}" get helmop "${bundle}" -o yaml \
+        --kubeconfig "${kubeconfig}" >&2 || true
+    done
+    exit 1
+  args:
+    executable: /bin/bash
+  when:
+    - smoke_application_mode == 'logical'
+    - smoke_verify_source_switch | bool
+  changed_when: false
+
+- name: Require the switched workload to remain Running on every target cluster
+  ansible.builtin.shell: |
+    set -euo pipefail
+    expected={{ smoke_target_clusters | to_json | quote }}
+    deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
+    while (( SECONDS < deadline )); do
+      object=$(/var/lib/rancher/rke2/bin/kubectl -n {{ smoke_namespace | quote }} \
+        get aiworkload {{ (smoke_workload_name ~ '-' ~ (smoke_strategy | lower)) | quote }} \
+        --kubeconfig /etc/rancher/rke2/rke2.yaml -o json 2>/dev/null || true)
+      if jq -e --argjson expected "${expected}" '
+          . as $workload |
+          ($workload.status.phase == "Running") and
+          ($expected | all(. as $cluster |
+            any($workload.status.clusterStatuses[]?;
+              .clusterId == $cluster and .phase == "Running")))
+        ' <<<"${object}" >/dev/null 2>&1; then
+        exit 0
+      fi
+      sleep 5
+    done
+    /var/lib/rancher/rke2/bin/kubectl -n {{ smoke_namespace | quote }} \
+      get aiworkload {{ (smoke_workload_name ~ '-' ~ (smoke_strategy | lower)) | quote }} -o yaml \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml >&2 || true
     exit 1
   args:
     executable: /bin/bash
