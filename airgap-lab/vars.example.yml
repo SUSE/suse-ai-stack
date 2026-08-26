@@ -153,12 +153,17 @@ smoke_workload_name: "airgap-smoke-local"
 smoke_release_name: "{{ smoke_workload_name }}-{{ smoke_strategy | lower }}"
 smoke_chart_version: "0.1.0"
 smoke_timeout_seconds: 900
-smoke_application_mode: "direct"  # direct | logical
-smoke_application_name: "airgap.smoke"
-smoke_application_source_ref: "application-collection"
-smoke_verify_source_switch: false
-smoke_switch_source_ref: "suse-ai-registry"
-smoke_switch_repo_url: "oci://{{ harbor_hostname }}/{{ suse_chart_project }}/airgap-smoke"
+# Blueprints refer directly to a stable Rancher ClusterRepo name. The reroute
+# case changes only that ClusterRepo's endpoint and proves this field is stable.
+smoke_chart_repo: "application-collection"
+smoke_verify_registry_reroute: false
+smoke_primary_registry_endpoint: "oci://{{ harbor_hostname }}/{{ appco_chart_project }}"
+smoke_reroute_registry_endpoint: "oci://{{ harbor_hostname }}/{{ suse_chart_project }}"
+# The branch-change case creates this disposable branch, verifies republication,
+# and restores Fleet to the baseline branch before the matrix continues.
+smoke_verify_fleet_branch_change: false
+smoke_fleet_branch: "main"
+smoke_fleet_alternate_branch: "airgap-republish"
 smoke_git_auth_type: "current"  # current | token | basic
 smoke_fleet_resource_kind: "helmop"  # helmop | bundle
 

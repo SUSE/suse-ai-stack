@@ -336,9 +336,12 @@ The qualified path uses authenticated, private-CA HTTPS Gitea. One Fleet
 setting references the CA Secret; AIF loads it into go-git and the Settings
 controller writes the same PEM bundle to the generated Fleet `GitRepo`. The
 matrix performs real Git writes with both token and basic authentication and
-checks that AIF and Fleet observe an in-place mode change. The repository's
-`blueprints/` path delivers source-independent Blueprint CRs while `workloads/`
-carries AIF-generated Fleet resources. Insecure TLS is never used.
+checks that AIF and Fleet observe an in-place mode change. It also moves the
+same `GitRepo` to a clean alternate branch, requires AIF to republish the
+unchanged GitOps manifest there, and restores `main`. The repository's
+`blueprints/` path delivers Blueprint CRs with direct, stable `chartRepo`
+references while `workloads/` carries AIF-generated Fleet resources. Insecure
+TLS is never used.
 
 A separate private Gitea repository is also a Helm chart source. Rancher clones
 it with a `ClusterRepo` credential and private CA, while AIF uses a Rancher API
@@ -347,16 +350,36 @@ lab token inherits the lab administrator's access and lasts for the disposable
 environment; a production installation must define least-privilege access,
 expiry, rotation, and revocation for that credential.
 
-The acceptance matrix contains eleven deployments: direct and logical
-Blueprints, pre-provisioned Blueprints from private Git, both FleetBundle and
-GitOps strategies, local and downstream targets, an in-place source switch,
-both Git authentication modes, and private-Gitea-backed application charts.
-The last two cases require the chart to be embedded in Bundles in both Fleet
-workspaces, proving that the workload no longer depends on Gitea at install
-time.
+The acceptance matrix contains seven deployments: direct Blueprints through
+both FleetBundle and GitOps on local and downstream targets; a Blueprint
+delivered from private Git; and a private-Gitea-backed chart through both
+strategies. It covers token and basic Git authentication, branch-change
+republication, and an in-place change of the `application-collection`
+ClusterRepo endpoint while requiring its UID and the Blueprint spec to remain
+unchanged. The final two cases embed the git-backed chart in Bundles in both
+Fleet workspaces, proving that the workload no longer depends on Gitea at
+install time.
+
+These checks keep the environment and operator responsibilities separate.
+RKE2's registry mirror configuration redirects container image pulls; AIF
+Settings and Rancher's existing `ClusterRepo`/Fleet resources select private
+chart, Blueprint, and Git sources. The lab qualifies both contracts without
+making either one a substitute for the other.
 
 Set `AIF_AIRGAP_GITEA_TLS=false` only to diagnose an HTTP compatibility path;
 that result is not accepted as release evidence.
+
+## Rancher extension browser check
+
+From an isolated client in `airgap_clients`, open AI Factory Settings and
+confirm that each private chart endpoint appears in its corresponding
+Application Collection, SUSE Registry, or NVIDIA section. There must be no
+Advanced endpoint section and no Application Collection catalog-API field.
+Then open Apps and Blueprints, deploy the `airgap-smoke` fixture, and retain a
+browser network trace proving that catalogs, logos, and installation do not
+request public hosts. This remains a short manual check because the Ansible
+suite intentionally validates Kubernetes state rather than Rancher page
+layout.
 
 ## Evidence to retain
 
@@ -365,8 +388,8 @@ that result is not accepted as release evidence.
 - `registries.yaml` redacted, RKE2 config flag and containerd logs;
 - nftables rules and counters from each isolated node;
 - Harbor project/audit logs and Gitea commit history;
-- AIF Settings, ClusterRepo conditions, HelmOps, Bundles, GitRepo status,
-  AIWorkload status and relevant pod events;
+- the exact four AIF CRDs, AIF Settings, ClusterRepo conditions, HelmOps,
+  Bundles, GitRepo status, AIWorkload status and relevant pod events;
 - browser network trace from a client VM in `airgap_clients`.
 
 The corresponding product assessment and detailed journey matrix live in the

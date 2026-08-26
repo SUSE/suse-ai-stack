@@ -117,37 +117,26 @@ case "${phase}" in
     play -e smoke_strategy=FleetBundle -e smoke_workload_name=airgap-smoke-single \
       -e '{"smoke_target_clusters":["local"]}' "${lab_dir}/playbooks/05-smoke.yml"
     play -e smoke_strategy=GitOps -e smoke_workload_name=airgap-smoke-single \
+      -e smoke_git_auth_type=basic \
+      -e smoke_verify_fleet_branch_change=true \
       -e '{"smoke_target_clusters":["local"]}' "${lab_dir}/playbooks/05-smoke.yml"
     play -e smoke_strategy=FleetBundle -e smoke_workload_name=airgap-smoke-multi \
+      -e smoke_git_auth_type=token \
       "${lab_dir}/playbooks/05-smoke.yml"
     play -e smoke_strategy=GitOps -e smoke_workload_name=airgap-smoke-multi \
+      -e smoke_verify_registry_reroute=true \
       "${lab_dir}/playbooks/05-smoke.yml"
-    play -e smoke_strategy=FleetBundle -e smoke_application_mode=logical \
-      -e smoke_workload_name=airgap-logical-single \
-      -e '{"smoke_target_clusters":["local"]}' "${lab_dir}/playbooks/05-smoke.yml"
-    play -e smoke_strategy=GitOps -e smoke_application_mode=logical \
-      -e smoke_git_auth_type=basic \
-      -e smoke_workload_name=airgap-logical-single \
-      -e '{"smoke_target_clusters":["local"]}' "${lab_dir}/playbooks/05-smoke.yml"
-    play -e smoke_strategy=FleetBundle -e smoke_application_mode=logical \
-      -e smoke_workload_name=airgap-logical-multi \
-      "${lab_dir}/playbooks/05-smoke.yml"
-    play -e smoke_strategy=FleetBundle -e smoke_application_mode=logical \
+    play -e smoke_strategy=FleetBundle \
       -e smoke_blueprint_mode=preprovisioned \
       -e smoke_workload_name=airgap-blueprint-source \
       -e '{"smoke_target_clusters":["local"]}' "${lab_dir}/playbooks/05-smoke.yml"
-    play -e smoke_strategy=GitOps -e smoke_application_mode=logical \
-      -e smoke_git_auth_type=token \
-      -e smoke_workload_name=airgap-logical-multi \
-      -e smoke_verify_source_switch=true \
-      "${lab_dir}/playbooks/05-smoke.yml"
-    play -e smoke_strategy=FleetBundle -e smoke_application_mode=logical \
-      -e smoke_application_source_ref=private-gitea-applications \
+    play -e smoke_strategy=FleetBundle \
+      -e smoke_chart_repo=private-gitea-applications \
       -e smoke_fleet_resource_kind=bundle \
       -e smoke_workload_name=airgap-git-chart-multi \
       "${lab_dir}/playbooks/05-smoke.yml"
-    play -e smoke_strategy=GitOps -e smoke_application_mode=logical \
-      -e smoke_application_source_ref=private-gitea-applications \
+    play -e smoke_strategy=GitOps \
+      -e smoke_chart_repo=private-gitea-applications \
       -e smoke_fleet_resource_kind=bundle \
       -e smoke_workload_name=airgap-git-chart-multi \
       "${lab_dir}/playbooks/05-smoke.yml"

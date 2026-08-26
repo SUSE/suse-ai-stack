@@ -216,7 +216,17 @@ cleanup_merged_vars() {
 }
 trap cleanup_merged_vars EXIT
 if [[ -f "${lab_vars}" ]]; then
-  yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' \
+  yq eval-all '
+    (select(fileIndex == 0) * select(fileIndex == 1)) |
+    del(
+      .smoke_application_mode,
+      .smoke_application_name,
+      .smoke_application_source_ref,
+      .smoke_verify_source_switch,
+      .smoke_switch_source_ref,
+      .smoke_switch_repo_url
+    )
+  ' \
     "${lab_dir}/vars.example.yml" "${lab_vars}" > "${merged_lab_vars}"
 else
   cp "${lab_dir}/vars.example.yml" "${merged_lab_vars}"

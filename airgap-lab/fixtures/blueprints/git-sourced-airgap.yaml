@@ -12,9 +12,10 @@ spec:
   description: Blueprint definition delivered by Fleet from authenticated private-CA Gitea.
   source: Custom
   components:
-    - applicationRef:
-        name: airgap.smoke
-        version: 0.1.0
+    - chartRepo: application-collection
+      chartName: airgap-smoke
+      chartVersion: 0.1.0
+      vendor: suse
       releaseName: git-sourced-airgap
       values:
         fullnameOverride: git-sourced-airgap

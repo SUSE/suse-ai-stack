@@ -11,16 +11,10 @@ spec:
   description: CPU-only chart used to prove private catalog, Fleet and registry paths.
   source: Custom
   components:
-{% if smoke_application_mode == 'logical' %}
-    - applicationRef:
-        name: {{ smoke_application_name | quote }}
-        version: {{ smoke_chart_version | quote }}
-{% else %}
-    - chartRepo: application-collection
+    - chartRepo: {{ smoke_chart_repo | quote }}
       chartName: airgap-smoke
       chartVersion: {{ smoke_chart_version | quote }}
       vendor: suse
-{% endif %}
       releaseName: {{ smoke_release_name | quote }}
       values:
         fullnameOverride: {{ smoke_workload_name }}-{{ smoke_strategy | lower }}

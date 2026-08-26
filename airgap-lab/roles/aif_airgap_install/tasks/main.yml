@@ -397,6 +397,24 @@
       --kubeconfig /etc/rancher/rke2/rke2.yaml
   changed_when: false
 
+- name: Require a fresh installation with exactly four AIF CRDs
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    expected='["aiworkloads.ai-factory.suse.com","blueprints.ai-factory.suse.com","installaiextensions.ai-factory.suse.com","settings.ai-factory.suse.com"]'
+    actual=$("${kubectl}" get customresourcedefinitions.apiextensions.k8s.io \
+      -o json --kubeconfig "${kubeconfig}" \
+      | jq -c '[.items[].metadata.name | select(endswith(".ai-factory.suse.com"))] | sort')
+    if [[ "${actual}" != "${expected}" ]]; then
+      printf 'unexpected AIF CRD set; use a fresh lab after replacing a prototype that installed additional CRDs\n' >&2
+      printf 'expected=%s\nactual=%s\n' "${expected}" "${actual}" >&2
+      exit 1
+    fi
+  args:
+    executable: /bin/bash
+  changed_when: false
+
 - name: Trigger combined-mode extension reconciliation after private DNS is ready
   ansible.builtin.command:
     cmd: >-

@@ -13,7 +13,7 @@
     },
     "fleet": {
       "repoURL": {{ (gitea_url ~ '/' ~ gitea_admin_username ~ '/' ~ gitea_repository ~ '.git') | to_json }},
-      "branch": "main",
+      "branch": {{ (smoke_fleet_branch | default('main')) | to_json }},
       "authType": "token",
       "username": {{ gitea_admin_username | to_json }},
       "credSecretRef": {

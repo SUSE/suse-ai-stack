@@ -85,7 +85,7 @@
     executable: /bin/bash
   changed_when: false
 
-- name: Confirm the private-Gitea application chart source configuration
+- name: Confirm the private-Gitea chart source configuration
   ansible.builtin.shell: |
     set -euo pipefail
     kubectl=/var/lib/rancher/rke2/bin/kubectl
@@ -280,10 +280,14 @@
       printf '%s\n' {{ aif_deployment_images.stdout | quote }}
       printf 'pod_probe=%s\n' {{ pod_probe_log.stdout | trim | quote }}
       helm list --all-namespaces --kubeconfig "${kubeconfig}"
+      "${kubectl}" get customresourcedefinitions.apiextensions.k8s.io \
+        aiworkloads.ai-factory.suse.com blueprints.ai-factory.suse.com \
+        installaiextensions.ai-factory.suse.com settings.ai-factory.suse.com \
+        -o wide --kubeconfig "${kubeconfig}"
       "${kubectl}" get settings -A -o yaml --kubeconfig "${kubeconfig}"
       "${kubectl}" get clusterrepo application-collection suse-ai-registry nvidia {{ gitea_chart_clusterrepo | quote }} -o yaml --kubeconfig "${kubeconfig}"
       "${kubectl}" -n fleet-local get gitrepo suse-ai-fleet-repo -o yaml --kubeconfig "${kubeconfig}"
-      "${kubectl}" get application,blueprint -o yaml --kubeconfig "${kubeconfig}"
+      "${kubectl}" get blueprint -o yaml --kubeconfig "${kubeconfig}"
       "${kubectl}" get gitrepo,helmop,bundle -A -o wide --kubeconfig "${kubeconfig}"
       "${kubectl}" get aiworkload -A -o yaml --kubeconfig "${kubeconfig}"
       "${kubectl}" get pods -A -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,IMAGE:.spec.containers[*].image,IMAGE_ID:.status.containerStatuses[*].imageID,PHASE:.status.phase' --kubeconfig "${kubeconfig}"
@@ -313,7 +317,7 @@
 - name: Report verification result
   ansible.builtin.debug:
     msg:
-      - "AIF and UI are Ready from Harbor; all four private application catalogs have downloaded."
+      - "AIF and UI are Ready from Harbor; all four private chart sources have downloaded."
       - "The authenticated private-Gitea chart source deployed through both Fleet workspaces."
       - "Host and pod public TCP probes were rejected while Harbor and Gitea stayed reachable."
       - "Redacted evidence was fetched under {{ airgap_evidence_dir }}."
