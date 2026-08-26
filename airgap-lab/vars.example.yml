@@ -164,7 +164,6 @@ smoke_reroute_registry_endpoint: "oci://{{ harbor_hostname }}/{{ suse_chart_proj
 smoke_verify_fleet_branch_change: false
 smoke_fleet_branch: "main"
 smoke_fleet_alternate_branch: "airgap-republish"
-smoke_git_auth_type: "current"  # current | token | basic
 smoke_fleet_resource_kind: "helmop"  # helmop | bundle
 
 # Where playbook 06 fetches redacted command evidence on the controller.

@@ -335,13 +335,13 @@ belongs in a GPU/model-cache suite.
 The qualified path uses authenticated, private-CA HTTPS Gitea. One Fleet
 setting references the CA Secret; AIF loads it into go-git and the Settings
 controller writes the same PEM bundle to the generated Fleet `GitRepo`. The
-matrix performs real Git writes with both token and basic authentication and
-checks that AIF and Fleet observe an in-place mode change. It also moves the
-same `GitRepo` to a clean alternate branch, requires AIF to republish the
-unchanged GitOps manifest there, and restores `main`. The repository's
-`blueprints/` path delivers Blueprint CRs with direct, stable `chartRepo`
-references while `workloads/` carries AIF-generated Fleet resources. Insecure
-TLS is never used.
+matrix requires the unified username plus password/PAT configuration, proves
+that AIF mirrors it to Fleet as `kubernetes.io/basic-auth`, and performs real
+Git writes without an auth-type selector. It also moves the same `GitRepo` to a
+clean alternate branch, requires AIF to republish the unchanged GitOps manifest
+there, and restores `main`. The repository's `blueprints/` path delivers
+Blueprint CRs with direct, stable `chartRepo` references while `workloads/`
+carries AIF-generated Fleet resources. Insecure TLS is never used.
 
 A separate private Gitea repository is also a Helm chart source. Rancher clones
 it with a `ClusterRepo` credential and private CA, while AIF uses a Rancher API
@@ -353,7 +353,7 @@ expiry, rotation, and revocation for that credential.
 The acceptance matrix contains seven deployments: direct Blueprints through
 both FleetBundle and GitOps on local and downstream targets; a Blueprint
 delivered from private Git; and a private-Gitea-backed chart through both
-strategies. It covers token and basic Git authentication, branch-change
+strategies. It covers the unified Git HTTPS credential path, branch-change
 republication, and an in-place change of the `application-collection`
 ClusterRepo endpoint while requiring its UID and the Blueprint spec to remain
 unchanged. The final two cases embed the git-backed chart in Bundles in both

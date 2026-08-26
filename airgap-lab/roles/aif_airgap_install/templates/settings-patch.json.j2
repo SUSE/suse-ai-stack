@@ -14,7 +14,7 @@
     "fleet": {
       "repoURL": {{ (gitea_url ~ '/' ~ gitea_admin_username ~ '/' ~ gitea_repository ~ '.git') | to_json }},
       "branch": {{ (smoke_fleet_branch | default('main')) | to_json }},
-      "authType": "token",
+      "authType": null,
       "username": {{ gitea_admin_username | to_json }},
       "credSecretRef": {
         "name": "gitops-credentials",

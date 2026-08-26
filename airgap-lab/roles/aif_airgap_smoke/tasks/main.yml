@@ -4,7 +4,6 @@
     that:
       - smoke_strategy in ['FleetBundle', 'GitOps']
       - smoke_blueprint_mode in ['rendered', 'preprovisioned']
-      - smoke_git_auth_type in ['current', 'token', 'basic']
       - smoke_fleet_resource_kind in ['helmop', 'bundle']
       - not (smoke_verify_registry_reroute | bool) or smoke_fleet_resource_kind == 'helmop'
       - not (smoke_verify_registry_reroute | bool) or smoke_chart_repo == 'application-collection'
@@ -32,20 +31,7 @@
       unique Rancher cluster ID. Registry rerouting requires an OCI HelmOp case;
       Fleet branch switching requires GitOps and a disposable airgap-* branch.
 
-- name: Switch the private Git authentication mode for this matrix case
-  ansible.builtin.command:
-    cmd: >-
-      /var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace | quote }} patch settings settings
-      --type merge
-      --patch {{ {'spec': {'fleet': {
-        'authType': smoke_git_auth_type,
-        'username': (gitea_admin_username if smoke_git_auth_type == 'token' else none)
-      }}} | to_json | quote }}
-      --kubeconfig /etc/rancher/rke2/rke2.yaml
-  when: smoke_git_auth_type != 'current'
-  changed_when: true
-
-- name: Require AIF and Fleet to observe the selected private Git authentication
+- name: Require AIF and Fleet to use the unified private Git HTTPS credentials
   ansible.builtin.shell: |
     set -euo pipefail
     kubectl=/var/lib/rancher/rke2/bin/kubectl
@@ -57,6 +43,9 @@
       generation=$(jq -r '.metadata.generation' <<<"${settings}")
       observed=$(jq -r '.status.observedGeneration // 0' <<<"${settings}")
       auth_type=$(jq -r '.spec.fleet.authType // ""' <<<"${settings}")
+      configured_username=$(jq -r '.spec.fleet.username // ""' <<<"${settings}")
+      mirror_type=$("${kubectl}" -n fleet-local get secret gitops-credentials \
+        -o jsonpath='{.type}' --kubeconfig "${kubeconfig}" 2>/dev/null || true)
       mirror_username=$("${kubectl}" -n fleet-local get secret gitops-credentials \
         -o jsonpath='{.data.username}' --kubeconfig "${kubeconfig}" 2>/dev/null \
         | base64 -d || true)
@@ -65,7 +54,9 @@
         | jq -r '[.status.conditions[]? | select(.type == "GitPolling") | .status][-1] // ""' \
         || true)
       if [[ "${generation}" == "${observed}" \
-         && "${auth_type}" == {{ smoke_git_auth_type | quote }} \
+         && -z "${auth_type}" \
+         && "${configured_username}" == {{ gitea_admin_username | quote }} \
+         && "${mirror_type}" == "kubernetes.io/basic-auth" \
          && "${mirror_username}" == {{ gitea_admin_username | quote }} \
          && "${git_ready}" == "True" ]]; then
         exit 0
@@ -79,7 +70,6 @@
     exit 1
   args:
     executable: /bin/bash
-  when: smoke_git_auth_type != 'current'
   changed_when: false
 
 - name: Remove the previous matrix workload before a deterministic retry
