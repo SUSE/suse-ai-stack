@@ -6,7 +6,7 @@ Please refer to https://apps.rancher.io/stacks/suse-ai for the official publishe
 
 This repo is intended to bring up AI components for demo and development purposes only.
 
-At it's core, the stack is consist of the following:
+At its core, the stack is consist of the following:
 
 * [SUSE Linux Enterprise Server][sles] 15SP6 virtual machine (VM) 
 * [Rancher RKE2][rke2] Kubernetes distribution
