@@ -1,0 +1,33 @@
+---
+- name: Ensure gpu-operator namespace exists
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ gpu_operator_namespace }}"
+
+- name: Create DCGM custom counters ConfigMap
+  shell: |
+    kubectl create configmap {{ gpu_operator_dcgm_configmap_name }} \
+      --from-file=custom-counters.csv={{ gpu_operator_custom_counters_file }} \
+      -n {{ gpu_operator_namespace }} \
+      --dry-run=client -o yaml | kubectl apply -f -
+
+- name: Template gpu-operator Helm values
+  template:
+    src: gpu-operator-values.yaml.j2
+    dest: "/tmp/gpu-operator-values.yaml"
+
+- name: Create gpu-operator-values ConfigMap
+  shell: |
+    kubectl create configmap {{ gpu_operator_configmap_name }} \
+      --from-file=gpu-operator-values.yaml=/tmp/gpu-operator-values.yaml \
+      -n {{ gpu_operator_namespace }} \
+      --dry-run=client -o yaml | kubectl apply -f -
+
+- name: Clean up temp file
+  file:
+    path: "/tmp/gpu-operator-values.yaml"
+    state: absent
