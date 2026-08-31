@@ -85,6 +85,76 @@
     executable: /bin/bash
   changed_when: false
 
+- name: Confirm the chatbot Blueprint and all pinned charts are available privately
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    token_secret={{ rancher_catalog_token_secret | quote }}
+    token=$("${kubectl}" -n {{ aif_namespace | quote }} get secret "${token_secret}" \
+      -o jsonpath='{.data.token}' --kubeconfig "${kubeconfig}" | base64 -d)
+    [[ -n "${token}" ]]
+    chart_dir=$(mktemp -d /var/lib/aif-airgap-chatbot-charts.XXXXXX)
+    cleanup() { rm -rf -- "${chart_dir}"; }
+    trap cleanup EXIT
+
+    blueprint=$("${kubectl}" get blueprint \
+      -l {{ ('ai-factory.suse.com/blueprint-name=' ~ chatbot_blueprint_name) | quote }} \
+      -o json --kubeconfig "${kubeconfig}")
+    jq -e --arg version {{ chatbot_blueprint_version | quote }} '
+      [.items[] | select(.spec.version == $version)] | length == 1
+    ' <<<"${blueprint}" >/dev/null
+
+    charts=(
+    {% for chart in chatbot_charts %}
+      {{ (chart.name ~ ':' ~ chart.version) | quote }}
+    {% endfor %}
+    )
+    for spec in "${charts[@]}"; do
+      name="${spec%%:*}"
+      version="${spec#*:}"
+      archive="${chart_dir}/${name}.tgz"
+      curl --silent --show-error --fail \
+        --cacert /var/lib/aif-airgap-rancher-ca.crt \
+        --header "Authorization: Bearer ${token}" \
+        "{{ rancher_url }}/v1/catalog.cattle.io.clusterrepos/application-collection?link=chart&chartName=${name}&version=${version}" \
+        --output "${archive}"
+      metadata=$(helm show chart "${archive}")
+      [[ $(awk '/^name:/ {print $2; exit}' <<<"${metadata}") == "${name}" ]]
+      [[ $(awk '/^version:/ {print $2; exit}' <<<"${metadata}") == "${version}" ]]
+    done
+  args:
+    executable: /bin/bash
+  when: airgap_profile in ['chatbot', 'vendor', 'all']
+  changed_when: false
+
+- name: Confirm every chatbot container manifest is present in private Harbor
+  ansible.builtin.shell: |
+    set -euo pipefail
+    images=(
+    {% for image in chatbot_images %}
+      {{ image | quote }}
+    {% endfor %}
+    )
+    for image in "${images[@]}"; do
+      repository="${image%:*}"
+      tag="${image##*:}"
+      curl --silent --show-error --fail \
+        --cacert /var/lib/aif-airgap-lab-ca.crt \
+        --user "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
+        --header 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' \
+        "https://{{ harbor_hostname }}/v2/{{ aif_image_project }}/${repository}/manifests/${tag}" \
+        --output /dev/null
+    done
+  args:
+    executable: /bin/bash
+  environment:
+    HARBOR_USERNAME: "{{ harbor_registry_username }}"
+    HARBOR_PASSWORD: "{{ harbor_registry_password }}"
+  when: airgap_profile in ['chatbot', 'vendor', 'all']
+  no_log: true
+  changed_when: false
+
 - name: Confirm the private-Gitea chart source configuration
   ansible.builtin.shell: |
     set -euo pipefail
@@ -170,6 +240,38 @@
           .status.phase == "Running" and
           ([.status.clusterStatuses[] | select(.phase == "Running")] | length == 2)
         ' >/dev/null
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Confirm rendered matrix fixtures have unique names and exact workload links
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    selector=airgap-lab.suse.com/source=rendered-matrix
+    blueprints=$("${kubectl}" get blueprint -l "${selector}" -o json \
+      --kubeconfig "${kubeconfig}")
+    workloads=$("${kubectl}" get aiworkload --all-namespaces -l "${selector}" -o json \
+      --kubeconfig "${kubeconfig}")
+    jq -e -n --argjson blueprints "${blueprints}" --argjson workloads "${workloads}" '
+      ($blueprints.items | length) > 0 and
+      ($workloads.items | length) > 0 and
+      ([$blueprints.items[].spec.displayName] | length) ==
+        ([$blueprints.items[].spec.displayName] | unique | length) and
+      ([$workloads.items[].spec.displayName] | length) ==
+        ([$workloads.items[].spec.displayName] | unique | length) and
+      all($workloads.items[]; . as $workload |
+        [$blueprints.items[] | select(
+          .metadata.labels["ai-factory.suse.com/blueprint-name"] == $workload.spec.source.blueprint.name and
+          .spec.version == $workload.spec.source.blueprint.version
+        )] as $matches |
+        ($matches | length) == 1 and
+        $matches[0].spec.displayName == $workload.spec.displayName and
+        $matches[0].metadata.labels["airgap-lab.suse.com/case"] ==
+          $workload.metadata.labels["airgap-lab.suse.com/case"]
+      )
+    ' >/dev/null
   args:
     executable: /bin/bash
   changed_when: false
@@ -273,6 +375,7 @@
     kubeconfig=/etc/rancher/rke2/rke2.yaml
     {
       printf 'captured_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      printf 'artifact_profile=%s\n' {{ airgap_profile | quote }}
       printf 'install_mode=%s\n' {{ aif_install_mode | quote }}
       printf 'source_image_tag=%s\n' {{ aif_image_tag | quote }}
       printf 'registry_ca_mode=%s\n' {{ aif_registry_ca_mode | quote }}
@@ -292,7 +395,7 @@
       "${kubectl}" get aiworkload -A -o yaml --kubeconfig "${kubeconfig}"
       "${kubectl}" get pods -A -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,IMAGE:.spec.containers[*].image,IMAGE_ID:.status.containerStatuses[*].imageID,PHASE:.status.phase' --kubeconfig "${kubeconfig}"
       "${kubectl}" get events -A --sort-by=.lastTimestamp --kubeconfig "${kubeconfig}" | tail -n 200
-    } > /var/lib/aif-airgap-evidence/control-plane-{{ aif_install_mode }}-{{ aif_registry_ca_mode }}-git-{{ 'https' if (gitea_tls_enabled | bool) else 'http' }}.txt
+    } > /var/lib/aif-airgap-evidence/control-plane-{{ airgap_profile }}-{{ aif_install_mode }}-{{ aif_registry_ca_mode }}-git-{{ 'https' if (gitea_tls_enabled | bool) else 'http' }}.txt
   args:
     executable: /bin/bash
   changed_when: true
@@ -310,7 +413,7 @@
 
 - name: Fetch control-plane evidence to the controller
   ansible.builtin.fetch:
-    src: /var/lib/aif-airgap-evidence/control-plane-{{ aif_install_mode }}-{{ aif_registry_ca_mode }}-git-{{ 'https' if (gitea_tls_enabled | bool) else 'http' }}.txt
+    src: /var/lib/aif-airgap-evidence/control-plane-{{ airgap_profile }}-{{ aif_install_mode }}-{{ aif_registry_ca_mode }}-git-{{ 'https' if (gitea_tls_enabled | bool) else 'http' }}.txt
     dest: "{{ airgap_evidence_dir }}/management/"
     flat: false
 

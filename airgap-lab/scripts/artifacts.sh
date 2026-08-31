@@ -13,7 +13,7 @@ profile_was_set=false
 
 usage() {
   printf '%s\n' \
-    "Usage: $0 <export|import|mirror> [--manifest FILE] [--bundle DIR] [--profile core|vendor|all]" \
+    "Usage: $0 <export|import|mirror> [--manifest FILE] [--bundle DIR] [--profile core|chatbot|vendor|all]" \
     "" \
     "Destination variables: HARBOR_REGISTRY, HARBOR_USERNAME, HARBOR_PASSWORD" \
     "Optional: HARBOR_CA_FILE (defaults to generated/pki/ca.crt)" \
@@ -36,7 +36,8 @@ if [[ "${operation}" != "export" && "${operation}" != "import" && "${operation}"
   exit 2
 fi
 
-if [[ "${profile}" != "core" && "${profile}" != "vendor" && "${profile}" != "all" ]]; then
+if [[ "${profile}" != "core" && "${profile}" != "chatbot" && \
+      "${profile}" != "vendor" && "${profile}" != "all" ]]; then
   printf 'Unsupported profile: %s\n' "${profile}" >&2
   exit 2
 fi
@@ -293,7 +294,8 @@ import_bundle() {
 
   local bundled_profile
   bundled_profile="$(awk -F= '$1 == "profile" {print $2}' "${bundle}/METADATA")"
-  if [[ "${bundled_profile}" != "core" && "${bundled_profile}" != "vendor" && "${bundled_profile}" != "all" ]]; then
+  if [[ "${bundled_profile}" != "core" && "${bundled_profile}" != "chatbot" && \
+        "${bundled_profile}" != "vendor" && "${bundled_profile}" != "all" ]]; then
     printf 'Bundle contains an invalid or missing profile: %s\n' "${bundled_profile}" >&2
     exit 1
   fi

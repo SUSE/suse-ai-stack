@@ -38,7 +38,7 @@ credentials in the ignored top-level `extra_vars.yml`, then run:
 ```
 
 The command creates three CPU-only nodes, installs Rancher/RKE2, Harbor and
-Gitea, builds the exact sibling AIF checkout, transfers a checksummed core
+Gitea, builds the exact sibling AIF checkout, transfers the checksummed selected
 bundle, applies the network gate, and runs the FleetBundle/GitOps single- and
 multi-cluster matrix. It is resumable: completed phases have ignored markers
 under `airgap-lab/generated/state/`, so run the same command after correcting a
@@ -68,6 +68,7 @@ qualification axes and for a nonstandard SSH key:
 
 ```console
 AIF_SOURCE_DIR=/path/to/aif AIF_AIRGAP_PROFILE=core ./setup_airgap_lab.sh
+AIF_SOURCE_DIR=/path/to/aif AIF_AIRGAP_PROFILE=chatbot ./setup_airgap_lab.sh
 AIF_AIRGAP_INSTALL_MODE=separate ./setup_airgap_lab.sh
 AIF_AIRGAP_CA_MODE=workaround ./setup_airgap_lab.sh
 AIF_AIRGAP_GITEA_TLS=false ./setup_airgap_lab.sh  # diagnostic only
@@ -84,6 +85,11 @@ again; changing Gitea transport also reconciles the services phase. Switching
 back to combined mode removes the standalone UI release before reconciling the
 operator-managed extension. A `workaround` or HTTP pass remains useful for
 diagnosis, but is not native air-gap evidence.
+
+For one-command `chatbot`, `vendor`, or `all` runs, the setup script reads the
+Application Collection email/token from the ignored top-level `extra_vars.yml`
+unless `APPCO_USERNAME` and `APPCO_PASSWORD` are already exported. Manual
+`run.sh` workflows use the environment variables shown below.
 
 The services security group exposes SSH only to the controller's detected
 public `/32`; Harbor and Gitea are reachable only from the private VPC. Set
@@ -186,15 +192,17 @@ read -r -s -p 'Harbor password: ' HARBOR_PASSWORD; printf '\n'
 export HARBOR_USERNAME HARBOR_PASSWORD
 export HARBOR_REGISTRY=harbor.airgap.test
 
-# Optional source credentials for the vendor profile.
+# AppCo credentials are needed by the chatbot and vendor profiles.
 export APPCO_USERNAME APPCO_PASSWORD
+# The remaining source credentials are vendor-profile inputs.
 export SUSE_REGISTRY_USERNAME SUSE_REGISTRY_PASSWORD
 export NGC_USERNAME NGC_PASSWORD
 export DOCKERHUB_USERNAME DOCKERHUB_PASSWORD  # optional, avoids anonymous limits
 
-# Core is public AIF + the smoke fixture. "vendor" adds AppCo/SUSE/NVIDIA
-# charts and an explicit default-rendered image set; it does not run GPU apps.
-AIF_AIRGAP_PROFILE=core airgap-lab/run.sh mirror
+# core: AIF + smoke; chatbot: core + Simple Chatbot chart/container closure;
+# vendor: core + broader AppCo/SUSE/NVIDIA examples; all: every entry.
+export AIF_AIRGAP_PROFILE=chatbot
+airgap-lab/run.sh mirror
 
 # Trust and node mirrors are connected-stage prerequisites. Close the actual
 # egress gate before installing AIF, so the result proves disconnected install.
@@ -298,12 +306,25 @@ literal omissions before transfer with:
 
 ```console
 helm template release ./chart -f qualification-values.yaml > rendered.yaml
-airgap-lab/scripts/check-rendered-images.sh rendered.yaml
+airgap-lab/scripts/check-rendered-images.sh --profile chatbot rendered.yaml
 ```
 
-The committed vendor entries are a starting set for the pinned examples, not a
-release BOM: AppCo/NGC entitlements and the exact values profile determine the
-remaining conditional images and model artifacts.
+The dedicated chatbot check pulls the three pinned charts, renders the exact
+`Simple Chatbot with RAG` 1.0.2 values from the selected AIF checkout, and
+requires every chart and literal image to be in the `chatbot` profile. The
+one-command workflow runs it automatically before export:
+
+```console
+AIF_SOURCE_DIR=/path/to/aif airgap-lab/scripts/check-chatbot-container-closure.sh
+```
+
+The chatbot profile is a complete chart/container closure, including Redis and
+Helm test hooks. It intentionally cannot turn runtime network downloads into
+container artifacts: the Ollama model and the MCP npm package still need an
+offline product-owned bootstrap contract before this lab can assert a healthy
+RAG conversation. The broader vendor entries remain a starting set rather than
+a release BOM; AppCo/NGC entitlements and the exact values determine additional
+conditional images and model artifacts.
 
 ```text
 registry.suse.com/bci/bci-busybox:15.7
@@ -359,6 +380,12 @@ ClusterRepo endpoint while requiring its UID and the Blueprint spec to remain
 unchanged. The final two cases embed the git-backed chart in Bundles in both
 Fleet workspaces, proving that the workload no longer depends on Gitea at
 install time.
+
+Each rendered matrix Blueprint and AIWorkload now shares a unique case-specific
+display name. One example is
+`AI Factory air-gap smoke (airgap-smoke-single-fleetbundle)`. Verification rejects
+duplicate fixture names and proves that every rendered workload references the
+matching Blueprint family and version.
 
 These checks keep the environment and operator responsibilities separate.
 RKE2's registry mirror configuration redirects container image pulls; AIF

@@ -148,9 +148,13 @@ smoke_target_clusters:
   - "local"  # Rancher cluster IDs, for example local and c-m-abcde
 smoke_namespace: "aif-airgap-smoke"
 smoke_workload_name: "airgap-smoke-local"
+# The shared case ID appears in the Blueprint and AIWorkload display names so
+# every matrix row is distinguishable in the UI and its relationship is obvious.
+smoke_case_id: "{{ smoke_workload_name }}-{{ smoke_strategy | lower }}"
+smoke_display_name: "AI Factory air-gap smoke ({{ smoke_case_id }})"
 # Every matrix case installs into the same namespace, so its Helm release must
 # be distinct. This also makes retries independent of another case's history.
-smoke_release_name: "{{ smoke_workload_name }}-{{ smoke_strategy | lower }}"
+smoke_release_name: "{{ smoke_case_id }}"
 smoke_chart_version: "0.1.0"
 smoke_timeout_seconds: 900
 # Blueprints refer directly to a stable Rancher ClusterRepo name. The reroute

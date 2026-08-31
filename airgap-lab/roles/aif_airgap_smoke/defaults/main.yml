@@ -1,14 +1,16 @@
 ---
 smoke_chart_version: "0.1.0"
 smoke_blueprint_mode: "rendered"
+smoke_case_id: "{{ smoke_workload_name }}-{{ smoke_strategy | lower }}"
+smoke_display_name: "AI Factory air-gap smoke ({{ smoke_case_id }})"
 smoke_blueprint_reference_name: >-
-  {{ (smoke_workload_name ~ '-' ~ (smoke_strategy | lower))
+  {{ smoke_case_id
      if smoke_blueprint_mode == 'rendered'
      else 'git-sourced-airgap' }}
 smoke_blueprint_resource_name: >-
   {{ smoke_blueprint_reference_name ~ '-' ~
      (smoke_chart_version | regex_replace('[^0-9A-Za-z]+', '-') | lower) }}
-smoke_release_name: "{{ smoke_workload_name }}-{{ smoke_strategy | lower }}"
+smoke_release_name: "{{ smoke_case_id }}"
 smoke_chart_repo: "application-collection"
 smoke_verify_registry_reroute: false
 smoke_primary_registry_endpoint: "oci://{{ harbor_hostname }}/{{ appco_chart_project }}"

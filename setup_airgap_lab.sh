@@ -9,6 +9,11 @@ workspace="${AIF_AIRGAP_TOFU_WORKSPACE:-suseai-882-airgap}"
 source_dir="${AIF_SOURCE_DIR:-$(cd "${project_dir}/.." && pwd)/aif}"
 profile="${AIF_AIRGAP_PROFILE:-core}"
 
+case "${profile}" in
+  core|chatbot|vendor|all) ;;
+  *) printf 'Unsupported AIF_AIRGAP_PROFILE: %s\n' "${profile}" >&2; exit 2 ;;
+esac
+
 usage() {
   printf '%s\n' \
     "Usage: $0 [--status|--prepare-only|--reset-progress]" \
@@ -40,6 +45,18 @@ done
 
 "${lab_dir}/scripts/check-shell-safety.sh"
 AIF_AIRGAP_BASE_VARS="${base_vars}" "${lab_dir}/scripts/prepare-aws.sh"
+
+if [[ "${profile}" == "chatbot" || "${profile}" == "vendor" || "${profile}" == "all" ]]; then
+  appco_source_username="${APPCO_USERNAME:-$(yq -r '.application_collection_user_email // ""' "${base_vars}")}"
+  appco_source_password="${APPCO_PASSWORD:-$(yq -r '.application_collection_user_token // ""' "${base_vars}")}"
+  [[ -n "${appco_source_username}" && -n "${appco_source_password}" ]] || {
+    printf 'The %s profile requires Application Collection source credentials.\n' "${profile}" >&2
+    exit 2
+  }
+  export APPCO_USERNAME="${appco_source_username}"
+  export APPCO_PASSWORD="${appco_source_password}"
+fi
+
 metadata="${lab_dir}/generated/lab-metadata.yml"
 stack_vars="$(yq -r '.stackVars' "${metadata}")"
 lab_vars="$(yq -r '.labVars' "${metadata}")"
@@ -208,7 +225,14 @@ run_step "${run_state}/source-build.complete" "Build exact AIF source artifacts"
   env AIF_SOURCE_DIR="${source_dir}" AIF_SOURCE_MANIFEST="${manifest}" \
     "${lab_dir}/run.sh" build-aif-source
 
-run_step "${run_state}/bundle-export.complete" "Export the checksummed core media bundle" \
+if [[ "${profile}" == "chatbot" || "${profile}" == "vendor" || "${profile}" == "all" ]]; then
+  run_step "${run_state}/chatbot-container-closure.complete" \
+    "Validate Simple Chatbot chart/container closure" \
+    env AIF_SOURCE_DIR="${source_dir}" \
+      "${lab_dir}/scripts/check-chatbot-container-closure.sh" --manifest "${manifest}"
+fi
+
+run_step "${run_state}/bundle-export.complete" "Export the checksummed ${profile} media bundle" \
   env AIF_AIRGAP_MANIFEST="${manifest}" AIF_AIRGAP_BUNDLE="${bundle}" \
     AIF_AIRGAP_PROFILE="${profile}" "${lab_dir}/run.sh" mirror-export
 

@@ -1,10 +1,13 @@
 apiVersion: ai-factory.suse.com/v1alpha1
 kind: AIWorkload
 metadata:
-  name: {{ smoke_workload_name }}-{{ smoke_strategy | lower }}
+  name: {{ smoke_case_id }}
   namespace: {{ smoke_namespace }}
+  labels:
+    airgap-lab.suse.com/case: {{ smoke_case_id }}
+    airgap-lab.suse.com/source: {{ smoke_blueprint_mode }}-matrix
 spec:
-  displayName: AI Factory air-gap {{ smoke_strategy }} smoke
+  displayName: {{ smoke_display_name | quote }}
   source:
     sourceType: Blueprint
     blueprint:

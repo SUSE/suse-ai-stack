@@ -16,6 +16,8 @@
       - smoke_chart_version is regex('^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$')
       - smoke_namespace is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
       - smoke_workload_name is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
+      - smoke_case_id is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
+      - smoke_display_name | length > 0
       - smoke_release_name | length <= 53
       - smoke_release_name is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
       - smoke_chart_repo is regex('^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$')

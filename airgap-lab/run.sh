@@ -9,6 +9,11 @@ bundle_dir="${AIF_AIRGAP_BUNDLE:-${lab_dir}/bundles/current}"
 profile="${AIF_AIRGAP_PROFILE:-core}"
 discovered_vars="${lab_dir}/generated/discovered-vars.yml"
 
+case "${profile}" in
+  core|chatbot|vendor|all) ;;
+  *) printf 'Unsupported AIF_AIRGAP_PROFILE: %s\n' "${profile}" >&2; exit 2 ;;
+esac
+
 export ANSIBLE_CONFIG="${lab_dir}/ansible.cfg"
 "${lab_dir}/scripts/check-shell-safety.sh"
 
@@ -33,6 +38,8 @@ usage() {
     "  verify              Run positive internal and negative external probes" \
     "  restore             Remove only the lab's nftables isolation table" \
     "" \
+    "Profiles: AIF_AIRGAP_PROFILE=core|chatbot|vendor|all (default: core)" \
+    "" \
     "Use ./setup_airgap_lab.sh for the complete ordered and resumable workflow."
 }
 
@@ -50,6 +57,7 @@ play() {
   if [[ "${phase:-}" != discover-targets && -f "${discovered_vars}" ]]; then
     args+=( -e "@${discovered_vars}" )
   fi
+  args+=( -e "airgap_profile=${profile}" )
   ansible-playbook "${args[@]}" "$@"
 }
 

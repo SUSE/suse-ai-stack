@@ -3,6 +3,9 @@ apiVersion: airgap.ai-factory.suse.com/v1alpha1
 kind: ArtifactSet
 metadata:
   name: aif-no-gpu-control-plane
+  annotations:
+    airgap.ai-factory.suse.com/chatbot-blueprint-name: simple-chatbot-with-rag
+    airgap.ai-factory.suse.com/chatbot-blueprint-version: "1.0.2"
 spec:
   charts:
     - id: aif-operator
@@ -41,26 +44,26 @@ spec:
       archive: airgap-smoke-0.1.0.tgz
       targets: [aif-nvidia]
 
-    # Vendor control-plane profile. It transfers default-rendered NVIDIA
-    # containers below, but omits model artifacts and does not claim runtime
-    # readiness for NIM or RAG. The charts exercise authenticated catalog,
-    # HelmOp, Blueprint and secret-injection paths without requiring a GPU.
+    # The chatbot profile is core plus the exact charts and literal container
+    # images rendered by Simple Chatbot with RAG 1.0.2. The broader vendor
+    # profile includes the same AppCo closure plus SUSE/NVIDIA examples. Runtime
+    # model/package downloads are deliberately not treated as container images.
     - id: appco-open-webui
-      profiles: [vendor]
+      profiles: [chatbot, vendor]
       sourceType: oci
       source: oci://dp.apps.rancher.io/charts/open-webui
       version: 8.19.1
       archive: open-webui-8.19.1.tgz
       targets: [aif-appco]
     - id: appco-ollama
-      profiles: [vendor]
+      profiles: [chatbot, vendor]
       sourceType: oci
       source: oci://dp.apps.rancher.io/charts/ollama
       version: 1.55.0
       archive: ollama-1.55.0.tgz
       targets: [aif-appco]
     - id: appco-open-webui-mcpo
-      profiles: [vendor]
+      profiles: [chatbot, vendor]
       sourceType: oci
       source: oci://dp.apps.rancher.io/charts/open-webui-mcpo
       version: 1.0.2
@@ -112,10 +115,38 @@ spec:
       bundlePath: registry.suse.com_bci_bci-busybox_15.7.dir
       target: aif-images/registry.suse.com/bci/bci-busybox:15.7
     - id: appco-open-webui
+      profiles: [chatbot, vendor]
+      source: dp.apps.rancher.io/containers/open-webui:0.6.41-15.2
+      bundlePath: dp.apps.rancher.io_containers_open-webui_0.6.41-15.2.dir
+      target: aif-images/dp.apps.rancher.io/containers/open-webui:0.6.41-15.2
+    - id: appco-open-webui-chart-default
       profiles: [vendor]
       source: dp.apps.rancher.io/containers/open-webui:0.6.41-14.80
       bundlePath: dp.apps.rancher.io_containers_open-webui_0.6.41-14.80.dir
       target: aif-images/dp.apps.rancher.io/containers/open-webui:0.6.41-14.80
+    - id: appco-ollama
+      profiles: [chatbot, vendor]
+      source: dp.apps.rancher.io/containers/ollama:0.21.2-11.48
+      bundlePath: dp.apps.rancher.io_containers_ollama_0.21.2-11.48.dir
+      target: aif-images/dp.apps.rancher.io/containers/ollama:0.21.2-11.48
+    - id: appco-open-webui-redis
+      profiles: [chatbot, vendor]
+      source: dp.apps.rancher.io/containers/redis:8.4.0-2.1
+      bundlePath: dp.apps.rancher.io_containers_redis_8.4.0-2.1.dir
+      target: aif-images/dp.apps.rancher.io/containers/redis:8.4.0-2.1
+    - id: appco-open-webui-mcpo
+      profiles: [chatbot, vendor]
+      source: dp.apps.rancher.io/containers/open-webui-mcpo:0.0.17-2.18
+      bundlePath: dp.apps.rancher.io_containers_open-webui-mcpo_0.0.17-2.18.dir
+      target: aif-images/dp.apps.rancher.io/containers/open-webui-mcpo:0.0.17-2.18
+    # Both AppCo charts render this untagged image only in Helm test hooks. Keep
+    # the exact requested reference so those hooks also fail closed through
+    # Harbor; SOURCE-DIGESTS.txt records the resolved manifest digest.
+    - id: appco-chart-test-busybox
+      profiles: [chatbot, vendor]
+      source: docker.io/library/busybox:latest
+      bundlePath: docker.io_library_busybox_latest.dir
+      target: aif-images/docker.io/library/busybox:latest
     - id: suse-litellm
       profiles: [vendor]
       source: registry.suse.com/ai/containers/litellm-database:v1.81.13

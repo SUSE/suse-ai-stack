@@ -20,7 +20,7 @@
           - airgap_bundle_dir | length > 1
           - airgap_bundle_dir is abs
           - (airgap_bundle_dir | basename) not in ['', '.', '..']
-          - airgap_profile | default('core') in ['core', 'vendor', 'all']
+          - airgap_profile | default('core') in ['core', 'chatbot', 'vendor', 'all']
           - controller_yq_path is abs
         fail_msg: "Supply an absolute checksummed bundle directory and controller yq path."
 
