@@ -48,6 +48,42 @@
       when: host_ca.changed
       changed_when: true
 
+- name: Provide default storage on every AI Factory target before isolation
+  hosts: rke2_airgap_nodes
+  serial: 1
+  gather_facts: false
+  become: true
+  environment:
+    PATH: /usr/local/bin:/var/lib/rancher/rke2/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
+  tasks:
+    - name: Install the local-path storage provisioner while connected
+      ansible.builtin.include_role:
+        name: local-path
+
+    - name: Read the local-path default-class annotation
+      ansible.builtin.command:
+        argv:
+          - /var/lib/rancher/rke2/bin/kubectl
+          - get
+          - storageclass
+          - local-path
+          - -o
+          - 'jsonpath={.metadata.annotations.storageclass\.kubernetes\.io/is-default-class}'
+          - --kubeconfig
+          - /etc/rancher/rke2/rke2.yaml
+      register: local_path_default_class
+      changed_when: false
+
+    - name: Make local-path the default lab storage class
+      ansible.builtin.command:
+        cmd: >-
+          /var/lib/rancher/rke2/bin/kubectl annotate storageclass local-path
+          storageclass.kubernetes.io/is-default-class=true --overwrite
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+      when: local_path_default_class.stdout != 'true'
+      changed_when: true
+
 - name: Publish private service names through each RKE2 cluster DNS
   hosts: rke2_airgap_nodes
   serial: 1

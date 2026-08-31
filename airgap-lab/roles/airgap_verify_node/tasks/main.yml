@@ -12,6 +12,25 @@
     cmd: systemctl is-active aif-airgap-isolation.service
   changed_when: false
 
+- name: Read default storage annotations for stateful AI workloads
+  ansible.builtin.command:
+    argv:
+      - /var/lib/rancher/rke2/bin/kubectl
+      - get
+      - storageclass
+      - -o
+      - 'jsonpath={.items[*].metadata.annotations.storageclass\.kubernetes\.io/is-default-class}'
+      - --kubeconfig
+      - /etc/rancher/rke2/rke2.yaml
+  register: default_storage_classes
+  changed_when: false
+
+- name: Require at least one default storage class
+  ansible.builtin.assert:
+    that:
+      - "'true' in default_storage_classes.stdout.split()"
+    fail_msg: "Stateful AI workloads require a default StorageClass on every target cluster."
+
 - name: Resolve a public registry through the configured DNS path
   ansible.builtin.command:
     cmd: "getent ahostsv4 {{ airgap_probe_public_hostname }}"
@@ -83,6 +102,7 @@
       printf 'public_tcp_rc=%s\n' {{ public_tcp_probe.rc | string | quote }}
       printf 'harbor_health=%s\n' "{{ internal_harbor_result.status }}"
       printf 'gitea_health=%s\n' "{{ internal_gitea_result.status }}"
+      printf 'default_storage_class=%s\n' {{ default_storage_classes.stdout | trim | quote }}
       printf 'nft_before=%s\n' {{ isolation_counters_before.stdout | trim | quote }}
       printf 'nft_after=%s\n' {{ isolation_counters_after.stdout | trim | quote }}
       systemctl show aif-airgap-isolation.service --property=ActiveState,UnitFileState
