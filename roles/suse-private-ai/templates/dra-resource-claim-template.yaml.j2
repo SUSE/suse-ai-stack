@@ -1,0 +1,17 @@
+apiVersion: {{ dra_api_version }}
+kind: ResourceClaimTemplate
+metadata:
+  name: dra-device-template
+  namespace: {{ suse_private_ai_namespace }}
+spec:
+  spec:
+    devices:
+      requests:
+{% if dra_api_version in ['resource.k8s.io/v1', 'resource.k8s.io/v1beta2'] %}
+        - name: dra-device
+          exactly:
+            deviceClassName: {{ dra_device_class }}
+{% else %}
+        - name: dra-device
+          deviceClassName: {{ dra_device_class }}
+{% endif %}

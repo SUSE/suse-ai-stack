@@ -14,11 +14,19 @@ ollama:
 {% else %}
     - "gemma:2b"
 {% endif %}
-{% if enable_gpu_operator %}
+{% if enable_gpu_operator | default(false) and not (enable_dra | default(false)) %}
   gpu:
     enabled: true
     type: 'nvidia'
     number: 1
+{% elif enable_gpu_operator | default(false) and enable_dra | default(false) %}
+  gpu:
+    enabled: false
+  dra:
+    enabled: true
+    resourceClaims:
+      - name: gpu
+        resourceClaimTemplateName: dra-device-template
 {% endif %}
 persistentVolume:
   enabled: true
