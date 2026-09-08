@@ -51,6 +51,36 @@ failure. Useful lifecycle commands are:
 ./destroy_airgap_lab.sh                # guarded dedicated-workspace destroy
 ```
 
+After a successful qualification, the setup command creates loopback-only HTTP
+links for the private Harbor and Gitea UIs. A digest-pinned Caddy proxy preserves
+each ingress host header over an SSH tunnel to the services node, so neither
+service needs a public security-group rule, a local CA installation, or an
+`/etc/hosts` entry:
+
+```text
+Harbor UI: http://127.0.0.1:18080/
+Gitea UI: http://127.0.0.1:18081/
+```
+
+The final setup output also prints the management node's public IP and the
+exact `<IP> suse-rancher.demo` entry needed in the controller's `/etc/hosts`.
+The same values are retained in the ignored, mode-`0600`
+`airgap-lab/generated/ui-links/links.txt`; `--status` reports whether the proxy
+and SSH tunnel are still running. Override the local ports with
+`AIF_AIRGAP_HARBOR_UI_PORT`, `AIF_AIRGAP_GITEA_UI_PORT`, and
+`AIF_AIRGAP_UI_TUNNEL_PORT` when the defaults are occupied. Diagnostic HTTP
+Gitea runs also use `AIF_AIRGAP_GITEA_UI_TUNNEL_PORT`, defaulting to `18444`.
+
+`destroy_airgap_lab.sh` stops and removes the lab-owned proxy and SSH tunnel,
+then deletes the generated links before destroying AWS resources. The helper
+can also be managed independently:
+
+```console
+airgap-lab/scripts/ui-links.sh start
+airgap-lab/scripts/ui-links.sh status
+airgap-lab/scripts/ui-links.sh stop
+```
+
 The lab uses the dedicated `suseai-882-airgap` OpenTofu workspace and appends a
 lab suffix to resource/key names. It never operates on the default workspace.
 Generated AWS credentials, Rancher/Harbor/Gitea passwords, CA private keys,

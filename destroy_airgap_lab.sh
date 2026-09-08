@@ -6,6 +6,10 @@ lab_dir="${project_dir}/airgap-lab"
 terraform_dir="${project_dir}/roles/vm/terraform"
 metadata="${lab_dir}/generated/lab-metadata.yml"
 
+if ! "${lab_dir}/scripts/ui-links.sh" stop; then
+  printf 'Warning: local UI link cleanup was incomplete; continuing with AWS destroy.\n' >&2
+fi
+
 [[ -f "${metadata}" ]] || {
   printf 'No generated lab metadata found. Run setup_airgap_lab.sh --prepare-only first.\n' >&2
   exit 2

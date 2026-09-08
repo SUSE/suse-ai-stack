@@ -146,6 +146,8 @@ if [[ "${mode}" == status ]]; then
   else
     printf '  No completed phases recorded.\n'
   fi
+  printf '\n'
+  "${lab_dir}/scripts/ui-links.sh" status
   exit 0
 fi
 
@@ -293,6 +295,7 @@ run_step "${qualification_state}/verify.complete" "Collect positive private-path
     "${lab_dir}/run.sh" verify
 
 printf '\nAir-gap qualification completed successfully.\n'
+"${lab_dir}/scripts/ui-links.sh" start
 printf 'Evidence: %s\n' "${lab_dir}/generated/evidence"
 printf 'Status: %s --status\n' "$0"
 printf 'Destroy: %s/destroy_airgap_lab.sh\n' "${project_dir}"
