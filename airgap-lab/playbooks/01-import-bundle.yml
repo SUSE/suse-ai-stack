@@ -142,3 +142,31 @@
         method: GET
         ca_path: /etc/pki/trust/anchors/aif-airgap-lab-ca.crt
         status_code: 200
+
+- name: Refresh existing Rancher catalogs after importing artifacts
+  hosts: aif_management
+  gather_facts: false
+  become: true
+  environment:
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
+  tasks:
+    - name: Request a new index of the private chart repositories
+      ansible.builtin.shell: |
+        set -euo pipefail
+        kubectl=/var/lib/rancher/rke2/bin/kubectl
+        crd=$("${kubectl}" get crd clusterrepos.catalog.cattle.io \
+          --ignore-not-found -o name)
+        [[ -n "${crd}" ]] || exit 0
+        repos=$("${kubectl}" get clusterrepo \
+          application-collection suse-ai-registry nvidia --ignore-not-found -o name)
+        refresh=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)
+        while IFS= read -r repo; do
+          [[ -n "${repo}" ]] || continue
+          "${kubectl}" patch "${repo}" --type merge \
+            --patch "{\"spec\":{\"forceUpdate\":\"${refresh}\"}}" >/dev/null
+          printf 'Refreshed %s\n' "${repo}"
+        done <<<"${repos}"
+      args:
+        executable: /bin/bash
+      register: imported_catalog_refresh
+      changed_when: "'Refreshed ' in imported_catalog_refresh.stdout"

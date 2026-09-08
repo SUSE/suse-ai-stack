@@ -84,6 +84,27 @@
   register: mirrored_cri_pull
   changed_when: true
 
+- name: Pull SUSE application images through containerd's Harbor rewrite
+  ansible.builtin.command:
+    argv:
+      - /var/lib/rancher/rke2/bin/crictl
+      - --runtime-endpoint
+      - unix:///run/k3s/containerd/containerd.sock
+      - pull
+      - --pull-timeout
+      - 15m
+      - "{{ item.source }}"
+  loop: >-
+    {{ (lookup('ansible.builtin.file', playbook_dir ~ '/../artifacts.yml') | from_yaml)
+       .spec.images | selectattr('profiles', 'contains', 'chatbot') | list }}
+  loop_control:
+    label: "{{ item.source }}"
+  when:
+    - inventory_hostname in groups['rke2_airgap_nodes']
+    - airgap_profile | default('core') in ['chatbot', 'vendor', 'all']
+  register: application_cri_pulls
+  changed_when: true
+
 - name: Create the node evidence directory
   ansible.builtin.file:
     path: /var/lib/aif-airgap-evidence
@@ -103,6 +124,9 @@
       printf 'harbor_health=%s\n' "{{ internal_harbor_result.status }}"
       printf 'gitea_health=%s\n' "{{ internal_gitea_result.status }}"
       printf 'default_storage_class=%s\n' {{ default_storage_classes.stdout | trim | quote }}
+      {% for result in application_cri_pulls.results | default([]) if not (result.skipped | default(false)) %}
+      printf 'application_cri_pull=%s %s\n' {{ result.item.source | quote }} {{ result.stdout | trim | quote }}
+      {% endfor %}
       printf 'nft_before=%s\n' {{ isolation_counters_before.stdout | trim | quote }}
       printf 'nft_after=%s\n' {{ isolation_counters_after.stdout | trim | quote }}
       systemctl show aif-airgap-isolation.service --property=ActiveState,UnitFileState

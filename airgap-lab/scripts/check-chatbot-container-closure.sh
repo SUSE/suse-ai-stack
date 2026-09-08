@@ -9,8 +9,8 @@ source_dir="${AIF_SOURCE_DIR:-$(cd "${lab_dir}/../.." && pwd)/aif}"
 usage() {
   printf '%s\n' \
     "Usage: $0 [--manifest FILE] [--source-dir AIF-DIR]" \
-    "Renders the pinned Simple Chatbot with RAG values and verifies that the" \
-    "chatbot profile contains every chart and literal container image."
+    "Renders the pinned charts with their defaults and Simple Chatbot with RAG" \
+    "values, then checks that the chatbot profile contains every container image."
 }
 
 while [[ $# -gt 0 ]]; do
@@ -92,8 +92,12 @@ for ((component_index=0; component_index<component_count; component_index++)); d
     | helm template "${chart_name}" "${archive}" \
         --namespace simple-chatbot-with-rag-system -f - > "${rendered}"
   rendered_manifests+=("${rendered}")
+  rendered_defaults="${work_dir}/${chart_name}-defaults.yaml"
+  helm template "${chart_name}" "${archive}" \
+    --namespace simple-chatbot-with-rag-system > "${rendered_defaults}"
+  rendered_manifests+=("${rendered_defaults}")
 done
 
 "${script_dir}/check-rendered-images.sh" \
   --manifest "${manifest}" --profile chatbot "${rendered_manifests[@]}"
-printf 'Chatbot chart/container closure matches %s %s.\n' "${blueprint_name}" "${blueprint_version}"
+printf 'Chatbot chart/container closure covers chart defaults and %s %s.\n' "${blueprint_name}" "${blueprint_version}"

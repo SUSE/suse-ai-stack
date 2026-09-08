@@ -45,8 +45,8 @@ spec:
       targets: [aif-nvidia]
 
     # The chatbot profile is core plus the exact charts and literal container
-    # images rendered by Simple Chatbot with RAG 1.0.2. The broader vendor
-    # profile includes the same AppCo closure plus SUSE/NVIDIA examples. Runtime
+    # images rendered by their defaults and Simple Chatbot with RAG 1.0.2.
+    # The vendor profile includes the same closure plus SUSE/NVIDIA examples. Runtime
     # model/package downloads are deliberately not treated as container images.
     - id: appco-open-webui
       profiles: [chatbot, vendor]
@@ -120,15 +120,20 @@ spec:
       bundlePath: dp.apps.rancher.io_containers_open-webui_0.6.41-15.2.dir
       target: aif-images/dp.apps.rancher.io/containers/open-webui:0.6.41-15.2
     - id: appco-open-webui-chart-default
-      profiles: [vendor]
-      source: dp.apps.rancher.io/containers/open-webui:0.6.41-14.80
-      bundlePath: dp.apps.rancher.io_containers_open-webui_0.6.41-14.80.dir
-      target: aif-images/dp.apps.rancher.io/containers/open-webui:0.6.41-14.80
+      profiles: [chatbot, vendor]
+      source: dp.apps.rancher.io/containers/open-webui:0.6.41-14.20
+      bundlePath: dp.apps.rancher.io_containers_open-webui_0.6.41-14.20.dir
+      target: aif-images/dp.apps.rancher.io/containers/open-webui:0.6.41-14.20
     - id: appco-ollama
       profiles: [chatbot, vendor]
       source: dp.apps.rancher.io/containers/ollama:0.21.2-11.48
       bundlePath: dp.apps.rancher.io_containers_ollama_0.21.2-11.48.dir
       target: aif-images/dp.apps.rancher.io/containers/ollama:0.21.2-11.48
+    - id: appco-open-webui-ollama-default
+      profiles: [chatbot, vendor]
+      source: dp.apps.rancher.io/containers/ollama:0.12.9-11.15
+      bundlePath: dp.apps.rancher.io_containers_ollama_0.12.9-11.15.dir
+      target: aif-images/dp.apps.rancher.io/containers/ollama:0.12.9-11.15
     - id: appco-open-webui-redis
       profiles: [chatbot, vendor]
       source: dp.apps.rancher.io/containers/redis:8.4.0-2.1

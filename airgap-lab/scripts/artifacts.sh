@@ -234,7 +234,8 @@ export_bundle() {
     require_bundle_basename "${image_bundle}" "spec.images[${image_index}].bundlePath"
     path="${bundle}/images/${image_bundle}"
     if [[ "${image_transport}" == "docker" ]]; then
-      image_digest="$(skopeo inspect --authfile "${source_auth_file}" --format '{{.Digest}}' "${image_ref}")"
+      image_digest="$(skopeo inspect --no-tags --retry-times 3 \
+        --authfile "${source_auth_file}" --format '{{.Digest}}' "${image_ref}")"
     else
       image_digest="$(skopeo inspect --format '{{.Digest}}' "${image_ref}")"
     fi
@@ -348,7 +349,8 @@ import_bundle() {
       --dest-cert-dir "${skopeo_cert_dir}" \
       "dir:${bundle}/images/${image_bundle}" \
       "docker://${HARBOR_REGISTRY}/${image_target}"
-    destination_digest="$(skopeo inspect --authfile "${destination_auth_file}" \
+    destination_digest="$(skopeo inspect --no-tags --retry-times 3 \
+      --authfile "${destination_auth_file}" \
       --cert-dir "${skopeo_cert_dir}" \
       --format '{{.Digest}}' "docker://${HARBOR_REGISTRY}/${image_target}")"
     if [[ "${destination_digest}" != "${expected_digest}" ]]; then

@@ -6,9 +6,7 @@ chatbot_charts:
   - { name: ollama, version: "1.55.0" }
   - { name: open-webui, version: "8.19.1" }
   - { name: open-webui-mcpo, version: "1.0.2" }
-chatbot_images:
-  - dp.apps.rancher.io/containers/ollama:0.21.2-11.48
-  - dp.apps.rancher.io/containers/open-webui:0.6.41-15.2
-  - dp.apps.rancher.io/containers/redis:8.4.0-2.1
-  - dp.apps.rancher.io/containers/open-webui-mcpo:0.0.17-2.18
-  - docker.io/library/busybox:latest
+chatbot_images: >-
+  {{ (lookup('ansible.builtin.file', playbook_dir ~ '/../artifacts.yml') | from_yaml)
+     .spec.images | selectattr('profiles', 'contains', 'chatbot')
+     | map(attribute='source') | list }}

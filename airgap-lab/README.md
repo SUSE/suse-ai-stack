@@ -329,7 +329,7 @@ has an exact reference and every chart has a version; export records the
 resolved image digests and import requires those same digests. Add all images
 rendered by the exact values used in a test; Helm's default render is not enough
 to discover conditional images, hooks, operators, init containers or runtime
-model downloaders. The import step preserves the source registry as a path:
+model downloaders. The import step preserves the source registry as a path.
 
 After rendering each selected chart with the qualification values, catch
 literal omissions before transfer with:
@@ -339,20 +339,20 @@ helm template release ./chart -f qualification-values.yaml > rendered.yaml
 airgap-lab/scripts/check-rendered-images.sh --profile chatbot rendered.yaml
 ```
 
-The dedicated chatbot check pulls the three pinned charts, renders the exact
-`Simple Chatbot with RAG` 1.0.2 values from the selected AIF checkout, and
-requires every chart and literal image to be in the `chatbot` profile. The
-one-command workflow runs it automatically before export:
+The dedicated chatbot check pulls the three pinned charts, renders their
+defaults and the exact `Simple Chatbot with RAG` 1.0.2 values from the selected
+AIF checkout, and requires every chart and literal image to be in the `chatbot`
+profile. The one-command workflow runs it automatically before export:
 
 ```console
 AIF_SOURCE_DIR=/path/to/aif airgap-lab/scripts/check-chatbot-container-closure.sh
 ```
 
-The chatbot profile is a complete chart/container closure, including Redis and
-Helm test hooks. It intentionally cannot turn runtime network downloads into
-container artifacts: the Ollama model and the MCP npm package still need an
-offline product-owned bootstrap contract before this lab can assert a healthy
-RAG conversation. The broader vendor entries remain a starting set rather than
+The chatbot profile covers chart defaults and Blueprint containers, including
+Redis, Helm test hooks and Open WebUI's embedded Ollama. Runtime network
+downloads still need separate artifacts: the Ollama model and the MCP npm
+package need an offline product-owned bootstrap contract before this lab can
+assert a healthy RAG conversation. The broader vendor entries remain a starting set rather than
 a release BOM; AppCo/NGC entitlements and the exact values determine additional
 conditional images and model artifacts.
 
@@ -380,6 +380,47 @@ NVIDIA's vendor profile mirrors charts but deliberately does not claim a GPU
 application is runnable. The QA assertion is limited to catalog readiness,
 chart pull, HelmOp/Git commit creation and secret shape. Full NIM/model testing
 belongs in a GPU/model-cache suite.
+
+### Ollama, Open WebUI and Open WebUI MCPO
+
+Use the `chatbot` profile to make these SUSE Application Collection applications
+available in Harbor and through each target node's containerd mirror:
+
+```console
+AIF_AIRGAP_PROFILE=chatbot ./setup_airgap_lab.sh
+```
+
+| Application | Chart version | Mirrored container tags |
+| --- | --- | --- |
+| Ollama | `1.55.0` | `0.21.2-11.48`; `0.12.9-11.15` for Open WebUI's bundled Ollama |
+| Open WebUI | `8.19.1` | `0.6.41-15.2` for the Blueprint; `0.6.41-14.20` for chart defaults |
+| Open WebUI MCPO | `1.0.2` | `0.0.17-2.18` |
+
+Redis `8.4.0-2.1` and the charts' BusyBox test image are included. Images keep
+their original `dp.apps.rancher.io/containers/...` references in Kubernetes;
+containerd resolves them through
+`harbor.airgap.test/aif-images/dp.apps.rancher.io/containers/...` with upstream
+fallback disabled. Charts are published under `oci://harbor.airgap.test/aif-appco`.
+
+To extend an existing lab, use the manual source credentials described above
+(`APPCO_USERNAME` and `APPCO_PASSWORD`), then export and import a new bundle:
+
+```console
+airgap-lab/run.sh build-aif-source
+export AIF_AIRGAP_PROFILE=chatbot
+export AIF_AIRGAP_MANIFEST="$PWD/airgap-lab/generated/artifacts-aif-source.yml"
+export AIF_AIRGAP_BUNDLE="$PWD/airgap-lab/bundles/chatbot-$(date -u +%Y%m%dT%H%M%SZ)"
+airgap-lab/run.sh mirror-export
+airgap-lab/run.sh transfer-import
+airgap-lab/run.sh verify
+```
+
+Import refreshes existing Rancher catalogs so the newly mirrored charts appear
+in AI Factory. Verification pulls every application image with `crictl` on each
+isolated RKE2 node and records the results in the node evidence. These phases
+populate the mirrors; deploy the applications from AI Factory when needed.
+Models, embedding data and MCP packages still require the offline preparation
+described above.
 
 ## Secure private Git baseline
 
