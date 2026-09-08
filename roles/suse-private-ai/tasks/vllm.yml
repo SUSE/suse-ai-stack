@@ -3,6 +3,42 @@
     src: files/template_chatml.jinja
     dest: ~/template_chatml.jinja
 
+- name: Detect DRA API version
+  shell: >
+    kubectl api-resources --api-group=resource.k8s.io --no-headers 2>/dev/null |
+    awk '/resourceclaimtemplate/i {print $(NF-2); exit}'
+  register: _dra_api_version_raw
+  changed_when: false
+  failed_when: false
+  when: enable_dra | default(false)
+
+- name: Set DRA API version fact
+  set_fact:
+    dra_api_version: "{{ _dra_api_version_raw.stdout | default('resource.k8s.io/v1beta1') | trim }}"
+  when: enable_dra | default(false)
+
+- name: Detect NVIDIA DeviceClass for DRA
+  shell: >
+    kubectl get deviceclass --no-headers 2>/dev/null |
+    awk '{print $1}' |
+    grep -E '^gpu\.' | head -1
+  register: _dra_device_class_raw
+  changed_when: false
+  failed_when: false
+  when: enable_dra | default(false)
+
+- name: Set DRA DeviceClass fact
+  set_fact:
+    dra_device_class: "{{ _dra_device_class_raw.stdout | default('gpu.nvidia.com') | trim }}"
+  when: enable_dra | default(false)
+
+- name: Ensure ResourceClaimTemplate exists for vLLM in {{ suse_private_ai_namespace }}
+  shell: |
+    kubectl apply -f - << 'EOF'
+    {{ lookup('template', 'dra-resource-claim-template.yaml.j2') }}
+    EOF
+  when: enable_dra | default(false)
+
 - name: Get GPU node count in the cluster to tweak vllm_config memory utilization
   shell: |
     kubectl get nodes -l "nvidia.com/gpu.present=true" -o jsonpath="{.items[*].metadata.name}" --no-headers | wc -w
@@ -33,6 +69,99 @@
   until: vllm_deploy_result.rc == 0
   retries: 5
   delay: 30
+  when: not deploy_rancher_only | default(False) | bool
+
+# The vLLM chart does not natively expose DRA resource claims in its values
+# schema. Patch the serving engine deployment's pod template to add
+# spec.resourceClaims and the container-level resources.claims after install.
+#
+# Strategic-merge patch is used so Kubernetes handles null parent objects
+# (e.g. an empty resources block) and the container is matched by name rather
+# than by index, making the patch safe to re-apply.
+- name: Patch vLLM serving engine deployment with DRA resource claims
+  shell: |
+    set -e
+    DEPLOY="{{ vllm_release_name }}-{{ vllm_model_name }}-deployment-vllm"
+    NS="{{ suse_private_ai_namespace }}"
+
+    # Idempotent: skip if claims are already present
+    EXISTING=$(kubectl get deploy "$DEPLOY" -n "$NS" \
+      -o jsonpath='{.spec.template.spec.resourceClaims}' 2>/dev/null)
+    if [ -n "$EXISTING" ]; then
+      echo "DRA resource claims already present — skipping patch"
+      exit 0
+    fi
+
+    # Resolve the actual container name so the strategic-merge patch targets
+    # the right container rather than relying on index 0.
+    CONTAINER=$(kubectl get deploy "$DEPLOY" -n "$NS" \
+      -o jsonpath='{.spec.template.spec.containers[0].name}')
+
+    kubectl patch deployment "$DEPLOY" -n "$NS" \
+      --type=strategic \
+      --patch "{
+        \"spec\": {
+          \"template\": {
+            \"spec\": {
+              \"runtimeClassName\": null,
+              \"resourceClaims\": [
+                {
+                  \"name\": \"gpu\",
+                  \"resourceClaimTemplateName\": \"dra-device-template\"
+                }
+              ],
+              \"containers\": [
+                {
+                  \"name\": \"$CONTAINER\",
+                  \"resources\": {
+                    \"claims\": [{\"name\": \"gpu\"}]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }"
+    echo "Patch applied to $DEPLOY (container: $CONTAINER)"
+  register: _vllm_dra_patch
+  changed_when: "'Patch applied' in _vllm_dra_patch.stdout"
+  failed_when: _vllm_dra_patch.rc != 0
+  when:
+    - enable_dra | default(false)
+    - not deploy_rancher_only | default(False) | bool
+
+- name: Show patch result
+  debug:
+    msg: "{{ _vllm_dra_patch.stdout_lines }}"
+  when:
+    - enable_dra | default(false)
+    - not deploy_rancher_only | default(False) | bool
+
+- name: Diagnose vLLM serving engine pod state before rollout wait
+  shell: |
+    DEPLOY="{{ vllm_release_name }}-{{ vllm_model_name }}-deployment-vllm"
+    NS="{{ suse_private_ai_namespace }}"
+    echo "=== Deployment conditions ==="
+    kubectl get deploy "$DEPLOY" -n "$NS" \
+      -o jsonpath='{range .status.conditions[*]}{.type}: {.reason} — {.message}{"\n"}{end}' 2>/dev/null || true
+    echo "=== Pod status ==="
+    kubectl get pods -n "$NS" -l "app.kubernetes.io/instance={{ vllm_release_name }}" \
+      --no-headers 2>/dev/null || true
+    echo "=== Pod events ==="
+    POD=$(kubectl get pod -n "$NS" \
+      -l "app.kubernetes.io/instance={{ vllm_release_name }}" \
+      --field-selector=status.phase!=Running --no-headers 2>/dev/null | awk 'NR==1{print $1}')
+    if [ -n "$POD" ]; then
+      kubectl describe pod "$POD" -n "$NS" 2>/dev/null | grep -A 20 "^Events:" || true
+    fi
+  register: _vllm_diag
+  changed_when: false
+  failed_when: false
+  when: not deploy_rancher_only | default(False) | bool
+
+- name: Show vLLM pod diagnostics
+  debug:
+    msg: "{{ _vllm_diag.stdout_lines }}"
   when: not deploy_rancher_only | default(False) | bool
 
 - name: Wait for vllm to be successfully rolled out
