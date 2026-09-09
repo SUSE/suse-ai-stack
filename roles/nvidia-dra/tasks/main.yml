@@ -39,7 +39,7 @@
         enabled: true
       devicePlugin:
         enabled: false
-  when: _dra_use_chart is undefined
+  when: _dra_use_chart | default('') | length == 0
 
 - name: Check if DRA driver release is already installed
   command: helm status {{ _dra_use_release }} --namespace {{ _dra_use_namespace }}
