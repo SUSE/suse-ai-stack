@@ -231,6 +231,13 @@ time_slicing_replicas: 4
 #  gpu_operator_chart_version: 25.10.1
 
 #
+# Enable DRA (Dynamic Resource Allocation) support.
+# When true, installs the NVIDIA DRA driver and switches the GPU Operator
+# to GPUCluster (DRA) mode. Requires Kubernetes >= 1.31.
+#
+enable_dra: false
+
+#
 # Flag to control vllm deployment.
 # Set this flag to true to deploy vllm.
 # The cluster should have at least one GPU node

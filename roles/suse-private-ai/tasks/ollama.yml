@@ -10,6 +10,44 @@
     regexp: "^export OLLAMA_HOST="
     line: "export OLLAMA_HOST={{ ollama_hostname }}:80"
 
+- name: Detect DRA API version
+  shell: >
+    kubectl api-resources --api-group=resource.k8s.io --no-headers 2>/dev/null |
+    awk '/resourceclaimtemplate/i {print $(NF-2); exit}'
+  register: _dra_api_version_raw
+  changed_when: false
+  failed_when: false
+  when: enable_dra | default(false)
+
+- name: Set DRA API version fact
+  set_fact:
+    dra_api_version: "{{ _dra_api_version_raw.stdout | default('resource.k8s.io/v1beta1') | trim }}"
+  when: enable_dra | default(false)
+
+- name: Detect NVIDIA DeviceClass for DRA
+  shell: >
+    kubectl get deviceclass --no-headers 2>/dev/null |
+    awk '{print $1}' |
+    grep -E '^gpu\.' | head -1
+  register: _dra_device_class_raw
+  changed_when: false
+  failed_when: false
+  when: enable_dra | default(false)
+
+- name: Set DRA DeviceClass fact
+  set_fact:
+    dra_device_class: "{{ _dra_device_class_raw.stdout | default('gpu.nvidia.com') | trim }}"
+  when: enable_dra | default(false)
+
+- name: Create ResourceClaimTemplate for Ollama in {{ suse_private_ai_namespace }}
+  shell: |
+    kubectl apply -f - << 'EOF'
+    {{ lookup('template', 'dra-resource-claim-template.yaml.j2') }}
+    EOF
+  when:
+    - enable_dra | default(false)
+    - ollama_deploy_separately
+
 - name: Copy ollama-values.yaml
   template:
     src: ollama-values.yaml.j2

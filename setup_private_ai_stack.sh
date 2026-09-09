@@ -160,6 +160,20 @@ playbook_args=(
 run_ansible_playbook "${playbook_args[@]}"
 
 
+### PREPARE DRA (Dynamic Resource Allocation) optionally
+playbook="prepare_dra"
+
+playbook_args=(
+  "${base_playbook_args[@]}"
+  -i "${PROJECT_DIR}/inventories/${inv_name}_inventory.yml"
+  -i "${PROJECT_DIR}/inventories/${cluster_inv_name}"
+  -e "@${PROJECT_DIR}/extra_vars.yml"
+  "$PROJECT_DIR/playbooks/${playbook}.yml"
+)
+
+run_ansible_playbook "${playbook_args[@]}"
+
+
 # DEPLOY external-dns, storage on all clusters
 playbook="setup_dns_storage"
 

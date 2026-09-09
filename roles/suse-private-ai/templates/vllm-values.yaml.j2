@@ -24,13 +24,13 @@ servingEngineSpec:
 {% if gpu_present_node_count | int < 2 %}
     requestCPU: 1
     requestMemory: "8Gi"
-    requestGPU: 1
+    requestGPU: {{ 0 if (enable_dra | default(false)) else 1 }}
     vllmConfig:
       extraArgs: ["--disable-log-requests", "--gpu-memory-utilization", "0.8"]
 {% else %}
     requestCPU: 2
     requestMemory: "8Gi"
-    requestGPU: 1
+    requestGPU: {{ 0 if (enable_dra | default(false)) else 1 }}
 {% endif %}
 routerSpec:
 {% if "dp.apps.rancher.io" in  vllm_helm_repo  %}
