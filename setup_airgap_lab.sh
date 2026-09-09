@@ -21,7 +21,7 @@ usage() {
     "With no arguments, provisions and qualifies the complete CPU-only AWS lab." \
     "A failed run is resumable by running the same command again." \
     "" \
-    "  --status          Show completed phase markers and current AWS workspace" \
+    "  --status          Show phase markers, AWS workspace, UI endpoints and credentials" \
     "  --prepare-only    Generate ignored configuration without creating AWS resources" \
     "  --reset-progress  Forget source/qualification markers; retain infrastructure checkpoints"
 }

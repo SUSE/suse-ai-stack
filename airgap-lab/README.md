@@ -66,7 +66,13 @@ The final setup output also prints the management node's public IP and the
 exact `<IP> suse-rancher.demo` entry needed in the controller's `/etc/hosts`.
 The same values are retained in the ignored, mode-`0600`
 `airgap-lab/generated/ui-links/links.txt`; `--status` reports whether the proxy
-and SSH tunnel are still running. Override the local ports with
+and SSH tunnel are still running. Both the final setup output and `--status`
+also print the Rancher, Harbor, and Gitea UI usernames and passwords in plain
+text. The UI helper reads the current credentials from
+`airgap-lab/generated/vars.yml` (or `AIF_AIRGAP_VARS` when set); Harbor uses the
+`admin` account and `harbor_admin_password`.
+
+Override the local ports with
 `AIF_AIRGAP_HARBOR_UI_PORT`, `AIF_AIRGAP_GITEA_UI_PORT`, and
 `AIF_AIRGAP_UI_TUNNEL_PORT` when the defaults are occupied. Diagnostic HTTP
 Gitea runs also use `AIF_AIRGAP_GITEA_UI_TUNNEL_PORT`, defaulting to `18444`.

@@ -376,7 +376,23 @@ EOF
 print_links() {
   printf '\nLocal demo links (loopback only; upstream traffic uses SSH):\n'
   sed 's/^/  /' "${links_file}"
+  print_credentials
   printf 'Remove local links: %s stop\n' "$0"
+}
+
+print_credentials() {
+  if [[ ! -f "${lab_vars}" ]]; then
+    printf '\nLab UI credentials: not generated.\n'
+    return 0
+  fi
+  require_command yq
+  printf '\nLab UI credentials:\n'
+  printf '  Rancher username: %s\n' "$(yq -r '.rancher_admin_username // "admin"' "${lab_vars}")"
+  printf '  Rancher password: %s\n' "$(yq -r '.rancher_bootstrap_password // "<not configured>"' "${lab_vars}")"
+  printf '  Harbor username: admin\n'
+  printf '  Harbor password: %s\n' "$(yq -r '.harbor_admin_password // "<not configured>"' "${lab_vars}")"
+  printf '  Gitea username: %s\n' "$(yq -r '.gitea_admin_username // "<not configured>"' "${lab_vars}")"
+  printf '  Gitea password: %s\n' "$(yq -r '.gitea_admin_password // "<not configured>"' "${lab_vars}")"
 }
 
 cleanup_start_failure() {
@@ -423,6 +439,7 @@ show_status() {
   else
     printf 'Local UI links are not generated.\n'
   fi
+  print_credentials
 
   if command -v docker >/dev/null && container_is_owned &&
     [[ "$(docker inspect --format '{{.State.Running}}' "${container_name}")" == true ]]; then
