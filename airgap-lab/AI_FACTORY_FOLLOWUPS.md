@@ -1,9 +1,11 @@
 # AI Factory follow-ups
 
-The lab now gives every smoke Blueprint/AIWorkload pair a unique display name and
-provides a `chatbot` profile containing the exact charts and rendered container
-images for `Simple Chatbot with RAG` 1.0.2. The following work belongs in AI
-Factory.
+The default lab now deploys real mirrored Qdrant and Ollama applications and
+retires the synthetic smoke fixtures. Its optional `chatbot` profile contains
+the exact charts and rendered container images for `Simple Chatbot with RAG`
+1.0.2. GPU workers can be configured separately, but model-bearing NVIDIA
+Blueprints still need a complete offline artifact contract. The following work
+belongs in AI Factory.
 
 ## Blueprint workload visibility
 

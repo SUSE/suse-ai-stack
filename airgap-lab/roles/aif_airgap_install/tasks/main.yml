@@ -14,8 +14,6 @@
       - harbor_registry_password != 'REPLACE_WITH_A_STRONG_PASSWORD'
       - gitea_admin_username == 'token'
       - gitea_admin_password != 'REPLACE_WITH_A_STRONG_PASSWORD'
-      - gitea_chart_repository is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
-      - gitea_chart_clusterrepo is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
       - rancher_url is regex('^https://')
       - rancher_admin_username | length > 0
       - rancher_bootstrap_password != 'REPLACE_WITH_THE_RANCHER_BOOTSTRAP_PASSWORD'
@@ -241,80 +239,6 @@
   no_log: true
   changed_when: true
 
-- name: Apply the private Gitea chart credential for Rancher
-  ansible.builtin.shell: |
-    set -euo pipefail
-    /var/lib/rancher/rke2/bin/kubectl -n cattle-system create secret generic \
-      {{ (gitea_chart_clusterrepo ~ '-auth') | quote }} \
-      --type=kubernetes.io/basic-auth \
-      --from-literal=username="${GITEA_USERNAME}" \
-      --from-literal=password="${GITEA_PASSWORD}" \
-      --dry-run=client -o yaml \
-      --kubeconfig /etc/rancher/rke2/rke2.yaml \
-      | /var/lib/rancher/rke2/bin/kubectl apply -f - \
-          --kubeconfig /etc/rancher/rke2/rke2.yaml
-  args:
-    executable: /bin/bash
-  environment:
-    GITEA_USERNAME: "{{ gitea_admin_username }}"
-    GITEA_PASSWORD: "{{ gitea_admin_password }}"
-  no_log: true
-  changed_when: true
-
-- name: Encode the Gitea CA in Rancher's ClusterRepo format
-  ansible.builtin.shell: |
-    set -euo pipefail
-    openssl x509 -outform DER -in /var/lib/aif-airgap-lab-ca.crt | base64 -w 0
-  args:
-    executable: /bin/bash
-  when: gitea_tls_enabled | bool
-  register: private_gitea_clusterrepo_ca
-  changed_when: false
-
-- name: Render the private Gitea chart ClusterRepo
-  ansible.builtin.template:
-    src: private-gitea-clusterrepo.yaml.j2
-    dest: /var/lib/aif-airgap-private-gitea-clusterrepo.yaml
-    owner: root
-    group: root
-    mode: "0600"
-
-- name: Apply the private Gitea chart ClusterRepo
-  ansible.builtin.command:
-    cmd: >-
-      /var/lib/rancher/rke2/bin/kubectl apply
-      --filename /var/lib/aif-airgap-private-gitea-clusterrepo.yaml
-      --kubeconfig /etc/rancher/rke2/rke2.yaml
-  register: private_gitea_clusterrepo_apply
-  changed_when: >-
-    'created' in private_gitea_clusterrepo_apply.stdout or
-    'configured' in private_gitea_clusterrepo_apply.stdout
-
-- name: Require Rancher to index the authenticated private-Gitea chart source
-  ansible.builtin.shell: |
-    set -euo pipefail
-    kubectl=/var/lib/rancher/rke2/bin/kubectl
-    kubeconfig=/etc/rancher/rke2/rke2.yaml
-    deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
-    while (( SECONDS < deadline )); do
-      object=$("${kubectl}" get clusterrepo {{ gitea_chart_clusterrepo | quote }} \
-        -o json --kubeconfig "${kubeconfig}" 2>/dev/null || true)
-      generation=$(jq -r '.metadata.generation // 0' <<<"${object}")
-      observed=$(jq -r '.status.observedGeneration // 0' <<<"${object}")
-      downloaded=$(jq -r '[.status.conditions[]? | select(.type == "Downloaded") | .status][-1] // ""' <<<"${object}")
-      commit=$(jq -r '.status.commit // ""' <<<"${object}")
-      if [[ "${generation}" == "${observed}" && "${downloaded}" == "True" && -n "${commit}" ]]; then
-        exit 0
-      fi
-      sleep 5
-    done
-    "${kubectl}" get clusterrepo {{ gitea_chart_clusterrepo | quote }} -o yaml \
-      --kubeconfig "${kubeconfig}" >&2 || true
-    exit 1
-  args:
-    executable: /bin/bash
-  changed_when: false
-
 - name: Log Helm into gated Harbor without exposing the password
   ansible.builtin.shell: |
     set -euo pipefail
@@ -470,7 +394,7 @@
     kubeconfig=/etc/rancher/rke2/rke2.yaml
     deployment={{ (aif_ui_release_name ~ ('-server' if aif_install_mode == 'combined' else '')) | quote }}
     expected_image={{ (harbor_hostname ~ '/' ~ aif_image_project ~ '/ghcr.io/suse/aif-ui:' ~ aif_image_tag) | quote }}
-    deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
+    deadline=$((SECONDS + {{ airgap_timeout_seconds | int }}))
     while (( SECONDS < deadline )); do
       current_image=$("${kubectl}" -n cattle-ui-plugin-system get deployment "${deployment}" \
         -o jsonpath='{.spec.template.spec.containers[0].image}' \
@@ -519,7 +443,7 @@
     set -euo pipefail
     kubectl=/var/lib/rancher/rke2/bin/kubectl
     kubeconfig=/etc/rancher/rke2/rke2.yaml
-    deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
+    deadline=$((SECONDS + {{ airgap_timeout_seconds | int }}))
     while (( SECONDS < deadline )); do
       plugin=$("${kubectl}" -n cattle-ui-plugin-system get uiplugin {{ aif_ui_release_name | quote }} \
         -o json --kubeconfig "${kubeconfig}" 2>/dev/null || true)
@@ -582,10 +506,7 @@
     exit 1
   args:
     executable: /bin/bash
-  loop:
-    - application-collection
-    - suse-ai-registry
-    - nvidia
+  loop: "{{ airgap_catalog_repos }}"
   changed_when: false
 
 - name: Add Harbor CA to AIF-created Fleet Helm auth secrets
@@ -593,7 +514,7 @@
     set -euo pipefail
     ca=$(/usr/bin/base64 -w 0 /var/lib/aif-airgap-lab-ca.crt)
     for namespace in cattle-system fleet-local fleet-default; do
-      for secret in application-collection-auth suse-ai-registry-auth ngc-helm-auth; do
+      for secret in {{ airgap_catalog_auth_secrets | map('quote') | join(' ') }}; do
         /var/lib/rancher/rke2/bin/kubectl -n "${namespace}" patch secret "${secret}" \
           --type merge --patch "{\"data\":{\"cacerts\":\"${ca}\"}}" \
           --kubeconfig /etc/rancher/rke2/rke2.yaml
@@ -608,7 +529,7 @@
   ansible.builtin.shell: |
     set -euo pipefail
     for namespace in cattle-system fleet-local fleet-default; do
-      for secret in application-collection-auth suse-ai-registry-auth ngc-helm-auth; do
+      for secret in {{ airgap_catalog_auth_secrets | map('quote') | join(' ') }}; do
         fields=$(/var/lib/rancher/rke2/bin/kubectl -n "${namespace}" get secret "${secret}" \
           --kubeconfig /etc/rancher/rke2/rke2.yaml \
           -o go-template='{{ "{{" }}if .data.username{{ "}}" }}u{{ "{{" }}end{{ "}}" }}{{ "{{" }}if .data.password{{ "}}" }}p{{ "{{" }}end{{ "}}" }}{{ "{{" }}if .data.cacerts{{ "}}" }}c{{ "{{" }}end{{ "}}" }}')
@@ -627,7 +548,7 @@
   ansible.builtin.shell: |
     set -euo pipefail
     refresh="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
-    for repo in application-collection suse-ai-registry nvidia; do
+    for repo in {{ airgap_catalog_repos | map('quote') | join(' ') }}; do
       /var/lib/rancher/rke2/bin/kubectl patch clusterrepo "${repo}" \
         --type merge --patch "{\"spec\":{\"forceUpdate\":\"${refresh}\"}}" \
         --kubeconfig /etc/rancher/rke2/rke2.yaml >/dev/null
@@ -663,10 +584,7 @@
     exit 1
   args:
     executable: /bin/bash
-  loop:
-    - application-collection
-    - suse-ai-registry
-    - nvidia
+  loop: "{{ airgap_catalog_repos }}"
   changed_when: false
 
 - name: Verify Settings-native CA rotation and ClusterRepo refresh
@@ -679,9 +597,9 @@
     # trust-equivalent bundle. TODO: add a second-CA reject/restore case to
     # prove that consumers reload changed trust semantics end to end.
     rotated_ca=$({ cat /var/lib/aif-airgap-lab-ca.crt; printf '\n'; } | /usr/bin/base64 -w 0)
-    repos=(application-collection suse-ai-registry nvidia)
+    repos=({{ airgap_catalog_repos | map('quote') | join(' ') }})
     namespaces=(cattle-system fleet-local fleet-default)
-    secrets=(application-collection-auth suse-ai-registry-auth ngc-helm-auth)
+    secrets=({{ airgap_catalog_auth_secrets | map('quote') | join(' ') }})
     declare -A before
 
     for repo in "${repos[@]}"; do
@@ -800,7 +718,7 @@
       - "AIF {{ aif_version }} (images {{ aif_image_tag }}) installed in {{ aif_install_mode }} mode from {{ harbor_hostname }}."
       - "AppCo endpoint: oci://{{ harbor_hostname }}/{{ appco_chart_project }}"
       - "SUSE endpoint: oci://{{ harbor_hostname }}/{{ suse_chart_project }}"
-      - "NVIDIA endpoint: oci://{{ harbor_hostname }}/{{ nvidia_chart_project }}"
+      - "Mirrored application catalogs: {{ airgap_catalog_repos | join(', ') }}"
       - "GitOps endpoint: {{ gitea_url }}/{{ gitea_admin_username }}/{{ gitea_repository }}.git"
       - >-
         Registry CA mode: {{ aif_registry_ca_mode }}

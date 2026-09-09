@@ -1,12 +1,10 @@
 ---
-- name: Exercise a CPU-only Blueprint through Fleet
+- name: Retire synthetic fixtures from the active lab catalog
   hosts: aif_management
   gather_facts: false
   become: true
   environment:
     PATH: /usr/local/bin:/var/lib/rancher/rke2/bin:/usr/sbin:/usr/bin:/sbin:/bin
     KUBECONFIG: /etc/rancher/rke2/rke2.yaml
-  vars:
-    airgap_ca_source: "{{ playbook_dir }}/../generated/pki/ca.crt"
   roles:
-    - role: aif_airgap_smoke
+    - role: aif_airgap_catalog_cleanup

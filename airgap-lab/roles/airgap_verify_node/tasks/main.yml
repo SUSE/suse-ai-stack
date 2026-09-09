@@ -23,13 +23,17 @@
       - --kubeconfig
       - /etc/rancher/rke2/rke2.yaml
   register: default_storage_classes
+  delegate_to: "{{ airgap_cluster_server | default(inventory_hostname) }}"
+  when: inventory_hostname in groups['rke2_airgap_nodes']
   changed_when: false
 
 - name: Require at least one default storage class
   ansible.builtin.assert:
     that:
       - "'true' in default_storage_classes.stdout.split()"
+    quiet: true
     fail_msg: "Stateful AI workloads require a default StorageClass on every target cluster."
+  when: inventory_hostname in groups['rke2_airgap_nodes']
 
 - name: Resolve a public registry through the configured DNS path
   ansible.builtin.command:
@@ -96,12 +100,12 @@
       - "{{ item.source }}"
   loop: >-
     {{ (lookup('ansible.builtin.file', playbook_dir ~ '/../artifacts.yml') | from_yaml)
-       .spec.images | selectattr('profiles', 'contains', 'suse' if airgap_profile | default('core') == 'suse' else 'chatbot') | list }}
+       .spec.images | selectattr('profiles', 'contains', 'suse' if airgap_profile | default('suse') == 'suse' else 'chatbot') | list }}
   loop_control:
     label: "{{ item.source }}"
   when:
     - inventory_hostname in groups['rke2_airgap_nodes']
-    - airgap_profile | default('core') in ['suse', 'chatbot', 'vendor', 'all']
+    - airgap_profile | default('suse') in ['suse', 'chatbot', 'vendor', 'all']
   register: application_cri_pulls
   changed_when: true
 
@@ -123,7 +127,7 @@
       printf 'public_tcp_rc=%s\n' {{ public_tcp_probe.rc | string | quote }}
       printf 'harbor_health=%s\n' "{{ internal_harbor_result.status }}"
       printf 'gitea_health=%s\n' "{{ internal_gitea_result.status }}"
-      printf 'default_storage_class=%s\n' {{ default_storage_classes.stdout | trim | quote }}
+      printf 'default_storage_class=%s\n' {{ default_storage_classes.stdout | default('not a cluster node') | trim | quote }}
       {% for result in application_cri_pulls.results | default([]) if not (result.skipped | default(false)) %}
       printf 'application_cri_pull=%s %s\n' {{ result.item.source | quote }} {{ result.stdout | trim | quote }}
       {% endfor %}

@@ -1,0 +1,77 @@
+---
+# Existing nodes must be able to pull newly required infrastructure images
+# during topology reconciliation, before those images can be mirrored.
+- name: Reopen the connected preparation stage on existing lab nodes
+  ansible.builtin.import_playbook: 99-disable-isolation.yml
+
+- name: Restore upstream image access for connected stack reconciliation
+  hosts: rke2_airgap_nodes
+  serial: 1
+  gather_facts: false
+  become: true
+  environment:
+    PATH: /usr/local/bin:/var/lib/rancher/rke2/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
+  tasks:
+    - name: Inspect existing registry configuration
+      ansible.builtin.stat:
+        path: /etc/rancher/rke2/registries.yaml
+      register: existing_registries
+
+    - name: Inspect a previous interrupted reconnect
+      ansible.builtin.stat:
+        path: /etc/rancher/rke2/aif-airgap-registries.yaml.saved
+      register: saved_registries
+
+    - name: Reconnect only nodes configured by this lab
+      when: existing_registries.stat.exists or saved_registries.stat.exists
+      block:
+        - name: Read the lab registry ownership marker
+          ansible.builtin.slurp:
+            src: "{{ '/etc/rancher/rke2/registries.yaml' if existing_registries.stat.exists else '/etc/rancher/rke2/aif-airgap-registries.yaml.saved' }}"
+          register: registry_content
+          no_log: true
+
+        - name: Require lab ownership before changing registry configuration
+          ansible.builtin.assert:
+            that: (registry_content.content | b64decode).startswith('# Managed by the SUSE AI Factory air-gap QA lab.')
+            fail_msg: The existing registries.yaml is not owned by this lab; reconcile its upstream access before provisioning.
+            quiet: true
+
+        - name: Retain the previous private registry configuration
+          ansible.builtin.copy:
+            src: /etc/rancher/rke2/registries.yaml
+            dest: /etc/rancher/rke2/aif-airgap-registries.yaml.saved
+            remote_src: true
+            mode: "0600"
+          no_log: true
+          when: existing_registries.stat.exists
+
+        - name: Temporarily remove the lab registry rewrites
+          ansible.builtin.file:
+            path: /etc/rancher/rke2/registries.yaml
+            state: absent
+
+        - name: Temporarily permit the upstream registry endpoints
+          ansible.builtin.lineinfile:
+            path: /etc/rancher/rke2/config.yaml
+            regexp: '^disable-default-registry-endpoint: true$'
+            state: absent
+
+        - name: Read running RKE2 services
+          ansible.builtin.service_facts:
+
+        # Also restart on a resumed run where the files were already changed
+        # but containerd may still be using its previous mirror configuration.
+        - name: Restart reconnected RKE2
+          ansible.builtin.systemd_service:
+            name: "{{ item }}"
+            state: restarted
+          loop: [rke2-server.service, rke2-agent.service]
+          when: ansible_facts.services.get(item, {}).get('state') == 'running'
+
+        - name: Wait for the reconnected node
+          ansible.builtin.command:
+            argv: [kubectl, wait, 'node/{{ inventory_hostname }}', --for=condition=Ready, --timeout=8m]
+          delegate_to: "{{ airgap_cluster_server | default(inventory_hostname) }}"
+          changed_when: false

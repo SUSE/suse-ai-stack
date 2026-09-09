@@ -6,7 +6,7 @@ inventory="${AIF_AIRGAP_INVENTORY:-${lab_dir}/generated/inventory.yml}"
 vars_file="${AIF_AIRGAP_VARS:-${lab_dir}/generated/vars.yml}"
 manifest="${AIF_AIRGAP_MANIFEST:-${lab_dir}/artifacts.yml}"
 bundle_dir="${AIF_AIRGAP_BUNDLE:-${lab_dir}/bundles/current}"
-profile="${AIF_AIRGAP_PROFILE:-core}"
+profile="${AIF_AIRGAP_PROFILE:-suse}"
 discovered_vars="${lab_dir}/generated/discovered-vars.yml"
 
 case "${profile}" in
@@ -29,18 +29,19 @@ usage() {
     "  mirror-export       Download selected artifacts into a checksummed transfer bundle" \
     "  mirror-import       Verify and upload a transfer bundle into Harbor" \
     "  mirror              Export and import while seed and Harbor are both reachable" \
+    "  reconnect           Reopen lab egress and registry pulls for topology changes" \
     "  configure           Trust CA, configure RKE2 mirrors, and disable upstream fallback" \
+    "  gpu-prepare         Check configured GPUs and inventory their runtime images" \
     "  install             Install/configure AIF (combined or separate UI mode)" \
     "  isolate             Enable reversible host and pod egress rejection" \
-    "  smoke               Create the no-GPU Blueprint workload fixture" \
     "  discover-targets    Discover the downstream Rancher cluster ID" \
-    "  matrix              Run FleetBundle/GitOps in single- and multi-cluster modes" \
+    "  clean-catalog       Retire legacy synthetic lab entries from the active catalog" \
     "  suse-blueprints     Publish custom Qdrant and Ollama Blueprints to private Gitea" \
     "  suse-apps           Deploy those CPU applications and test their APIs on every target" \
     "  verify              Run positive internal and negative external probes" \
     "  restore             Remove only the lab's nftables isolation table" \
     "" \
-    "Profiles: AIF_AIRGAP_PROFILE=core|suse|chatbot|vendor|all (default: core)" \
+    "Profiles: AIF_AIRGAP_PROFILE=core|suse|chatbot|vendor|all (default: suse)" \
     "" \
     "Use ./setup_airgap_lab.sh for the complete ordered and resumable workflow."
 }
@@ -53,7 +54,7 @@ require_config() {
 }
 
 play() {
-  local args=(-i "${inventory}" -e "@${vars_file}")
+  local args=(-i "${inventory}" -e "@${lab_dir}/vars.example.yml" -e "@${vars_file}")
   # Discovery produces this file, so importing a previous run's copy would
   # make its output variables override the task's newly registered result.
   if [[ "${phase:-}" != discover-targets && -f "${discovered_vars}" ]]; then
@@ -98,9 +99,18 @@ case "${phase}" in
   mirror)
     mirror mirror
     ;;
+  reconnect)
+    require_config
+    play "${lab_dir}/playbooks/00-reconnect-nodes.yml"
+    ;;
   configure)
     require_config
     play "${lab_dir}/playbooks/02-configure-nodes.yml"
+    ;;
+  gpu-prepare)
+    require_config
+    play "${lab_dir}/playbooks/02-gpu-prepare.yml"
+    "${lab_dir}/scripts/gpu-artifacts.sh"
     ;;
   install)
     require_config
@@ -110,44 +120,13 @@ case "${phase}" in
     require_config
     play "${lab_dir}/playbooks/04-enable-isolation.yml"
     ;;
-  smoke)
-    require_config
-    play "${lab_dir}/playbooks/05-smoke.yml"
-    ;;
   discover-targets)
     require_config
     play "${lab_dir}/playbooks/05-discover-targets.yml"
     ;;
-  matrix)
+  clean-catalog)
     require_config
-    [[ -f "${discovered_vars}" ]] || {
-      printf 'Run the discover-targets phase before the multi-cluster matrix.\n' >&2
-      exit 2
-    }
-    play -e smoke_strategy=FleetBundle -e smoke_workload_name=airgap-smoke-single \
-      -e '{"smoke_target_clusters":["local"]}' "${lab_dir}/playbooks/05-smoke.yml"
-    play -e smoke_strategy=GitOps -e smoke_workload_name=airgap-smoke-single \
-      -e smoke_verify_fleet_branch_change=true \
-      -e '{"smoke_target_clusters":["local"]}' "${lab_dir}/playbooks/05-smoke.yml"
-    play -e smoke_strategy=FleetBundle -e smoke_workload_name=airgap-smoke-multi \
-      "${lab_dir}/playbooks/05-smoke.yml"
-    play -e smoke_strategy=GitOps -e smoke_workload_name=airgap-smoke-multi \
-      -e smoke_verify_registry_reroute=true \
-      "${lab_dir}/playbooks/05-smoke.yml"
-    play -e smoke_strategy=FleetBundle \
-      -e smoke_blueprint_mode=preprovisioned \
-      -e smoke_workload_name=airgap-blueprint-source \
-      -e '{"smoke_target_clusters":["local"]}' "${lab_dir}/playbooks/05-smoke.yml"
-    play -e smoke_strategy=FleetBundle \
-      -e smoke_chart_repo=private-gitea-applications \
-      -e smoke_fleet_resource_kind=bundle \
-      -e smoke_workload_name=airgap-git-chart-multi \
-      "${lab_dir}/playbooks/05-smoke.yml"
-    play -e smoke_strategy=GitOps \
-      -e smoke_chart_repo=private-gitea-applications \
-      -e smoke_fleet_resource_kind=bundle \
-      -e smoke_workload_name=airgap-git-chart-multi \
-      "${lab_dir}/playbooks/05-smoke.yml"
+    play "${lab_dir}/playbooks/05-clean-catalog.yml"
     ;;
   suse-blueprints|suse-apps)
     require_config

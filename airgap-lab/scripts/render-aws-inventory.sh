@@ -33,50 +33,34 @@ output_value() {
   jq -er --arg name "$1" '.[$name].value | select(. != null and . != "")' <<<"${outputs}"
 }
 
-management_public_ip="$(output_value mgmt_instance_public_ip)"
+output_value mgmt_instance_public_ip >/dev/null
 management_private_ip="$(output_value mgmt_instance_private_ip)"
-downstream_public_ip="$(output_value suse_ai_instance_public_ip)"
-services_public_ip="$(output_value airgap_services_public_ip)"
+output_value suse_ai_instance_public_ip >/dev/null
+downstream_private_ip="$(output_value suse_ai_instance_private_ip)"
+management_api_dns="$(output_value mgmt_kubeapi_fqdn)"
+downstream_api_dns="$(output_value suse_ai_kubeapi_fqdn)"
+output_value airgap_services_public_ip >/dev/null
 services_private_ip="$(output_value airgap_services_private_ip)"
 ansible_user="$(yq -r '.vm_ansible_user // .cluster.user // "ec2-user"' "${stack_vars}")"
 ssh_private_key="$(yq -r '.ansible_ssh_private_key_file' "${stack_vars}")"
 
-MGMT_PUBLIC_IP="${management_public_ip}" \
-DOWNSTREAM_PUBLIC_IP="${downstream_public_ip}" \
-SERVICES_PUBLIC_IP="${services_public_ip}" \
-ANSIBLE_USER="${ansible_user}" \
-SSH_PRIVATE_KEY="${ssh_private_key}" \
-yq -n '
-  {
-    "all": {
-      "vars": {
-        "ansible_user": strenv(ANSIBLE_USER),
-        "ansible_become": true,
-        "ansible_ssh_private_key_file": strenv(SSH_PRIVATE_KEY),
-        "ansible_ssh_common_args": "-o StrictHostKeyChecking=accept-new"
-      },
-      "children": {
-        "aif_management": {"hosts": {"mgmt-rancher": {"ansible_host": strenv(MGMT_PUBLIC_IP)}}},
-        "aif_workloads": {"hosts": {"suse-ai": {"ansible_host": strenv(DOWNSTREAM_PUBLIC_IP)}}},
-        "airgap_services": {"hosts": {"airgap-services": {"ansible_host": strenv(SERVICES_PUBLIC_IP)}}},
-        "rke2_servers": {"hosts": {"airgap-services": {}}},
-        "rke2_airgap_nodes": {"children": {"aif_management": {}, "aif_workloads": {}}},
-        "airgap_clients": {"hosts": {}},
-        "airgap_isolated": {"children": {"aif_management": {}, "aif_workloads": {}, "airgap_clients": {}}}
-      }
-    }
-  }
-' > "${inventory}"
+jq --arg user "${ansible_user}" --arg key "${ssh_private_key}" \
+  -f "${script_dir}/aws-inventory.jq" <<<"${outputs}" | yq -P '.' > "${inventory}"
 
 SERVICES_PRIVATE_IP="${services_private_ip}" \
 MANAGEMENT_PRIVATE_IP="${management_private_ip}" \
+DOWNSTREAM_PRIVATE_IP="${downstream_private_ip}" \
+MANAGEMENT_API_DNS="${management_api_dns}" \
+DOWNSTREAM_API_DNS="${downstream_api_dns}" \
 yq -i '
   .airgap_services_address = strenv(SERVICES_PRIVATE_IP) |
   .airgap_host_records = [
     {"ip": strenv(SERVICES_PRIVATE_IP), "names": [.harbor_hostname, .gitea_hostname]},
-    {"ip": strenv(MANAGEMENT_PRIVATE_IP), "names": ["suse-rancher.demo"]}
+    {"ip": strenv(MANAGEMENT_PRIVATE_IP), "names": ["suse-rancher.demo"]},
+    {"ip": strenv(MANAGEMENT_PRIVATE_IP), "names": [strenv(MANAGEMENT_API_DNS)]},
+    {"ip": strenv(DOWNSTREAM_PRIVATE_IP), "names": [strenv(DOWNSTREAM_API_DNS)]}
   ]
 ' "${lab_vars}"
 
 chmod 600 "${inventory}" "${lab_vars}"
-printf 'Rendered the three-node AWS inventory and private host mappings.\n'
+printf 'Rendered AWS control-plane/worker inventory and private host mappings.\n'

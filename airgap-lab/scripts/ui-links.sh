@@ -376,8 +376,20 @@ EOF
 print_links() {
   printf '\nLocal demo links (loopback only; upstream traffic uses SSH):\n'
   sed 's/^/  /' "${links_file}"
+  print_nodes
   print_credentials
   printf 'Remove local links: %s stop\n' "$0"
+}
+
+print_nodes() {
+  [[ -f "${inventory}" ]] || return 0
+  require_command yq
+  require_command jq
+  printf '\nLab nodes (SSH IPs):\n'
+  yq -o=json '.' "${inventory}" | jq -r '
+    [.all.children[] | (.hosts // {}) | to_entries[] |
+      select(.value.ansible_host != null) | {name: .key, ip: .value.ansible_host}] |
+    unique_by(.name)[] | "  \(.name): \(.ip)"'
 }
 
 print_credentials() {
@@ -439,6 +451,7 @@ show_status() {
   else
     printf 'Local UI links are not generated.\n'
   fi
+  print_nodes
   print_credentials
 
   if command -v docker >/dev/null && container_is_owned &&

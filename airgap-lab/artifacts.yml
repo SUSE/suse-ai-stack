@@ -2,7 +2,7 @@
 apiVersion: airgap.ai-factory.suse.com/v1alpha1
 kind: ArtifactSet
 metadata:
-  name: aif-no-gpu-control-plane
+  name: aif-mirrored-applications
   annotations:
     airgap.ai-factory.suse.com/chatbot-blueprint-name: simple-chatbot-with-rag
     airgap.ai-factory.suse.com/chatbot-blueprint-version: "1.0.2"
@@ -22,28 +22,6 @@ spec:
       version: 2.2.0-dev.1
       archive: aif-ui-2.2.0-dev.1.tgz
       targets: [aif-system]
-    - id: airgap-smoke-appco
-      profiles: [core]
-      sourceType: local
-      source: fixtures/charts/airgap-smoke
-      version: 0.1.0
-      archive: airgap-smoke-0.1.0.tgz
-      targets: [aif-appco]
-    - id: airgap-smoke-suse
-      profiles: [core]
-      sourceType: local
-      source: fixtures/charts/airgap-smoke
-      version: 0.1.0
-      archive: airgap-smoke-0.1.0.tgz
-      targets: [aif-suse]
-    - id: airgap-smoke-nvidia
-      profiles: [core]
-      sourceType: local
-      source: fixtures/charts/airgap-smoke
-      version: 0.1.0
-      archive: airgap-smoke-0.1.0.tgz
-      targets: [aif-nvidia]
-
     # The suse profile adds CPU-only Qdrant and AppCo Ollama test Blueprints.
     - id: suse-qdrant
       profiles: [suse, chatbot, vendor]
@@ -118,7 +96,7 @@ spec:
       source: registry.suse.com/suse/kubectl:1.35
       bundlePath: registry.suse.com_suse_kubectl_1.35.dir
       target: aif-images/registry.suse.com/suse/kubectl:1.35
-    - id: airgap-smoke
+    - id: suse-bci-helper
       profiles: [core]
       source: registry.suse.com/bci/bci-busybox:15.7
       bundlePath: registry.suse.com_bci_bci-busybox_15.7.dir

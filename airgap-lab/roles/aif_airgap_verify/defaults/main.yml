@@ -1,7 +1,5 @@
 ---
-airgap_profile: core
-chatbot_blueprint_name: simple-chatbot-with-rag
-chatbot_blueprint_version: "1.0.2"
+airgap_profile: suse
 chatbot_charts:
   - { name: ollama, version: "1.55.0" }
   - { name: open-webui, version: "8.19.1" }

@@ -11,7 +11,7 @@
         set -euo pipefail
         kubectl=/var/lib/rancher/rke2/bin/kubectl
         kubeconfig=/etc/rancher/rke2/rke2.yaml
-        deadline=$((SECONDS + {{ smoke_timeout_seconds | int }}))
+        deadline=$((SECONDS + {{ airgap_timeout_seconds | int }}))
         while (( SECONDS < deadline )); do
           cluster_id=$("${kubectl}" get clusters.management.cattle.io -o json \
             --kubeconfig "${kubeconfig}" \
@@ -38,7 +38,7 @@
         mode: "0600"
         content: |
           ---
-          smoke_target_clusters:
+          airgap_target_clusters:
             - local
             - {{ downstream_cluster_id.stdout | trim }}
           downstream_cluster_id: {{ downstream_cluster_id.stdout | trim }}

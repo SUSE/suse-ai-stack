@@ -22,7 +22,7 @@ cluster:
   image_distro: sles
   image_distro_version: 15-sp7
   instance_type_cp: m6i.2xlarge
-  instance_type_gpu: m6i.xlarge
+  instance_type_gpu: g4dn.2xlarge
   instance_type_nongpu: m6i.xlarge
   num_cp_nodes: 1
   num_worker_nodes_gpu: 0
@@ -30,8 +30,8 @@ cluster:
   token: REPLACE_WITH_A_RANDOM_MANAGEMENT_TOKEN
   version: v1.34.4+rke2r1
 
-# Optional downstream cluster for the multi-cluster matrix. A control-plane-only
-# RKE2 cluster is enough for the tiny smoke workload and requires no GPU.
+# Downstream application target. A control-plane-only RKE2 cluster runs the
+# mirrored Qdrant and Ollama Blueprints without requiring a GPU.
 suse_ai_cluster:
   user: ec2-user
   user_home: /home/ec2-user
@@ -40,7 +40,7 @@ suse_ai_cluster:
   image_distro: sles
   image_distro_version: 15-sp7
   instance_type_cp: m6i.xlarge
-  instance_type_gpu: m6i.xlarge
+  instance_type_gpu: g4dn.2xlarge
   instance_type_nongpu: m6i.xlarge
   num_cp_nodes: 1
   num_worker_nodes_gpu: 0

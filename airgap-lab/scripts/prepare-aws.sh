@@ -11,7 +11,7 @@ lab_vars="${AIF_AIRGAP_VARS:-${generated_dir}/vars.yml}"
 source_dir="${AIF_SOURCE_DIR:-$(cd "${project_dir}/.." && pwd)/aif}"
 workspace="${AIF_AIRGAP_TOFU_WORKSPACE:-suseai-882-airgap}"
 
-for command_name in curl git openssl ssh-keygen yq; do
+for command_name in curl git jq openssl ssh-keygen yq; do
   command -v "${command_name}" >/dev/null || {
     printf 'Required command not found: %s\n' "${command_name}" >&2
     exit 2
@@ -46,6 +46,8 @@ for path in "${required_paths[@]}"; do
     exit 2
   fi
 done
+
+node_config="$("${script_dir}/node-config.sh")"
 
 controller_cidr="${AIF_AIRGAP_CONTROLLER_CIDR:-}"
 if [[ -z "${controller_cidr}" && -f "${stack_vars}" ]]; then
@@ -190,7 +192,7 @@ yq -i '
     "user": "ec2-user", "user_home": "/home/ec2-user",
     "root_volume_size": 100, "image_arch": "x86_64",
     "image_distro": "sles", "image_distro_version": "15-sp7",
-    "instance_type_cp": "m6i.2xlarge", "instance_type_gpu": "m6i.xlarge",
+    "instance_type_cp": "m6i.2xlarge", "instance_type_gpu": "g4dn.2xlarge",
     "instance_type_nongpu": "m6i.xlarge", "num_cp_nodes": 1,
     "num_worker_nodes_gpu": 0, "num_worker_nodes_nongpu": 0,
     "token": strenv(MANAGEMENT_TOKEN), "version": "v1.34.4+rke2r1"
@@ -199,7 +201,7 @@ yq -i '
     "user": "ec2-user", "user_home": "/home/ec2-user",
     "root_volume_size": 80, "image_arch": "x86_64",
     "image_distro": "sles", "image_distro_version": "15-sp7",
-    "instance_type_cp": "m6i.xlarge", "instance_type_gpu": "m6i.xlarge",
+    "instance_type_cp": "m6i.xlarge", "instance_type_gpu": "g4dn.2xlarge",
     "instance_type_nongpu": "m6i.xlarge", "num_cp_nodes": 1,
     "num_worker_nodes_gpu": 0, "num_worker_nodes_nongpu": 0,
     "token": strenv(DOWNSTREAM_TOKEN), "version": "v1.34.4+rke2r1"
@@ -210,24 +212,27 @@ yq -i '
   }
 ' "${stack_vars}"
 
+NODE_CONFIG="${node_config}" yq -i '. *= (strenv(NODE_CONFIG) | from_json)' "${stack_vars}"
+
 merged_lab_vars="$(mktemp "${generated_dir}/vars.merge.XXXXXX")"
+migrated_lab_vars="$(mktemp "${generated_dir}/vars.migrate.XXXXXX")"
 cleanup_merged_vars() {
   [[ -z "${merged_lab_vars:-}" || ! -e "${merged_lab_vars}" ]] || rm -f -- "${merged_lab_vars}"
+  [[ ! -e "${migrated_lab_vars}" ]] || rm -f -- "${migrated_lab_vars}"
 }
 trap cleanup_merged_vars EXIT
 if [[ -f "${lab_vars}" ]]; then
-  yq eval-all '
-    (select(fileIndex == 0) * select(fileIndex == 1)) |
-    del(
-      .smoke_application_mode,
-      .smoke_application_name,
-      .smoke_application_source_ref,
-      .smoke_verify_source_switch,
-      .smoke_switch_source_ref,
-      .smoke_switch_repo_url
-    )
-  ' \
-    "${lab_dir}/vars.example.yml" "${lab_vars}" > "${merged_lab_vars}"
+  cp "${lab_vars}" "${migrated_lab_vars}"
+  chmod 600 "${migrated_lab_vars}"
+  yq -i '
+    .airgap_target_clusters = (.airgap_target_clusters // .smoke_target_clusters // ["local"]) |
+    .airgap_timeout_seconds = (.airgap_timeout_seconds // .smoke_timeout_seconds // 900) |
+    .airgap_fleet_branch = (.airgap_fleet_branch // .smoke_fleet_branch // "main") |
+    (.suse_apps_target_clusters | select(. == "{{ smoke_target_clusters }}")) = "{{ airgap_target_clusters }}" |
+    with_entries(select(.key | test("^smoke_") | not))
+  ' "${migrated_lab_vars}"
+  yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' \
+    "${lab_dir}/vars.example.yml" "${migrated_lab_vars}" > "${merged_lab_vars}"
 else
   cp "${lab_dir}/vars.example.yml" "${merged_lab_vars}"
 fi
@@ -289,11 +294,19 @@ yq -n '
 ' > "${generated_dir}/lab-metadata.yml"
 chmod 600 "${generated_dir}/lab-metadata.yml"
 
-printf 'Prepared CPU-only AWS lab configuration.\n'
+printf 'Prepared AWS lab configuration (CPU nodes with optional GPU workers).\n'
 printf '  Workspace: %s\n' "${workspace}"
 printf '  Region: %s\n' "$(yq -r '.aws_region' "${stack_vars}")"
 printf '  Resource prefix: %s\n' "${resource_prefix}"
-printf '  Nodes: management=m6i.2xlarge, downstream=m6i.xlarge, services=m6i.xlarge\n'
+for cluster_name in cluster suse_ai_cluster; do
+  printf '  %s: control-plane=%s, GPU workers=%s x %s, CPU workers=%s x %s\n' \
+    "${cluster_name}" \
+    "$(yq -r ".${cluster_name}.instance_type_cp" "${stack_vars}")" \
+    "$(yq -r ".${cluster_name}.num_worker_nodes_gpu" "${stack_vars}")" \
+    "$(yq -r ".${cluster_name}.instance_type_gpu" "${stack_vars}")" \
+    "$(yq -r ".${cluster_name}.num_worker_nodes_nongpu" "${stack_vars}")" \
+    "$(yq -r ".${cluster_name}.instance_type_nongpu" "${stack_vars}")"
+done
 printf '  AIF source: %s (%s)\n' "${aif_commit:0:12}" "${aif_version}"
 printf '  AIF image tag: %s\n' "${aif_image_tag}"
 printf '  AIF install mode: %s\n' "${requested_install_mode}"

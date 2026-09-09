@@ -1,6 +1,6 @@
 ---
 - name: Prepare storage helpers for disconnected SUSE application deployments
-  hosts: rke2_airgap_nodes
+  hosts: aif_management:aif_workloads
   gather_facts: false
   become: true
   environment:
@@ -21,7 +21,7 @@
     - role: aif_airgap_suse_apps
 
 - name: Verify the SUSE applications on each selected target cluster
-  hosts: rke2_airgap_nodes
+  hosts: aif_management:aif_workloads
   gather_facts: false
   become: true
   environment:

@@ -2,7 +2,7 @@
 - name: Validate the SUSE application test inputs
   ansible.builtin.assert:
     that:
-      - airgap_profile | default('core') in ['suse', 'chatbot', 'vendor', 'all']
+      - airgap_profile | default('suse') in ['suse', 'chatbot', 'vendor', 'all']
       - suse_apps_strategy in ['FleetBundle', 'GitOps']
       - suse_apps_target_clusters | length > 0
       - suse_apps_target_clusters | unique | list | length == suse_apps_target_clusters | length
@@ -23,7 +23,7 @@
 
 - name: Inspect the custom SUSE Blueprints in private Gitea
   ansible.builtin.uri:
-    url: "{{ gitea_url }}/api/v1/repos/{{ gitea_admin_username }}/{{ gitea_repository }}/contents/blueprints/{{ item }}.yaml?ref=main"
+    url: "{{ gitea_url }}/api/v1/repos/{{ gitea_admin_username }}/{{ gitea_repository }}/contents/blueprints/{{ item }}.yaml?ref={{ airgap_fleet_branch | urlencode }}"
     method: GET
     url_username: "{{ gitea_admin_username }}"
     url_password: "{{ gitea_admin_password }}"
@@ -44,8 +44,8 @@
     ca_path: /etc/pki/trust/anchors/aif-airgap-lab-ca.crt
     body_format: json
     body:
-      branch: main
-      message: "test: publish {{ item.item }} Blueprint"
+      branch: "{{ airgap_fleet_branch }}"
+      message: "lab: publish {{ item.item }} Blueprint"
       content: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../fixtures/blueprints/' ~ item.item ~ '.yaml') | b64encode }}"
       sha: "{{ item.json.sha if item.status == 200 else omit }}"
     status_code: [200, 201]

@@ -24,6 +24,7 @@ gitea_admin_username: "token"
 gitea_admin_password: "REPLACE_WITH_A_STRONG_PASSWORD"
 gitea_admin_email: "aif-qa@airgap.test"
 gitea_repository: "aif-gitops"
+# Legacy names are used only to retire the old synthetic catalog.
 gitea_chart_repository: "aif-charts"
 gitea_chart_clusterrepo: "private-gitea-applications"
 gitea_http_node_port: 30030
@@ -139,36 +140,21 @@ airgap_host_records:
   - ip: "10.0.0.10"
     names: ["suse-rancher.demo"]
 
-# Smoke test -----------------------------------------------------------------
-# Blueprint automation covers both operator-owned strategies. Run once with
-# FleetBundle and once with GitOps. The App/Helm journey remains a browser test
-# because the UI, rather than the operator, downloads and installs App charts.
-smoke_strategy: "FleetBundle"  # FleetBundle | GitOps
-smoke_target_clusters:
-  - "local"  # Rancher cluster IDs, for example local and c-m-abcde
-smoke_namespace: "aif-airgap-smoke"
-smoke_workload_name: "airgap-smoke-local"
-# The shared case ID appears in the Blueprint and AIWorkload display names so
-# every matrix row is distinguishable in the UI and its relationship is obvious.
-smoke_case_id: "{{ smoke_workload_name }}-{{ smoke_strategy | lower }}"
-smoke_display_name: "AI Factory air-gap smoke ({{ smoke_case_id }})"
-# Every matrix case installs into the same namespace, so its Helm release must
-# be distinct. This also makes retries independent of another case's history.
-smoke_release_name: "{{ smoke_case_id }}"
-smoke_chart_version: "0.1.0"
-smoke_timeout_seconds: 900
-# Blueprints refer directly to a stable Rancher ClusterRepo name. The reroute
-# case changes only that ClusterRepo's endpoint and proves this field is stable.
-smoke_chart_repo: "application-collection"
-smoke_verify_registry_reroute: false
-smoke_primary_registry_endpoint: "oci://{{ harbor_hostname }}/{{ appco_chart_project }}"
-smoke_reroute_registry_endpoint: "oci://{{ harbor_hostname }}/{{ suse_chart_project }}"
-# The branch-change case creates this disposable branch, verifies republication,
-# and restores Fleet to the baseline branch before the matrix continues.
-smoke_verify_fleet_branch_change: false
-smoke_fleet_branch: "main"
-smoke_fleet_alternate_branch: "airgap-republish"
-smoke_fleet_resource_kind: "helmop"  # helmop | bundle
+# Application deployment ----------------------------------------------------
+airgap_target_clusters:
+  - local  # discovery adds the imported downstream Rancher cluster ID
+airgap_timeout_seconds: 900
+airgap_fleet_branch: main
+# Expose catalogs only when this profile mirrors real charts into them.
+airgap_catalog_repos: >-
+  {{ ([] if airgap_profile | default('suse') == 'core' else
+      ['application-collection', 'suse-ai-registry']) +
+     (['nvidia'] if airgap_profile | default('suse') in ['vendor', 'all'] else []) }}
+airgap_catalog_auth_secrets: >-
+  {{ airgap_catalog_repos | map('extract', {
+      'application-collection': 'application-collection-auth',
+      'suse-ai-registry': 'suse-ai-registry-auth',
+      'nvidia': 'ngc-helm-auth'}) | list }}
 
 # Where playbook 06 fetches redacted command evidence on the controller.
 airgap_evidence_dir: "{{ airgap_generated_dir }}/evidence"
@@ -178,5 +164,5 @@ airgap_evidence_dir: "{{ airgap_generated_dir }}/evidence"
 # CPUs and request no models or packages from the internet.
 suse_apps_namespace: aif-suse-apps
 suse_apps_strategy: FleetBundle  # FleetBundle | GitOps
-suse_apps_target_clusters: "{{ smoke_target_clusters }}"
+suse_apps_target_clusters: "{{ airgap_target_clusters }}"
 suse_apps_timeout_seconds: 900

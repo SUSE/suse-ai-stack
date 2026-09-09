@@ -1,11 +1,11 @@
 # SUSE AI Factory air-gap lab
 
-This directory is a post-provisioning overlay for `suse-ai-stack`. It creates a
-repeatable, GPU-free test environment for AI Factory's control plane and its
-dependencies. It does not claim that a workload containing a model or a GPU
-runtime is healthy; it proves chart discovery, authentication, TLS trust,
-artifact redirection, AIF installation, Fleet, GitOps, blueprints, and failure
-without public egress.
+This directory is a post-provisioning overlay for `suse-ai-stack`. Its default
+QA environment deploys real, mirrored Qdrant and Ollama applications on the
+management and downstream clusters. It verifies their APIs, private chart and
+image delivery, authentication, TLS trust, Fleet, and rejected public egress.
+GPU workers are optional and use the original stack's node configuration fields.
+Ollama starts without models; an inference test needs separately imported models.
 
 ## Topology and trust boundary
 
@@ -19,13 +19,13 @@ services RKE2 cluster/VM
             ^                         ^
             | private CIDRs only      | private CIDRs only
 management RKE2                 downstream RKE2
-Rancher + AIF                   CPU-only workload target
+Rancher + AIF                   CPU/GPU workload targets
 ```
 
 The services node is intentionally not part of `airgap_isolated`: Harbor is not
 configured as a pull-through cache, and Gitea has no proxy role, so it cannot
 provide an escape path. Keeping it connected avoids the registry-bootstrap
-chicken-and-egg problem and lets it be rebuilt. Management, workload, and
+chicken-and-egg problem and lets it be rebuilt. Management, workload, GPU worker, and
 optional browser nodes receive both host-output and pod-forward nftables rules.
 
 ## One-command AWS lab
@@ -37,17 +37,18 @@ credentials in the ignored top-level `extra_vars.yml`, then run:
 ./setup_airgap_lab.sh
 ```
 
-The command creates three CPU-only nodes, installs Rancher/RKE2, Harbor and
-Gitea, builds the exact sibling AIF checkout, transfers the checksummed selected
-bundle, applies the network gate, and runs the FleetBundle/GitOps single- and
-multi-cluster matrix. It is resumable: completed phases have ignored markers
+The command defaults to three CPU nodes, installs Rancher/RKE2, Harbor and
+Gitea, builds the exact sibling AIF checkout, transfers the checksummed `suse`
+bundle, applies the network gate, and deploys Qdrant and Ollama through their
+custom Blueprints. It removes the earlier synthetic smoke fixtures and disables
+bundled Blueprint cards whose complete offline dependencies are not staged. It is resumable: completed phases have ignored markers
 under `airgap-lab/generated/state/`, so run the same command after correcting a
 failure. Useful lifecycle commands are:
 
 ```console
 ./setup_airgap_lab.sh --prepare-only  # validate and render; no AWS writes
 ./setup_airgap_lab.sh --status
-./setup_airgap_lab.sh --reset-progress # retain resources, reconcile all phases
+./setup_airgap_lab.sh --reset-progress # rerun source/application checks; retain infrastructure
 ./destroy_airgap_lab.sh                # guarded dedicated-workspace destroy
 ```
 
@@ -117,7 +118,7 @@ to private-CA HTTPS in `vars.example.yml`. Each install/CA/Git-transport
 combination has independent resumable qualification markers and an evidence
 file, while the expensive AWS, build and mirror phases are reused. The runner
 records the combination currently active on the management cluster, so
-switching an axis always forces installation, matrix and verification to run
+switching an axis always forces installation, applications and verification to run
 again; changing Gitea transport also reconciles the services phase. Switching
 back to combined mode removes the standalone UI release before reconciling the
 operator-managed extension. A `workaround` or HTTP pass remains useful for
@@ -137,14 +138,80 @@ public egress. The configure phase publishes the private Harbor, Gitea and
 Rancher records through each RKE2 cluster's CoreDNS; pod-side controllers cannot
 rely on host `/etc/hosts` entries.
 
+## Configure GPU workers
+
+Copy the CPU defaults or the GPU example to the ignored `nodes.yml`:
+
+```console
+cp airgap-lab/nodes.gpu.example.yml airgap-lab/nodes.yml
+./setup_airgap_lab.sh --prepare-only
+# Review the generated node counts and instance types, then apply:
+./setup_airgap_lab.sh
+```
+
+`nodes.yml` uses the original stack's `cluster` (management) and
+`suse_ai_cluster` (downstream) fields. Omitted fields inherit
+[`nodes.example.yml`](nodes.example.yml). A minimal override is:
+
+```yaml
+suse_ai_cluster:
+  num_worker_nodes_gpu: 1
+  instance_type_gpu: g4dn.2xlarge
+  root_volume_size: 200
+```
+
+The example retains a CPU control plane and adds a downstream GPU worker.
+`instance_type_cp`, `instance_type_nongpu`, and `num_worker_nodes_nongpu` are
+also configurable. GPU instances belong in `instance_type_gpu`; the other
+instance fields are for CPU nodes. The lab keeps one control plane per cluster. As in the
+original stack, `root_volume_size` applies to **every node in that cluster**;
+increasing it also grows the control plane's volume. Choose the instance type
+for the model's VRAM requirement: G4dn uses a 16 GiB T4, while G6 uses a 24 GB
+L4 ([AWS instance specifications](https://docs.aws.amazon.com/ec2/latest/instancetypes/ac.html)).
+The lab's SLES image is x86_64; AMD G4ad and Arm G5g configurations are rejected.
+
+A custom file can be selected with `AIF_AIRGAP_NODE_CONFIG=/path/to/nodes.yml`.
+Do not edit `generated/stack-vars.yml`; preparation regenerates it. Provider,
+SCC and source-registry credentials remain in the normal `extra_vars.yml`.
+With no `nodes.yml`, the default remains CPU-only.
+
+Requesting GPUs enables the original stack's `enable_gpu_operator` and
+`enable_nvidia_driver_pkg_install` paths for the clusters that have GPU workers.
+The driver is installed while connected; the Operator uses `driver.enabled=false`.
+`gpu_operator_chart_version` is pinned in the node defaults. Optional
+`enable_time_slicing` and `time_slicing_replicas` use the original stack's names.
+The GPU phase checks `nvidia-smi`, node readiness and `nvidia.com/gpu`, inventories
+the enabled Operator workloads including init containers/validators, and exports
+a separate checksummed image bundle to Harbor before isolation. After isolation,
+verification pulls those references through each GPU node's registry mirror and
+checks GPU availability again. This follows NVIDIA's separation of
+[driver packages and container images](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/install-gpu-operator-air-gapped.html).
+
+Changing node counts, instance types, disk sizes or GPU options invalidates the
+provisioning and node-verification checkpoints. The next setup reconciles AWS,
+refreshes the complete worker inventory, and reapplies trust, mirrors and
+isolation. Node removal in the configuration removes those AWS workers during
+reconciliation. Existing nodes temporarily regain public egress and upstream
+registry access for the connected provisioning phase; the lab restores both
+restrictions afterward. The original RKE2 load-balancer hostnames resolve to
+each cluster's private control-plane IP inside the lab, retaining the existing
+TLS names and allowing worker reconnection under isolation. Setup/status prints every node's SSH IP as well as the UI
+credentials. Status lists only the active run's checkpoints and reports when
+the desired node configuration has not yet been applied.
+
+This supports GPU infrastructure for the lab's connected preparation followed
+by isolated testing. Adding Operator features, upgrading drivers after
+isolation, or deploying NIM/model workloads needs a new preparation/export.
+The shipped Qdrant and Ollama Blueprints remain CPU applications. GPU hardware
+provisioning is opt-in and is not part of the recorded CPU validation run.
+
 ## What is automated
 
 - a connected-stage, single-node, CPU-only RKE2 services cluster;
 - Harbor 2.15.2 through chart 1.19.2, private projects, authentication and a
   generated lab CA;
-- Gitea 1.27.0 through chart 12.7.0, separate private repositories for
-  Blueprint/GitOps resources and Helm charts, and a low-footprint
-  SQLite/standalone configuration, with a switchable private-CA HTTPS ingress;
+- Gitea 1.27.0 through chart 12.7.0, a private Blueprint/GitOps repository,
+  SQLite storage, and a switchable private-CA HTTPS ingress;
 - checksummed chart and multi-architecture image export/import with Skopeo and
   Helm (no `docker save`, no silent skips, no password-on-command-line login);
 - RKE2 `registries.yaml` on every schedulable management/workload node, Harbor
@@ -154,11 +221,11 @@ rely on host `/etc/hosts` entries.
   private Rancher endpoint, including consolidation of the base stack's Rancher
   record;
 - AIF combined operator+UI or separate operator/UI installation from Harbor;
-- Settings endpoints for mirrored AppCo, SUSE Registry and NVIDIA charts, plus
-  the internal Gitea Fleet repository and Rancher catalog credential;
-- an authenticated Rancher `ClusterRepo` that indexes the private Gitea Helm
-  repository with its private CA;
-- a tiny CPU-only chart/Blueprint fixture for FleetBundle and GitOps paths;
+- Settings endpoints for the catalogs populated by the selected profile;
+- real Qdrant and Ollama Blueprints delivered by private Git, with application
+  API checks on both selected targets;
+- optional GPU workers, connected driver/GPU Operator installation, private
+  mirroring of the enabled GPU component images, and GPU resource checks;
 - reversible egress denial and positive/negative verification probes.
 
 ## Prerequisites
@@ -236,10 +303,10 @@ export SUSE_REGISTRY_USERNAME SUSE_REGISTRY_PASSWORD
 export NGC_USERNAME NGC_PASSWORD
 export DOCKERHUB_USERNAME DOCKERHUB_PASSWORD  # optional, avoids anonymous limits
 
-# core: AIF + smoke; suse: core + Qdrant and CPU Ollama test Blueprints;
+# core: AIF only; suse (default): core + Qdrant and CPU Ollama Blueprints;
 # chatbot: suse + Simple Chatbot chart/container closure;
 # vendor: core + broader AppCo/SUSE/NVIDIA examples; all: every entry.
-export AIF_AIRGAP_PROFILE=chatbot
+export AIF_AIRGAP_PROFILE=suse
 airgap-lab/run.sh mirror
 
 # Trust and node mirrors are connected-stage prerequisites. Close the actual
@@ -247,7 +314,9 @@ airgap-lab/run.sh mirror
 airgap-lab/run.sh configure
 airgap-lab/run.sh isolate
 airgap-lab/run.sh install
-airgap-lab/run.sh smoke
+airgap-lab/run.sh discover-targets
+airgap-lab/run.sh clean-catalog
+airgap-lab/run.sh suse-apps
 airgap-lab/run.sh verify
 ```
 
@@ -317,18 +386,16 @@ Its equivalent explicit setting in `generated/vars.yml` is:
 aif_registry_ca_mode: settings
 ```
 
-That mode writes `caBundleSecretRef` for all three mirrored registry settings,
+That mode writes `caBundleSecretRef` for each selected mirrored registry,
 disables the lab's compatibility patch, verifies the three Fleet/Rancher Secret
-copies generated for each registry, rotates the source CA without changing its
+copies generated for each selected registry, rotates the source CA without changing its
 trust semantics, and requires every ClusterRepo to receive a new
 `spec.forceUpdate`. The source CA and all copies are restored before
 installation continues. A successful run in `workaround` mode is not evidence
 for the native product implementation.
-In compatibility mode, AIF rewrites the generated auth Secrets while creating
-each AIWorkload; the smoke role therefore reapplies the CA after its HelmOp
-appears and requires Fleet to accept the retried HelmOp. That timing-dependent
-lab action is another reason a workaround pass must not be reported as native
-product support.
+The `workaround` mode remains a diagnostic option. It no longer includes the
+old smoke role's repeated credential patches during workload reconciliation;
+use Settings-native CA propagation for application QA.
 
 ## Profiles and artifact completeness
 
@@ -384,10 +451,14 @@ does **not** verify signatures or qualify referrer attestations, provenance, or
 SBOM transfer; those remain part of AG-001's release-owned mirroring
 requirement.
 
-NVIDIA's vendor profile mirrors charts but deliberately does not claim a GPU
-application is runnable. The QA assertion is limited to catalog readiness,
-chart pull, HelmOp/Git commit creation and secret shape. Full NIM/model testing
-belongs in a GPU/model-cache suite.
+NVIDIA's `vendor` profile is an optional transfer inventory, not a complete
+NIM/model bundle. The default `suse` profile leaves the NVIDIA catalog disabled.
+The [NVIDIA RAG deployment guide](https://docs.nvidia.com/rag/latest/deploy-helm.html)
+budgets approximately 20–30 GB for containers, 100–150 GB for model caches,
+and at least 200 GB per NIM node. The local minimal RAG Blueprint still needs a
+GPU and additional operator/model artifacts. GPU node configuration prepares
+infrastructure; it does not automatically deploy or qualify a NVIDIA Blueprint.
+We keep those large workloads out of the default QA setup.
 
 ### Ollama, Open WebUI and Open WebUI MCPO
 
@@ -432,7 +503,7 @@ described above.
 
 ### Qdrant and CPU Ollama test Blueprints
 
-The `suse` profile adds two custom Blueprints for testing real SUSE application
+The default `suse` profile installs two custom Blueprints for testing real SUSE application
 images without GPUs, model downloads or runtime package installation:
 
 | Blueprint | Chart source and version | Container image |
@@ -503,7 +574,9 @@ results and pod image IDs are saved in `generated/suse-apps-<host>.txt`.
 Set `suse_apps_strategy: GitOps` in the lab vars to exercise that deployment path.
 Ollama inference still requires separately imported models.
 
-The [2026-09-09 AWS validation](validation/suse-apps-2026-09-09.md) records
+The [catalog cleanup and GPU configuration validation](validation/mirrored-apps-gpu-config-2026-09-09.md)
+records the current workflow. The earlier
+[2026-09-09 AWS validation](validation/suse-apps-2026-09-09.md) records
 successful deployment and API tests on both isolated clusters, plus the
 storage-helper correction found during the run.
 
@@ -522,48 +595,36 @@ The Qdrant chart location follows the
 
 ## Secure private Git baseline
 
-The qualified path uses authenticated, private-CA HTTPS Gitea. One Fleet
-setting references the CA Secret; AIF loads it into go-git and the Settings
-controller writes the same PEM bundle to the generated Fleet `GitRepo`. The
-matrix requires the unified username plus password/PAT configuration, proves
-that AIF mirrors it to Fleet as `kubernetes.io/basic-auth`, and performs real
-Git writes without an auth-type selector. It also moves the same `GitRepo` to a
-clean alternate branch, requires AIF to republish the unchanged GitOps manifest
-there, and restores `main`. The repository's `blueprints/` path delivers
-Blueprint CRs with direct, stable `chartRepo` references while `workloads/`
-carries AIF-generated Fleet resources. Insecure TLS is never used.
+The qualified path uses authenticated, private-CA HTTPS Gitea. AIF loads the
+CA Secret into its Git client and writes the same PEM bundle to Fleet's
+`GitRepo`. The repository's `blueprints/` directory delivers the two custom
+Blueprints with stable `chartRepo` references. Its `workloads/` directory
+carries AIF-generated Fleet resources when `suse_apps_strategy: GitOps` is used.
+The default deployment strategy is `FleetBundle`.
 
-A separate private Gitea repository is also a Helm chart source. Rancher clones
-it with a `ClusterRepo` credential and private CA, while AIF uses a Rancher API
-token stored only in its namespace to retrieve the indexed chart archive. The
-lab token inherits the lab administrator's access and lasts for the disposable
-environment; a production installation must define least-privilege access,
-expiry, rotation, and revocation for that credential.
+`clean-catalog` migrates older labs: it removes only the labeled synthetic
+AIWorkloads/Blueprints, their known active Git manifests and orphaned Fleet
+resources, the lab's old Gitea smoke-chart catalog, and the `airgap-smoke` chart
+repositories in Harbor. It keeps real applications, PVCs, user-created
+Blueprints, Git history, and archived branches. `install` sets
+`defaultBlueprints.enabled: false`, so Helm removes its bundled Blueprint
+cards; the private Git source supplies only the mirrored custom cards.
+Infrastructure probes save their evidence and remove the successful probe pod.
 
-The acceptance matrix contains seven deployments: direct Blueprints through
-both FleetBundle and GitOps on local and downstream targets; a Blueprint
-delivered from private Git; and a private-Gitea-backed chart through both
-strategies. It covers the unified Git HTTPS credential path, branch-change
-republication, and an in-place change of the `application-collection`
-ClusterRepo endpoint while requiring its UID and the Blueprint spec to remain
-unchanged. The final two cases embed the git-backed chart in Bundles in both
-Fleet workspaces, proving that the workload no longer depends on Gitea at
-install time.
+For an existing lab whose SUSE images are already mirrored:
 
-Each rendered matrix Blueprint and AIWorkload now shares a unique case-specific
-display name. One example is
-`AI Factory air-gap smoke (airgap-smoke-single-fleetbundle)`. Verification rejects
-duplicate fixture names and proves that every rendered workload references the
-matching Blueprint family and version.
+```console
+./setup_airgap_lab.sh --prepare-only
+airgap-lab/run.sh install
+airgap-lab/run.sh discover-targets
+airgap-lab/run.sh clean-catalog
+airgap-lab/run.sh suse-apps
+airgap-lab/run.sh verify
+```
 
-These checks keep the environment and operator responsibilities separate.
-RKE2's registry mirror configuration redirects container image pulls; AIF
-Settings and Rancher's existing `ClusterRepo`/Fleet resources select private
-chart, Blueprint, and Git sources. The lab qualifies both contracts without
-making either one a substitute for the other.
-
-Set `AIF_AIRGAP_GITEA_TLS=false` only to diagnose an HTTP compatibility path;
-that result is not accepted as release evidence.
+The historical smoke matrix remains documented in earlier validation reports;
+it is no longer created by the normal setup. Set
+`AIF_AIRGAP_GITEA_TLS=false` only to diagnose an HTTP compatibility path.
 
 ## Rancher extension browser check
 
@@ -571,7 +632,7 @@ From an isolated client in `airgap_clients`, open AI Factory Settings and
 confirm that each private chart endpoint appears in its corresponding
 Application Collection, SUSE Registry, or NVIDIA section. There must be no
 Advanced endpoint section and no Application Collection catalog-API field.
-Then open Apps and Blueprints, deploy the `airgap-smoke` fixture, and retain a
+Then open Apps and Blueprints, inspect the Qdrant and Ollama deployments, and retain a
 browser network trace proving that catalogs, logos, and installation do not
 request public hosts. This remains a short manual check because the Ansible
 suite intentionally validates Kubernetes state rather than Rancher page

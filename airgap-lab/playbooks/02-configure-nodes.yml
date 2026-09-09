@@ -32,6 +32,7 @@
         line: "{{ item.ip }} {{ item.names | join(' ') }}"
         state: present
       loop: "{{ airgap_host_records }}"
+      tags: [airgap_dns]
 
     - name: Install the lab CA into the host trust store
       ansible.builtin.copy:
@@ -49,7 +50,7 @@
       changed_when: true
 
 - name: Provide default storage on every AI Factory target before isolation
-  hosts: rke2_airgap_nodes
+  hosts: aif_management:aif_workloads
   serial: 1
   gather_facts: false
   become: true
@@ -90,7 +91,7 @@
       changed_when: true
 
 - name: Publish private service names through each RKE2 cluster DNS
-  hosts: rke2_airgap_nodes
+  hosts: aif_management:aif_workloads
   serial: 1
   gather_facts: false
   become: true

@@ -72,7 +72,7 @@
       /var/lib/rancher/rke2/bin/kubectl wait node/{{ inventory_hostname }}
       --for=condition=Ready --timeout=8m
       --kubeconfig /etc/rancher/rke2/rke2.yaml
-  when: ansible_facts.services['rke2-server.service'] is defined
+  delegate_to: "{{ airgap_cluster_server | default(inventory_hostname) }}"
   changed_when: false
 
 - name: Confirm the upstream fallback is disabled

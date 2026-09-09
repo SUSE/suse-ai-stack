@@ -8,7 +8,7 @@ shift || true
 
 manifest="${lab_dir}/artifacts.yml"
 bundle="${lab_dir}/bundles/current"
-profile="core"
+profile="suse"
 profile_was_set=false
 
 usage() {

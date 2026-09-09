@@ -191,7 +191,6 @@ cp "${lab_dir}/artifacts.yml" "${output_manifest}"
 manifest_dir="$(cd "$(dirname "${output_manifest}")" && pwd)"
 operator_chart_source="$(realpath --relative-to="${manifest_dir}" "${build_root}/charts/aif-operator")"
 ui_chart_source="$(realpath --relative-to="${manifest_dir}" "${build_root}/charts/aif-ui")"
-smoke_chart_source="$(realpath --relative-to="${manifest_dir}" "${lab_dir}/fixtures/charts/airgap-smoke")"
 
 AIF_SOURCE_COMMIT="${commit}" \
 AIF_ARTIFACT_SET_SHA256="$(sha256sum "${lab_dir}/artifacts.yml" | awk '{print $1}')" \
@@ -201,7 +200,6 @@ AIF_SOURCE_VERSION="${version}" \
 AIF_SOURCE_IMAGE_TAG="${image_tag}" \
 AIF_OPERATOR_CHART_SOURCE="${operator_chart_source}" \
 AIF_UI_CHART_SOURCE="${ui_chart_source}" \
-AIF_SMOKE_CHART_SOURCE="${smoke_chart_source}" \
 AIF_OPERATOR_IMAGE="${operator_image}" \
 AIF_UI_IMAGE="${ui_image}" \
 yq -i '
@@ -219,7 +217,6 @@ yq -i '
   (.spec.charts[] | select(.id == "aif-ui") | .source) = strenv(AIF_UI_CHART_SOURCE) |
   (.spec.charts[] | select(.id == "aif-ui") | .version) = strenv(AIF_SOURCE_VERSION) |
   (.spec.charts[] | select(.id == "aif-ui") | .archive) = "aif-ui-" + strenv(AIF_SOURCE_VERSION) + ".tgz" |
-  (.spec.charts[] | select(.sourceType == "local" and .id != "aif-operator" and .id != "aif-ui") | .source) = strenv(AIF_SMOKE_CHART_SOURCE) |
   (.spec.images[] | select(.id == "aif-operator") | .source) = strenv(AIF_OPERATOR_IMAGE) |
   (.spec.images[] | select(.id == "aif-operator") | .sourceTransport) = "docker-daemon" |
   (.spec.images[] | select(.id == "aif-operator") | .bundlePath) = "ghcr.io_suse_aif-operator_" + strenv(AIF_SOURCE_IMAGE_TAG) + ".dir" |

@@ -60,7 +60,7 @@
         "${generation}" "${observed:-<empty>}" >&2
       exit 1
     fi
-    for repo in application-collection suse-ai-registry nvidia; do
+    for repo in {{ airgap_catalog_repos | map('quote') | join(' ') }}; do
       repo_generation=$(/var/lib/rancher/rke2/bin/kubectl get clusterrepo "${repo}" \
         --kubeconfig /etc/rancher/rke2/rke2.yaml \
         -o jsonpath='{.metadata.generation}' 2>/dev/null || true)
@@ -85,7 +85,7 @@
     executable: /bin/bash
   changed_when: false
 
-- name: Confirm the chatbot Blueprint and all pinned charts are available privately
+- name: Confirm all pinned chatbot charts are available privately
   ansible.builtin.shell: |
     set -euo pipefail
     kubectl=/var/lib/rancher/rke2/bin/kubectl
@@ -97,13 +97,6 @@
     chart_dir=$(mktemp -d /var/lib/aif-airgap-chatbot-charts.XXXXXX)
     cleanup() { rm -rf -- "${chart_dir}"; }
     trap cleanup EXIT
-
-    blueprint=$("${kubectl}" get blueprint \
-      -l {{ ('ai-factory.suse.com/blueprint-name=' ~ chatbot_blueprint_name) | quote }} \
-      -o json --kubeconfig "${kubeconfig}")
-    jq -e --arg version {{ chatbot_blueprint_version | quote }} '
-      [.items[] | select(.spec.version == $version)] | length == 1
-    ' <<<"${blueprint}" >/dev/null
 
     charts=(
     {% for chart in chatbot_charts %}
@@ -155,127 +148,6 @@
   no_log: true
   changed_when: false
 
-- name: Confirm the private-Gitea chart source configuration
-  ansible.builtin.shell: |
-    set -euo pipefail
-    kubectl=/var/lib/rancher/rke2/bin/kubectl
-    kubeconfig=/etc/rancher/rke2/rke2.yaml
-    repo={{ gitea_chart_clusterrepo | quote }}
-    expected_url={{ (gitea_url ~ '/' ~ gitea_admin_username ~ '/' ~ gitea_chart_repository ~ '.git') | quote }}
-    token_secret={{ rancher_catalog_token_secret | quote }}
-
-    settings=$("${kubectl}" -n {{ aif_namespace | quote }} get settings settings \
-      -o json --kubeconfig "${kubeconfig}")
-    jq -e --arg secret "${token_secret}" '
-      .spec.rancherCatalog.tokenSecretRef == {name: $secret, key: "token"}
-    ' <<<"${settings}" >/dev/null
-
-    object=$("${kubectl}" get clusterrepo "${repo}" -o json --kubeconfig "${kubeconfig}")
-    jq -e --arg url "${expected_url}" --arg secret "${repo}-auth" '
-      .spec.gitRepo == $url and
-      .spec.gitBranch == "main" and
-      .spec.clientSecret.name == $secret and
-      .spec.clientSecret.namespace == "cattle-system" and
-      (.status.commit | length > 0) and
-      .metadata.generation == .status.observedGeneration and
-      any(.status.conditions[]?; .type == "Downloaded" and .status == "True")
-    ' <<<"${object}" >/dev/null
-
-    expected_ca=$(openssl x509 -outform DER -in /var/lib/aif-airgap-lab-ca.crt | sha256sum | awk '{print $1}')
-    configured_ca=$(jq -r '.spec.caBundle' <<<"${object}" | base64 -d | sha256sum | awk '{print $1}')
-    [[ "${configured_ca}" == "${expected_ca}" ]]
-    "${kubectl}" -n cattle-system get secret "${repo}-auth" -o json \
-      --kubeconfig "${kubeconfig}" \
-      | jq -e '.type == "kubernetes.io/basic-auth" and .data.username and .data.password' >/dev/null
-  args:
-    executable: /bin/bash
-  changed_when: false
-
-- name: Download the private-Gitea chart through AIF's Rancher catalog credential
-  ansible.builtin.shell: |
-    set -euo pipefail
-    kubectl=/var/lib/rancher/rke2/bin/kubectl
-    kubeconfig=/etc/rancher/rke2/rke2.yaml
-    repo={{ gitea_chart_clusterrepo | quote }}
-    token_secret={{ rancher_catalog_token_secret | quote }}
-    chart_archive=$(mktemp /var/lib/aif-airgap-git-chart.XXXXXX.tgz)
-    cleanup() { rm -f -- "${chart_archive}"; }
-    trap cleanup EXIT
-    token=$("${kubectl}" -n {{ aif_namespace | quote }} get secret "${token_secret}" \
-      -o jsonpath='{.data.token}' --kubeconfig "${kubeconfig}" | base64 -d)
-    [[ -n "${token}" ]]
-    curl --silent --show-error --fail \
-      --cacert /var/lib/aif-airgap-rancher-ca.crt \
-      --header "Authorization: Bearer ${token}" \
-      "{{ rancher_url }}/v1/catalog.cattle.io.clusterrepos/${repo}?link=chart&chartName=airgap-smoke&version={{ smoke_chart_version }}" \
-      --output "${chart_archive}"
-    chart_metadata=$(helm show chart "${chart_archive}")
-    name=$(awk '/^name:/ {print $2; exit}' <<<"${chart_metadata}")
-    version=$(awk '/^version:/ {print $2; exit}' <<<"${chart_metadata}")
-    if [[ "${name}" != airgap-smoke || "${version}" != {{ smoke_chart_version | quote }} ]]; then
-      printf 'unexpected chart metadata: name=%s version=%s\n' "${name}" "${version}" >&2
-      exit 1
-    fi
-  args:
-    executable: /bin/bash
-  changed_when: false
-
-- name: Confirm the private-Gitea chart deployed through both Fleet workspaces
-  ansible.builtin.shell: |
-    set -euo pipefail
-    kubectl=/var/lib/rancher/rke2/bin/kubectl
-    kubeconfig=/etc/rancher/rke2/rke2.yaml
-    for namespace in fleet-local fleet-default; do
-      bundle="airgap-git-chart-multi-gitops-airgap-smoke"
-      "${kubectl}" -n "${namespace}" get bundle "${bundle}" -o json \
-        --kubeconfig "${kubeconfig}" \
-        | jq -e '
-            (.spec.helm.chart == "airgap-smoke") and
-            any(.spec.resources[]?; .name == "airgap-smoke/Chart.yaml")
-          ' >/dev/null
-    done
-    "${kubectl}" -n {{ smoke_namespace | quote }} get aiworkload \
-      airgap-git-chart-multi-gitops -o json --kubeconfig "${kubeconfig}" \
-      | jq -e '
-          .status.phase == "Running" and
-          ([.status.clusterStatuses[] | select(.phase == "Running")] | length == 2)
-        ' >/dev/null
-  args:
-    executable: /bin/bash
-  changed_when: false
-
-- name: Confirm rendered matrix fixtures have unique names and exact workload links
-  ansible.builtin.shell: |
-    set -euo pipefail
-    kubectl=/var/lib/rancher/rke2/bin/kubectl
-    kubeconfig=/etc/rancher/rke2/rke2.yaml
-    selector=airgap-lab.suse.com/source=rendered-matrix
-    blueprints=$("${kubectl}" get blueprint -l "${selector}" -o json \
-      --kubeconfig "${kubeconfig}")
-    workloads=$("${kubectl}" get aiworkload --all-namespaces -l "${selector}" -o json \
-      --kubeconfig "${kubeconfig}")
-    jq -e -n --argjson blueprints "${blueprints}" --argjson workloads "${workloads}" '
-      ($blueprints.items | length) > 0 and
-      ($workloads.items | length) > 0 and
-      ([$blueprints.items[].spec.displayName] | length) ==
-        ([$blueprints.items[].spec.displayName] | unique | length) and
-      ([$workloads.items[].spec.displayName] | length) ==
-        ([$workloads.items[].spec.displayName] | unique | length) and
-      all($workloads.items[]; . as $workload |
-        [$blueprints.items[] | select(
-          .metadata.labels["ai-factory.suse.com/blueprint-name"] == $workload.spec.source.blueprint.name and
-          .spec.version == $workload.spec.source.blueprint.version
-        )] as $matches |
-        ($matches | length) == 1 and
-        $matches[0].spec.displayName == $workload.spec.displayName and
-        $matches[0].metadata.labels["airgap-lab.suse.com/case"] ==
-          $workload.metadata.labels["airgap-lab.suse.com/case"]
-      )
-    ' >/dev/null
-  args:
-    executable: /bin/bash
-  changed_when: false
-
 - name: Confirm private-CA Gitea is trusted by both AIF and Fleet
   ansible.builtin.shell: |
     set -euo pipefail
@@ -296,9 +168,6 @@
       any(.status.conditions[]?; .type == "GitPolling" and .status == "True") and
       any(.status.conditions[]?; .type == "Accepted" and .status == "True")' \
       <<<"${gitrepo}" >/dev/null
-    "${kubectl}" get blueprint git-sourced-airgap-0-1-0 \
-      -o jsonpath='{.metadata.labels.airgap-lab\.suse\.com/source}' \
-      --kubeconfig "${kubeconfig}" | grep -Fx private-gitea >/dev/null
   args:
     executable: /bin/bash
   when: gitea_tls_enabled | bool
@@ -388,7 +257,9 @@
         installaiextensions.ai-factory.suse.com settings.ai-factory.suse.com \
         -o wide --kubeconfig "${kubeconfig}"
       "${kubectl}" get settings -A -o yaml --kubeconfig "${kubeconfig}"
-      "${kubectl}" get clusterrepo application-collection suse-ai-registry nvidia {{ gitea_chart_clusterrepo | quote }} -o yaml --kubeconfig "${kubeconfig}"
+      {% if airgap_catalog_repos | length > 0 %}
+      "${kubectl}" get clusterrepo {{ airgap_catalog_repos | map('quote') | join(' ') }} -o yaml --kubeconfig "${kubeconfig}"
+      {% endif %}
       "${kubectl}" -n fleet-local get gitrepo suse-ai-fleet-repo -o yaml --kubeconfig "${kubeconfig}"
       "${kubectl}" get blueprint -o yaml --kubeconfig "${kubeconfig}"
       "${kubectl}" get gitrepo,helmop,bundle -A -o wide --kubeconfig "${kubeconfig}"
@@ -417,10 +288,15 @@
     dest: "{{ airgap_evidence_dir }}/management/"
     flat: false
 
+- name: Remove the successful infrastructure probe after saving its evidence
+  ansible.builtin.command:
+    argv: [kubectl, -n, '{{ aif_namespace }}', delete, pod, aif-airgap-public-egress-probe, --ignore-not-found]
+  changed_when: true
+
 - name: Report verification result
   ansible.builtin.debug:
     msg:
-      - "AIF and UI are Ready from Harbor; all four private chart sources have downloaded."
-      - "The authenticated private-Gitea chart source deployed through both Fleet workspaces."
+      - "AIF and UI are Ready from Harbor; all selected mirrored catalogs have downloaded."
+      - "Private Gitea delivers the mirrored application Blueprints through Fleet."
       - "Host and pod public TCP probes were rejected while Harbor and Gitea stayed reachable."
       - "Redacted evidence was fetched under {{ airgap_evidence_dir }}."

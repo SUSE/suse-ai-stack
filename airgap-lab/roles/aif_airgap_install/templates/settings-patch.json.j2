@@ -13,7 +13,7 @@
     },
     "fleet": {
       "repoURL": {{ (gitea_url ~ '/' ~ gitea_admin_username ~ '/' ~ gitea_repository ~ '.git') | to_json }},
-      "branch": {{ (smoke_fleet_branch | default('main')) | to_json }},
+      "branch": {{ (airgap_fleet_branch | default('main')) | to_json }},
       "authType": null,
       "username": {{ gitea_admin_username | to_json }},
       "credSecretRef": {
@@ -22,19 +22,19 @@
       },
       "caBundleSecretRef": {% if gitea_tls_enabled | bool %}{ "name": "harbor-ca", "key": "ca.crt" }{% else %}null{% endif %}
     },
-    "applicationCollection": {
+    "applicationCollection": {% if "application-collection" in airgap_catalog_repos %}{
       {{ registry_auth() }}
-    },
-    "suseRegistry": {
+    }{% else %}null{% endif %},
+    "suseRegistry": {% if "suse-ai-registry" in airgap_catalog_repos %}{
       {{ registry_auth() }}
-    },
-    "nvidia": {
+    }{% else %}null{% endif %},
+    "nvidia": {% if "nvidia" in airgap_catalog_repos %}{
       {{ registry_auth() }}
-    },
+    }{% else %}null{% endif %},
     "registryEndpoints": {
-      "applicationCollection": {{ ('oci://' ~ harbor_hostname ~ '/' ~ appco_chart_project) | to_json }},
-      "suseRegistry": {{ ('oci://' ~ harbor_hostname ~ '/' ~ suse_chart_project) | to_json }},
-      "nvidia": {{ ('oci://' ~ harbor_hostname ~ '/' ~ nvidia_chart_project) | to_json }}
+      "applicationCollection": {{ (('oci://' ~ harbor_hostname ~ '/' ~ appco_chart_project) if 'application-collection' in airgap_catalog_repos else none) | to_json }},
+      "suseRegistry": {{ (('oci://' ~ harbor_hostname ~ '/' ~ suse_chart_project) if 'suse-ai-registry' in airgap_catalog_repos else none) | to_json }},
+      "nvidia": {{ (('oci://' ~ harbor_hostname ~ '/' ~ nvidia_chart_project) if 'nvidia' in airgap_catalog_repos else none) | to_json }}
     }
   }
 }
