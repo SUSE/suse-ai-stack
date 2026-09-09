@@ -441,6 +441,11 @@ Blueprints request a 2 GiB volume using the target cluster's default storage
 class. Qdrant GPU indexing and telemetry are disabled, and Ollama starts without
 pulling, creating or running a model.
 
+The lab configures local-path storage helpers to use the mirrored
+`registry.suse.com/bci/bci-busybox:15.7` image, so creating a new persistent volume
+after isolation does not require Docker Hub. The `suse-apps` phase also applies
+this setting when extending an existing lab.
+
 These artifacts are included in `chatbot`, `vendor` and `all` as well. Qdrant
 requires SUSE Registry access. The one-command runner reads
 `suse_ai_registration_code` from the ignored `extra_vars.yml` and uses the
@@ -491,6 +496,10 @@ The Qdrant probe removes its uniquely named test collection afterward. Redacted
 results and pod image IDs are saved in `generated/suse-apps-<host>.txt`.
 Set `suse_apps_strategy: GitOps` in the lab vars to exercise that deployment path.
 Ollama inference still requires separately imported models.
+
+The [2026-09-09 AWS validation](validation/suse-apps-2026-09-09.md) records
+successful deployment and API tests on both isolated clusters, plus the
+storage-helper correction found during the run.
 
 The custom Blueprint closure check can also use only exported charts:
 

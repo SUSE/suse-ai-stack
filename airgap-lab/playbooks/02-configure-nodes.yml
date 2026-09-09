@@ -61,6 +61,11 @@
       ansible.builtin.include_role:
         name: local-path
 
+    - name: Use mirrored SUSE images for new persistent volumes
+      ansible.builtin.import_role:
+        name: rke2_airgap_storage
+      tags: [airgap_storage]
+
     - name: Read the local-path default-class annotation
       ansible.builtin.command:
         argv:

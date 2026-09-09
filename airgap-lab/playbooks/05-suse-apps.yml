@@ -1,4 +1,15 @@
 ---
+- name: Prepare storage helpers for disconnected SUSE application deployments
+  hosts: rke2_airgap_nodes
+  gather_facts: false
+  become: true
+  environment:
+    PATH: /usr/local/bin:/var/lib/rancher/rke2/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
+  roles:
+    - role: rke2_airgap_storage
+      when: suse_apps_deploy | default(true) | bool
+
 - name: Publish and deploy custom CPU-only SUSE application Blueprints
   hosts: aif_management
   gather_facts: false
