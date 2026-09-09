@@ -10,7 +10,7 @@ source_dir="${AIF_SOURCE_DIR:-$(cd "${project_dir}/.." && pwd)/aif}"
 profile="${AIF_AIRGAP_PROFILE:-core}"
 
 case "${profile}" in
-  core|chatbot|vendor|all) ;;
+  core|suse|chatbot|vendor|all) ;;
   *) printf 'Unsupported AIF_AIRGAP_PROFILE: %s\n' "${profile}" >&2; exit 2 ;;
 esac
 
@@ -46,7 +46,7 @@ done
 "${lab_dir}/scripts/check-shell-safety.sh"
 AIF_AIRGAP_BASE_VARS="${base_vars}" "${lab_dir}/scripts/prepare-aws.sh"
 
-if [[ "${profile}" == "chatbot" || "${profile}" == "vendor" || "${profile}" == "all" ]]; then
+if [[ "${profile}" != "core" ]]; then
   appco_source_username="${APPCO_USERNAME:-$(yq -r '.application_collection_user_email // ""' "${base_vars}")}"
   appco_source_password="${APPCO_PASSWORD:-$(yq -r '.application_collection_user_token // ""' "${base_vars}")}"
   [[ -n "${appco_source_username}" && -n "${appco_source_password}" ]] || {
@@ -55,6 +55,12 @@ if [[ "${profile}" == "chatbot" || "${profile}" == "vendor" || "${profile}" == "
   }
   export APPCO_USERNAME="${appco_source_username}"
   export APPCO_PASSWORD="${appco_source_password}"
+  export SUSE_REGISTRY_USERNAME="${SUSE_REGISTRY_USERNAME:-regcode}"
+  export SUSE_REGISTRY_PASSWORD="${SUSE_REGISTRY_PASSWORD:-$(yq -r '.suse_ai_registration_code // ""' "${base_vars}")}"
+  [[ -n "${SUSE_REGISTRY_PASSWORD}" ]] || {
+    printf 'The %s profile requires SUSE Registry credentials for Qdrant.\n' "${profile}" >&2
+    exit 2
+  }
 fi
 
 metadata="${lab_dir}/generated/lab-metadata.yml"
@@ -71,7 +77,9 @@ else
   git_transport=http
 fi
 manifest="${lab_dir}/generated/artifacts-aif-source.yml"
-bundle="${AIF_AIRGAP_BUNDLE:-${lab_dir}/bundles/aif-${short_commit}-${profile}}"
+artifact_set_sha256="$(sha256sum "${lab_dir}/artifacts.yml" | awk '{print $1}')"
+artifact_revision="${artifact_set_sha256:0:12}"
+bundle="${AIF_AIRGAP_BUNDLE:-${lab_dir}/bundles/aif-${short_commit}-${profile}-${artifact_revision}}"
 bundle_local_sources_match() {
   local candidate=$1 index count source expected actual
   count="$(yq -r '.spec.images | length' "${manifest}")"
@@ -89,10 +97,12 @@ if [[ -z "${AIF_AIRGAP_BUNDLE:-}" && ! -d "${bundle}" ]]; then
     [[ -f "${candidate}/METADATA" && -f "${candidate}/ARTIFACTS.yaml" ]] || continue
     candidate_profile="$(awk -F= '$1 == "profile" {print $2}' "${candidate}/METADATA")"
     candidate_commit="$(yq -r '.metadata.annotations."airgap.ai-factory.suse.com/source-commit" // ""' "${candidate}/ARTIFACTS.yaml")"
+    candidate_artifact_set="$(yq -r '.metadata.annotations."airgap.ai-factory.suse.com/artifact-set-sha256" // ""' "${candidate}/ARTIFACTS.yaml")"
     candidate_manifest_digest="$(awk -F= '$1 == "manifest_sha256" {print $2}' "${candidate}/METADATA")"
     current_manifest_digest="$(sha256sum "${manifest}" 2>/dev/null | awk '{print $1}')"
     if [[ "${candidate_profile}" == "${profile}" \
        && "${candidate_commit}" == "${aif_commit}" \
+       && "${candidate_artifact_set}" == "${artifact_set_sha256}" \
        && -n "${current_manifest_digest}" \
        && "${candidate_manifest_digest}" == "${current_manifest_digest}" ]] \
        && bundle_local_sources_match "${candidate}"; then
@@ -103,7 +113,7 @@ if [[ -z "${AIF_AIRGAP_BUNDLE:-}" && ! -d "${bundle}" ]]; then
   shopt -u nullglob
 fi
 state_root="${lab_dir}/generated/state/${workspace}"
-run_state="${state_root}/runs/${short_commit}-${profile}"
+run_state="${state_root}/runs/${short_commit}-${profile}-${artifact_revision}"
 qualification_key="${install_mode}-${ca_mode}-git-${git_transport}"
 qualification_state="${run_state}/qualifications/${qualification_key}"
 active_qualification_file="${run_state}/active-qualification"
@@ -234,6 +244,10 @@ if [[ "${profile}" == "chatbot" || "${profile}" == "vendor" || "${profile}" == "
       "${lab_dir}/scripts/check-chatbot-container-closure.sh" --manifest "${manifest}"
 fi
 
+if [[ "${profile}" != "core" ]]; then
+  "${lab_dir}/scripts/check-suse-container-closure.sh" --manifest "${manifest}" --profile "${profile}"
+fi
+
 run_step "${run_state}/bundle-export.complete" "Export the checksummed ${profile} media bundle" \
   env AIF_AIRGAP_MANIFEST="${manifest}" AIF_AIRGAP_BUNDLE="${bundle}" \
     AIF_AIRGAP_PROFILE="${profile}" "${lab_dir}/run.sh" mirror-export
@@ -289,6 +303,12 @@ run_step "${run_state}/targets.complete" "Discover local and downstream Rancher 
 run_step "${qualification_state}/matrix.complete" "Run FleetBundle and GitOps in single- and multi-cluster modes (${qualification_key})" \
   env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
     "${lab_dir}/run.sh" matrix
+
+if [[ "${profile}" != "core" ]]; then
+  run_step "${qualification_state}/suse-apps.complete" "Deploy and test CPU-only SUSE applications" \
+    env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
+      "${lab_dir}/run.sh" suse-apps
+fi
 
 run_step "${qualification_state}/verify.complete" "Collect positive private-path and negative public-egress evidence (${qualification_key})" \
   env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \

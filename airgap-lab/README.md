@@ -98,6 +98,7 @@ qualification axes and for a nonstandard SSH key:
 
 ```console
 AIF_SOURCE_DIR=/path/to/aif AIF_AIRGAP_PROFILE=core ./setup_airgap_lab.sh
+AIF_SOURCE_DIR=/path/to/aif AIF_AIRGAP_PROFILE=suse ./setup_airgap_lab.sh
 AIF_SOURCE_DIR=/path/to/aif AIF_AIRGAP_PROFILE=chatbot ./setup_airgap_lab.sh
 AIF_AIRGAP_INSTALL_MODE=separate ./setup_airgap_lab.sh
 AIF_AIRGAP_CA_MODE=workaround ./setup_airgap_lab.sh
@@ -116,7 +117,7 @@ back to combined mode removes the standalone UI release before reconciling the
 operator-managed extension. A `workaround` or HTTP pass remains useful for
 diagnosis, but is not native air-gap evidence.
 
-For one-command `chatbot`, `vendor`, or `all` runs, the setup script reads the
+For one-command `suse`, `chatbot`, `vendor`, or `all` runs, the setup script reads the
 Application Collection email/token from the ignored top-level `extra_vars.yml`
 unless `APPCO_USERNAME` and `APPCO_PASSWORD` are already exported. Manual
 `run.sh` workflows use the environment variables shown below.
@@ -222,14 +223,15 @@ read -r -s -p 'Harbor password: ' HARBOR_PASSWORD; printf '\n'
 export HARBOR_USERNAME HARBOR_PASSWORD
 export HARBOR_REGISTRY=harbor.airgap.test
 
-# AppCo credentials are needed by the chatbot and vendor profiles.
+# AppCo credentials are needed by the suse, chatbot and vendor profiles.
 export APPCO_USERNAME APPCO_PASSWORD
-# The remaining source credentials are vendor-profile inputs.
+# SUSE Registry credentials are needed by suse, chatbot and vendor profiles.
 export SUSE_REGISTRY_USERNAME SUSE_REGISTRY_PASSWORD
 export NGC_USERNAME NGC_PASSWORD
 export DOCKERHUB_USERNAME DOCKERHUB_PASSWORD  # optional, avoids anonymous limits
 
-# core: AIF + smoke; chatbot: core + Simple Chatbot chart/container closure;
+# core: AIF + smoke; suse: core + Qdrant and CPU Ollama test Blueprints;
+# chatbot: suse + Simple Chatbot chart/container closure;
 # vendor: core + broader AppCo/SUSE/NVIDIA examples; all: every entry.
 export AIF_AIRGAP_PROFILE=chatbot
 airgap-lab/run.sh mirror
@@ -421,6 +423,87 @@ isolated RKE2 node and records the results in the node evidence. These phases
 populate the mirrors; deploy the applications from AI Factory when needed.
 Models, embedding data and MCP packages still require the offline preparation
 described above.
+
+### Qdrant and CPU Ollama test Blueprints
+
+The `suse` profile adds two custom Blueprints for testing real SUSE application
+images without GPUs, model downloads or runtime package installation:
+
+| Blueprint | Chart source and version | Container image |
+| --- | --- | --- |
+| Qdrant from SUSE Registry (air-gap lab) | `registry.suse.com/ai/charts/qdrant:1.19.0` | `registry.suse.com/ai/containers/qdrant:v1.19.0` |
+| Ollama from SUSE Application Collection (air-gap lab) | `dp.apps.rancher.io/charts/ollama:1.55.0` | `dp.apps.rancher.io/containers/ollama:0.21.2-11.48` |
+
+Qdrant's custom values pin its Helm test image to
+`registry.suse.com/bci/bci-base:15.7`, which is also mirrored. Ollama's upstream
+Docker Hub test hook is disabled; the lab checks its API directly. Both
+Blueprints request a 2 GiB volume using the target cluster's default storage
+class. Qdrant GPU indexing and telemetry are disabled, and Ollama starts without
+pulling, creating or running a model.
+
+These artifacts are included in `chatbot`, `vendor` and `all` as well. Qdrant
+requires SUSE Registry access. The one-command runner reads
+`suse_ai_registration_code` from the ignored `extra_vars.yml` and uses the
+`regcode` username; `SUSE_REGISTRY_USERNAME` and `SUSE_REGISTRY_PASSWORD` override
+those values. It also reads the existing AppCo email/token for Ollama.
+
+Default bundle directories and source/qualification checkpoints include the
+artifact-manifest revision. Adding Qdrant or changing an image pin therefore
+creates a new bundle and reruns qualification while retaining the lab's
+infrastructure checkpoints. An explicit `AIF_AIRGAP_BUNDLE` must also point to a
+fresh directory when the manifest changes.
+
+For a complete lab run:
+
+```console
+AIF_AIRGAP_PROFILE=suse ./setup_airgap_lab.sh
+```
+
+The runner publishes the versioned Blueprint files from `fixtures/blueprints/`
+to private Gitea's `blueprints/` directory. Fleet delivers them to AI Factory.
+Their stable `suse-ai-registry` and `application-collection` references resolve
+to the mirrored charts in Harbor; containerd resolves their original container
+references through the existing private registry rewrites.
+
+To extend a running lab, export `APPCO_USERNAME`/`APPCO_PASSWORD` and
+`SUSE_REGISTRY_USERNAME`/`SUSE_REGISTRY_PASSWORD` as described in the manual
+mirroring workflow, then run:
+
+```console
+airgap-lab/run.sh build-aif-source
+export AIF_AIRGAP_PROFILE=suse
+export AIF_AIRGAP_MANIFEST="$PWD/airgap-lab/generated/artifacts-aif-source.yml"
+export AIF_AIRGAP_BUNDLE="$PWD/airgap-lab/bundles/suse-$(date -u +%Y%m%dT%H%M%SZ)"
+airgap-lab/scripts/check-suse-container-closure.sh --manifest "$AIF_AIRGAP_MANIFEST"
+airgap-lab/run.sh mirror-export
+airgap-lab/run.sh transfer-import
+airgap-lab/run.sh discover-targets
+airgap-lab/run.sh suse-apps
+airgap-lab/run.sh verify
+```
+
+Use `airgap-lab/run.sh suse-blueprints` to publish the Blueprint cards for manual
+UI tests without creating workloads. `suse-apps` deploys both applications to
+`suse_apps_target_clusters` (the discovered local and downstream targets by
+default), waits for every target to report Running, and tests Qdrant vector
+insertion/search and Ollama's version/model-list APIs while isolation is active.
+The Qdrant probe removes its uniquely named test collection afterward. Redacted
+results and pod image IDs are saved in `generated/suse-apps-<host>.txt`.
+Set `suse_apps_strategy: GitOps` in the lab vars to exercise that deployment path.
+Ollama inference still requires separately imported models.
+
+The custom Blueprint closure check can also use only exported charts:
+
+```console
+airgap-lab/scripts/check-suse-container-closure.sh \
+  --manifest "$AIF_AIRGAP_BUNDLE/ARTIFACTS.yaml" \
+  --charts-dir "$AIF_AIRGAP_BUNDLE/charts"
+```
+
+This check covers the custom Blueprint values, including Qdrant's pinned test
+hook and init containers. It does not use the unmodified charts' test defaults.
+The Qdrant chart location follows the
+[SUSE AI installation documentation](https://documentation.suse.com/suse-ai/1.0/html/AI-deployment/ai-library-installing.html).
 
 ## Secure private Git baseline
 

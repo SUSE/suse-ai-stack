@@ -172,3 +172,11 @@ smoke_fleet_resource_kind: "helmop"  # helmop | bundle
 
 # Where playbook 06 fetches redacted command evidence on the controller.
 airgap_evidence_dir: "{{ airgap_generated_dir }}/evidence"
+
+# Real SUSE application tests (suse, chatbot, vendor and all profiles) ---------
+# These custom Blueprints use mirrored Qdrant and Ollama charts. Both run on
+# CPUs and request no models or packages from the internet.
+suse_apps_namespace: aif-suse-apps
+suse_apps_strategy: FleetBundle  # FleetBundle | GitOps
+suse_apps_target_clusters: "{{ smoke_target_clusters }}"
+suse_apps_timeout_seconds: 900

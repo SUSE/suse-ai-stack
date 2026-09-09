@@ -44,6 +44,15 @@ spec:
       archive: airgap-smoke-0.1.0.tgz
       targets: [aif-nvidia]
 
+    # The suse profile adds CPU-only Qdrant and AppCo Ollama test Blueprints.
+    - id: suse-qdrant
+      profiles: [suse, chatbot, vendor]
+      sourceType: oci
+      source: oci://registry.suse.com/ai/charts/qdrant
+      version: 1.19.0
+      archive: qdrant-1.19.0.tgz
+      targets: [aif-suse]
+
     # The chatbot profile is core plus the exact charts and literal container
     # images rendered by their defaults and Simple Chatbot with RAG 1.0.2.
     # The vendor profile includes the same closure plus SUSE/NVIDIA examples. Runtime
@@ -56,7 +65,7 @@ spec:
       archive: open-webui-8.19.1.tgz
       targets: [aif-appco]
     - id: appco-ollama
-      profiles: [chatbot, vendor]
+      profiles: [suse, chatbot, vendor]
       sourceType: oci
       source: oci://dp.apps.rancher.io/charts/ollama
       version: 1.55.0
@@ -114,6 +123,17 @@ spec:
       source: registry.suse.com/bci/bci-busybox:15.7
       bundlePath: registry.suse.com_bci_bci-busybox_15.7.dir
       target: aif-images/registry.suse.com/bci/bci-busybox:15.7
+    - id: suse-qdrant
+      profiles: [suse, chatbot, vendor]
+      source: registry.suse.com/ai/containers/qdrant:v1.19.0
+      bundlePath: registry.suse.com_ai_containers_qdrant_v1.19.0.dir
+      target: aif-images/registry.suse.com/ai/containers/qdrant:v1.19.0
+    # The custom Qdrant Blueprint pins the chart's BCI test hook image.
+    - id: suse-qdrant-test
+      profiles: [suse, chatbot, vendor]
+      source: registry.suse.com/bci/bci-base:15.7
+      bundlePath: registry.suse.com_bci_bci-base_15.7.dir
+      target: aif-images/registry.suse.com/bci/bci-base:15.7
     - id: appco-open-webui
       profiles: [chatbot, vendor]
       source: dp.apps.rancher.io/containers/open-webui:0.6.41-15.2
@@ -125,7 +145,7 @@ spec:
       bundlePath: dp.apps.rancher.io_containers_open-webui_0.6.41-14.20.dir
       target: aif-images/dp.apps.rancher.io/containers/open-webui:0.6.41-14.20
     - id: appco-ollama
-      profiles: [chatbot, vendor]
+      profiles: [suse, chatbot, vendor]
       source: dp.apps.rancher.io/containers/ollama:0.21.2-11.48
       bundlePath: dp.apps.rancher.io_containers_ollama_0.21.2-11.48.dir
       target: aif-images/dp.apps.rancher.io/containers/ollama:0.21.2-11.48

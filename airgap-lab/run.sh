@@ -10,7 +10,7 @@ profile="${AIF_AIRGAP_PROFILE:-core}"
 discovered_vars="${lab_dir}/generated/discovered-vars.yml"
 
 case "${profile}" in
-  core|chatbot|vendor|all) ;;
+  core|suse|chatbot|vendor|all) ;;
   *) printf 'Unsupported AIF_AIRGAP_PROFILE: %s\n' "${profile}" >&2; exit 2 ;;
 esac
 
@@ -35,10 +35,12 @@ usage() {
     "  smoke               Create the no-GPU Blueprint workload fixture" \
     "  discover-targets    Discover the downstream Rancher cluster ID" \
     "  matrix              Run FleetBundle/GitOps in single- and multi-cluster modes" \
+    "  suse-blueprints     Publish custom Qdrant and Ollama Blueprints to private Gitea" \
+    "  suse-apps           Deploy those CPU applications and test their APIs on every target" \
     "  verify              Run positive internal and negative external probes" \
     "  restore             Remove only the lab's nftables isolation table" \
     "" \
-    "Profiles: AIF_AIRGAP_PROFILE=core|chatbot|vendor|all (default: core)" \
+    "Profiles: AIF_AIRGAP_PROFILE=core|suse|chatbot|vendor|all (default: core)" \
     "" \
     "Use ./setup_airgap_lab.sh for the complete ordered and resumable workflow."
 }
@@ -146,6 +148,12 @@ case "${phase}" in
       -e smoke_fleet_resource_kind=bundle \
       -e smoke_workload_name=airgap-git-chart-multi \
       "${lab_dir}/playbooks/05-smoke.yml"
+    ;;
+  suse-blueprints|suse-apps)
+    require_config
+    deploy=true
+    [[ "${phase}" == suse-blueprints ]] && deploy=false
+    play -e "suse_apps_deploy=${deploy}" "${lab_dir}/playbooks/05-suse-apps.yml"
     ;;
   verify)
     require_config

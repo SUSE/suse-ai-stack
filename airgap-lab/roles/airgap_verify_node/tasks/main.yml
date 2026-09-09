@@ -96,12 +96,12 @@
       - "{{ item.source }}"
   loop: >-
     {{ (lookup('ansible.builtin.file', playbook_dir ~ '/../artifacts.yml') | from_yaml)
-       .spec.images | selectattr('profiles', 'contains', 'chatbot') | list }}
+       .spec.images | selectattr('profiles', 'contains', 'suse' if airgap_profile | default('core') == 'suse' else 'chatbot') | list }}
   loop_control:
     label: "{{ item.source }}"
   when:
     - inventory_hostname in groups['rke2_airgap_nodes']
-    - airgap_profile | default('core') in ['chatbot', 'vendor', 'all']
+    - airgap_profile | default('core') in ['suse', 'chatbot', 'vendor', 'all']
   register: application_cri_pulls
   changed_when: true
 

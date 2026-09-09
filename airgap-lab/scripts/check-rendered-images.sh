@@ -8,7 +8,7 @@ profile=""
 
 usage() {
   printf '%s\n' \
-    "Usage: $0 [--manifest FILE] [--profile core|chatbot|vendor|all] RENDERED-MANIFEST.yaml [...]" \
+    "Usage: $0 [--manifest FILE] [--profile core|suse|chatbot|vendor|all] RENDERED-MANIFEST.yaml [...]" \
     "Fails when a literal image in rendered Kubernetes YAML is absent from the artifact set."
 }
 
@@ -24,7 +24,7 @@ done
 
 [[ $# -gt 0 ]] || { usage >&2; exit 2; }
 [[ -f "${manifest}" ]] || { printf 'Manifest not found: %s\n' "${manifest}" >&2; exit 2; }
-if [[ -n "${profile}" && "${profile}" != "core" && "${profile}" != "chatbot" && \
+if [[ -n "${profile}" && "${profile}" != "core" && "${profile}" != "suse" && "${profile}" != "chatbot" && \
       "${profile}" != "vendor" && "${profile}" != "all" ]]; then
   printf 'Unsupported profile: %s\n' "${profile}" >&2
   exit 2

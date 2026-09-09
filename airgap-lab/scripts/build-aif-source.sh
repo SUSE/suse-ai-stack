@@ -194,6 +194,7 @@ ui_chart_source="$(realpath --relative-to="${manifest_dir}" "${build_root}/chart
 smoke_chart_source="$(realpath --relative-to="${manifest_dir}" "${lab_dir}/fixtures/charts/airgap-smoke")"
 
 AIF_SOURCE_COMMIT="${commit}" \
+AIF_ARTIFACT_SET_SHA256="$(sha256sum "${lab_dir}/artifacts.yml" | awk '{print $1}')" \
 AIF_SOURCE_BRANCH="${branch}" \
 AIF_SOURCE_SHORT_COMMIT="${short_commit}" \
 AIF_SOURCE_VERSION="${version}" \
@@ -205,6 +206,7 @@ AIF_OPERATOR_IMAGE="${operator_image}" \
 AIF_UI_IMAGE="${ui_image}" \
 yq -i '
   .metadata.name = "aif-source-" + strenv(AIF_SOURCE_SHORT_COMMIT) |
+  .metadata.annotations."airgap.ai-factory.suse.com/artifact-set-sha256" = strenv(AIF_ARTIFACT_SET_SHA256) |
   .metadata.annotations."airgap.ai-factory.suse.com/source-commit" = strenv(AIF_SOURCE_COMMIT) |
   .metadata.annotations."airgap.ai-factory.suse.com/source-branch" = strenv(AIF_SOURCE_BRANCH) |
   .metadata.annotations."airgap.ai-factory.suse.com/source-version" = strenv(AIF_SOURCE_VERSION) |
