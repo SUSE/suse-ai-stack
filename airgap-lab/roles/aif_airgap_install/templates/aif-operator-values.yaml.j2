@@ -1,0 +1,73 @@
+global:
+  imagePullSecrets:
+    - name: harbor-pull
+
+rancherCatalog:
+  tokenSecret:
+    name: {{ rancher_catalog_token_secret | quote }}
+    key: token
+
+manager:
+  image:
+    registry: {{ harbor_hostname | quote }}
+    repository: "{{ aif_image_project }}/ghcr.io/suse/aif-operator"
+    tag: {{ aif_image_tag | quote }}
+    pullPolicy: Always
+  allowedRegistryHosts:
+    - {{ harbor_hostname | quote }}
+  allowInsecureRegistryTLS: false
+
+aiExtension:
+  enabled: {{ (aif_install_mode == 'combined') | bool | lower }}
+  source:
+    kind: Helm
+    helm:
+      chartURL: "oci://{{ harbor_hostname }}/{{ aif_chart_project }}/aif-ui"
+      version: {{ aif_version | quote }}
+      auth:
+        basic:
+          userSecretRef:
+            name: harbor-credentials
+            key: username
+          tokenSecretRef:
+            name: harbor-credentials
+            key: password
+      tls:
+        caSecretRef:
+          name: harbor-ca
+          key: ca.crt
+      values:
+        global:
+          imagePullSecrets:
+            - name: harbor-pull
+        image:
+          registry: {{ harbor_hostname | quote }}
+          repository: "{{ aif_image_project }}/ghcr.io/suse/aif-ui"
+          tag: {{ aif_image_tag | quote }}
+          pullPolicy: Always
+        appCatalog:
+          useStaticCatalog: {{ aif_use_static_catalog | bool | lower }}
+  extension:
+    name: {{ aif_ui_release_name | quote }}
+    version: {{ aif_version | quote }}
+  cleanup:
+    image:
+      registry: {{ harbor_hostname | quote }}
+      repository: "{{ aif_image_project }}/registry.suse.com/suse/kubectl"
+      tag: "1.35"
+      pullPolicy: Always
+
+crds:
+  manageWithJob: true
+  image:
+    registry: {{ harbor_hostname | quote }}
+    repository: "{{ aif_image_project }}/registry.suse.com/suse/kubectl"
+    tag: "1.35"
+    pullPolicy: Always
+
+appCatalog:
+  useStaticCatalog: {{ aif_use_static_catalog | bool | lower }}
+  remoteUrl: ""
+
+defaultBlueprints:
+  enabled: false

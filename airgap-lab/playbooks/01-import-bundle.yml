@@ -1,0 +1,172 @@
+---
+- name: Transfer the offline media bundle and import it from inside the gated VPC
+  hosts: airgap_services
+  gather_facts: true
+  become: true
+  environment:
+    PATH: /usr/local/bin:/var/lib/aif-airgap-lab/tools:/usr/sbin:/usr/bin:/sbin:/bin
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
+  vars:
+    artifact_script_source: "{{ playbook_dir }}/../scripts/artifacts.sh"
+    remote_bundle: "{{ airgap_remote_bundle_root }}/{{ airgap_bundle_dir | basename }}"
+    controller_yq_arch_patterns:
+      x86_64: 'ELF .* x86-64'
+      aarch64: 'ELF .* ARM aarch64'
+  pre_tasks:
+    - name: Validate bundle transfer inputs
+      ansible.builtin.assert:
+        that:
+          - airgap_bundle_dir is defined
+          - airgap_bundle_dir | length > 1
+          - airgap_bundle_dir is abs
+          - (airgap_bundle_dir | basename) not in ['', '.', '..']
+          - airgap_profile | default('suse') in ['core', 'suse', 'chatbot', 'vendor', 'all']
+          - controller_yq_path is abs
+        fail_msg: "Supply an absolute checksummed bundle directory and controller yq path."
+
+    - name: Require the checksummed media bundle on the controller
+      ansible.builtin.stat:
+        path: "{{ airgap_bundle_dir }}/{{ item }}"
+      loop:
+        - ARTIFACTS.yaml
+        - METADATA
+        - SHA256SUMS
+        - SOURCE-DIGESTS.txt
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_become: false
+      register: bundle_metadata
+
+    - name: Stop when the media bundle is incomplete
+      ansible.builtin.assert:
+        that: bundle_metadata.results | map(attribute='stat.exists') | min
+        fail_msg: "The selected media bundle is incomplete; run mirror-export first."
+
+    - name: Inspect the controller yq helper format
+      ansible.builtin.command:
+        argv:
+          - file
+          - --brief
+          - --
+          - "{{ controller_yq_path }}"
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_become: false
+      register: controller_yq_binary
+      changed_when: false
+
+    - name: Require a Linux yq binary matching the services-node architecture
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['system'] == 'Linux'
+          - ansible_facts['architecture'] in controller_yq_arch_patterns
+          - >-
+            controller_yq_binary.stdout is
+            regex(controller_yq_arch_patterns.get(ansible_facts['architecture'], 'UNSUPPORTED'))
+        fail_msg: >-
+          controller_yq_path must be a Linux executable for the services node's
+          architecture ({{ ansible_facts['architecture'] }}); do not copy a
+          macOS or mismatched controller binary into the transfer environment.
+
+  tasks:
+    - name: Create the remote transfer and tools directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      loop:
+        - "{{ remote_bundle }}"
+        - /var/lib/aif-airgap-lab/tools
+
+    - name: Transfer the checksummed media bundle
+      ansible.posix.synchronize:
+        src: "{{ airgap_bundle_dir }}/"
+        dest: "{{ remote_bundle }}/"
+        archive: true
+        checksum: true
+        delete: false
+        rsync_path: sudo rsync
+      become: false
+
+    - name: Install the bundle import helper
+      ansible.builtin.copy:
+        src: "{{ artifact_script_source }}"
+        dest: /var/lib/aif-airgap-lab/tools/artifacts.sh
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Install the pinned yq helper from the controller
+      ansible.builtin.copy:
+        src: "{{ controller_yq_path }}"
+        dest: /usr/local/bin/yq
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Check remote import dependencies
+      ansible.builtin.shell: |
+        set -euo pipefail
+        command -v helm
+        command -v skopeo
+        command -v sha256sum
+        command -v yq
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Verify and import the bundle into private Harbor
+      ansible.builtin.command:
+        argv:
+          - /var/lib/aif-airgap-lab/tools/artifacts.sh
+          - import
+          - --bundle
+          - "{{ remote_bundle }}"
+          - --profile
+          - "{{ airgap_profile | default('suse') }}"
+      environment:
+        HARBOR_REGISTRY: "{{ harbor_hostname }}"
+        HARBOR_USERNAME: "{{ harbor_registry_username }}"
+        HARBOR_PASSWORD: "{{ harbor_registry_password }}"
+        HARBOR_CA_FILE: /etc/pki/trust/anchors/aif-airgap-lab-ca.crt
+      no_log: true
+      changed_when: true
+
+    - name: Confirm Harbor is healthy after the import
+      ansible.builtin.uri:
+        url: "https://{{ harbor_hostname }}/api/v2.0/health"
+        method: GET
+        ca_path: /etc/pki/trust/anchors/aif-airgap-lab-ca.crt
+        status_code: 200
+
+- name: Refresh existing Rancher catalogs after importing artifacts
+  hosts: aif_management
+  gather_facts: false
+  become: true
+  environment:
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
+  tasks:
+    - name: Request a new index of the private chart repositories
+      ansible.builtin.shell: |
+        set -euo pipefail
+        kubectl=/var/lib/rancher/rke2/bin/kubectl
+        crd=$("${kubectl}" get crd clusterrepos.catalog.cattle.io \
+          --ignore-not-found -o name)
+        [[ -n "${crd}" ]] || exit 0
+        repos=$("${kubectl}" get clusterrepo \
+          application-collection suse-ai-registry nvidia --ignore-not-found -o name)
+        refresh=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)
+        while IFS= read -r repo; do
+          [[ -n "${repo}" ]] || continue
+          "${kubectl}" patch "${repo}" --type merge \
+            --patch "{\"spec\":{\"forceUpdate\":\"${refresh}\"}}" >/dev/null
+          printf 'Refreshed %s\n' "${repo}"
+        done <<<"${repos}"
+      args:
+        executable: /bin/bash
+      register: imported_catalog_refresh
+      changed_when: "'Refreshed ' in imported_catalog_refresh.stdout"

@@ -1,0 +1,726 @@
+---
+- name: Validate AIF installation inputs
+  ansible.builtin.assert:
+    that:
+      - aif_install_mode in ['combined', 'separate']
+      - aif_registry_ca_mode in ['workaround', 'settings']
+      - aif_version | length > 0
+      - aif_image_tag | length > 0
+      - aif_release_name == 'aif-operator'
+      - aif_ui_release_name == 'aif-ui'
+      - aif_namespace is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
+      - harbor_hostname is regex('^[A-Za-z0-9](?:[-.A-Za-z0-9]*[A-Za-z0-9])?$')
+      - harbor_registry_username | length > 0
+      - harbor_registry_password != 'REPLACE_WITH_A_STRONG_PASSWORD'
+      - gitea_admin_username == 'token'
+      - gitea_admin_password != 'REPLACE_WITH_A_STRONG_PASSWORD'
+      - rancher_url is regex('^https://')
+      - rancher_admin_username | length > 0
+      - rancher_bootstrap_password != 'REPLACE_WITH_THE_RANCHER_BOOTSTRAP_PASSWORD'
+      - rancher_catalog_token_secret is regex('^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$')
+    fail_msg: >-
+      Use combined/separate, retain the qualified aif-operator/aif-ui release
+      names, and replace every registry/Git credential placeholder.
+
+- name: Check Harbor before attempting an offline-source installation
+  ansible.builtin.uri:
+    url: "https://{{ harbor_hostname }}/api/v2.0/health"
+    method: GET
+    ca_path: /etc/pki/trust/anchors/aif-airgap-lab-ca.crt
+    status_code: 200
+  register: harbor_health
+  retries: 12
+  delay: 5
+  until: harbor_health.status == 200
+
+- name: Create AIF and UI namespaces
+  ansible.builtin.shell: |
+    set -euo pipefail
+    /var/lib/rancher/rke2/bin/kubectl create namespace "{{ item }}" \
+      --dry-run=client -o yaml \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml \
+      | /var/lib/rancher/rke2/bin/kubectl apply -f - \
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+  args:
+    executable: /bin/bash
+  loop:
+    - "{{ aif_namespace }}"
+    - cattle-ui-plugin-system
+  register: aif_namespace_apply
+  changed_when: "'created' in aif_namespace_apply.stdout or 'configured' in aif_namespace_apply.stdout"
+
+- name: Copy the lab CA into the AIF staging directory
+  ansible.builtin.copy:
+    src: "{{ airgap_ca_source }}"
+    dest: /var/lib/aif-airgap-lab-ca.crt
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Export the Rancher ingress CA for authenticated API calls
+  ansible.builtin.shell: |
+    set -euo pipefail
+    /var/lib/rancher/rke2/bin/kubectl get settings.management.cattle.io cacerts \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml \
+      -o jsonpath='{.value}' > /var/lib/aif-airgap-rancher-ca.crt
+    test -s /var/lib/aif-airgap-rancher-ca.crt
+    chmod 0600 /var/lib/aif-airgap-rancher-ca.crt
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Read an existing AIF Rancher catalog token
+  ansible.builtin.shell: |
+    set -euo pipefail
+    /var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace | quote }} get secret \
+      {{ rancher_catalog_token_secret | quote }} \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml \
+      -o jsonpath='{.data.token}' | base64 -d
+  args:
+    executable: /bin/bash
+  register: existing_rancher_catalog_token
+  failed_when: false
+  changed_when: false
+  no_log: true
+
+- name: Validate the existing AIF Rancher catalog token
+  ansible.builtin.uri:
+    url: "{{ rancher_url }}/v1/catalog.cattle.io.clusterrepos?limit=1"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ existing_rancher_catalog_token.stdout }}"
+    ca_path: /var/lib/aif-airgap-rancher-ca.crt
+    status_code: [200, 401, 403]
+  when:
+    - existing_rancher_catalog_token.rc == 0
+    - existing_rancher_catalog_token.stdout | length > 0
+  register: existing_rancher_catalog_probe
+  no_log: true
+
+- name: Log in to Rancher before minting a replacement catalog token
+  ansible.builtin.uri:
+    url: "{{ rancher_url }}/v3-public/localProviders/local?action=login"
+    method: POST
+    body_format: json
+    body:
+      username: "{{ rancher_admin_username }}"
+      password: "{{ rancher_bootstrap_password }}"
+    ca_path: /var/lib/aif-airgap-rancher-ca.crt
+    status_code: 201
+  when: >-
+    existing_rancher_catalog_token.rc != 0 or
+    existing_rancher_catalog_token.stdout | length == 0 or
+    existing_rancher_catalog_probe.status | default(0) != 200
+  register: rancher_login
+  no_log: true
+
+- name: Mint a Rancher API token for git-backed chart downloads
+  ansible.builtin.uri:
+    url: "{{ rancher_url }}/v3/token"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ rancher_login.json.token }}"
+    body_format: json
+    body:
+      type: token
+      description: "AI Factory air-gap qualification"
+      ttl: 0
+    ca_path: /var/lib/aif-airgap-rancher-ca.crt
+    status_code: 201
+  when: >-
+    existing_rancher_catalog_token.rc != 0 or
+    existing_rancher_catalog_token.stdout | length == 0 or
+    existing_rancher_catalog_probe.status | default(0) != 200
+  register: minted_rancher_catalog_token
+  no_log: true
+
+- name: Select the validated Rancher catalog token
+  ansible.builtin.set_fact:
+    active_rancher_catalog_token: >-
+      {{ minted_rancher_catalog_token.json.token
+         if minted_rancher_catalog_token is not skipped
+         else existing_rancher_catalog_token.stdout }}
+    active_rancher_catalog_token_name: >-
+      {{ minted_rancher_catalog_token.json.id | default('')
+         if minted_rancher_catalog_token is not skipped
+         else '' }}
+    active_rancher_catalog_token_expiry: >-
+      {{ minted_rancher_catalog_token.json.expiresAt | default('')
+         if minted_rancher_catalog_token is not skipped
+         else '' }}
+  no_log: true
+
+- name: Store the Rancher catalog token only in the operator namespace
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    "${kubectl}" -n {{ aif_namespace | quote }} create secret generic \
+      {{ rancher_catalog_token_secret | quote }} \
+      --from-literal=token="${RANCHER_CATALOG_TOKEN}" \
+      --dry-run=client -o yaml --kubeconfig "${kubeconfig}" \
+      | "${kubectl}" apply -f - --kubeconfig "${kubeconfig}"
+  args:
+    executable: /bin/bash
+  environment:
+    RANCHER_CATALOG_TOKEN: "{{ active_rancher_catalog_token }}"
+  no_log: true
+  changed_when: true
+
+- name: Record the newly minted Rancher token identity and expiry
+  ansible.builtin.command:
+    argv:
+      - /var/lib/rancher/rke2/bin/kubectl
+      - -n
+      - "{{ aif_namespace }}"
+      - annotate
+      - secret
+      - "{{ rancher_catalog_token_secret }}"
+      - "ai-factory.suse.com/token-name={{ active_rancher_catalog_token_name }}"
+      - "ai-factory.suse.com/token-expires-at={{ active_rancher_catalog_token_expiry }}"
+      - --overwrite
+      - --kubeconfig
+      - /etc/rancher/rke2/rke2.yaml
+  when: minted_rancher_catalog_token is not skipped
+  no_log: true
+  changed_when: true
+
+- name: Apply Harbor credentials, CA and pull secrets in AIF namespaces
+  ansible.builtin.shell: |
+    set -euo pipefail
+    namespace={{ item | quote }}
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+
+    "${kubectl}" -n "${namespace}" create secret generic harbor-credentials \
+      --from-literal=username="${HARBOR_USERNAME}" \
+      --from-literal=password="${HARBOR_PASSWORD}" \
+      --dry-run=client -o yaml --kubeconfig "${kubeconfig}" \
+      | "${kubectl}" apply -f - --kubeconfig "${kubeconfig}"
+
+    "${kubectl}" -n "${namespace}" create secret generic harbor-ca \
+      --from-file=ca.crt=/var/lib/aif-airgap-lab-ca.crt \
+      --dry-run=client -o yaml --kubeconfig "${kubeconfig}" \
+      | "${kubectl}" apply -f - --kubeconfig "${kubeconfig}"
+
+    "${kubectl}" -n "${namespace}" create secret docker-registry harbor-pull \
+      --docker-server="${HARBOR_HOSTNAME}" \
+      --docker-username="${HARBOR_USERNAME}" \
+      --docker-password="${HARBOR_PASSWORD}" \
+      --dry-run=client -o yaml --kubeconfig "${kubeconfig}" \
+      | "${kubectl}" apply -f - --kubeconfig "${kubeconfig}"
+  args:
+    executable: /bin/bash
+  loop:
+    - "{{ aif_namespace }}"
+    - cattle-ui-plugin-system
+  environment:
+    HARBOR_HOSTNAME: "{{ harbor_hostname }}"
+    HARBOR_USERNAME: "{{ harbor_registry_username }}"
+    HARBOR_PASSWORD: "{{ harbor_registry_password }}"
+  no_log: true
+  changed_when: true
+
+- name: Apply the Gitea credential in the operator namespace
+  ansible.builtin.shell: |
+    set -euo pipefail
+    /var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace | quote }} create secret generic gitops-credentials \
+      --from-literal=username="${GITEA_USERNAME}" \
+      --from-literal=token="${GITEA_PASSWORD}" \
+      --dry-run=client -o yaml \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml \
+      | /var/lib/rancher/rke2/bin/kubectl apply -f - \
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+  args:
+    executable: /bin/bash
+  environment:
+    GITEA_USERNAME: "{{ gitea_admin_username }}"
+    GITEA_PASSWORD: "{{ gitea_admin_password }}"
+  no_log: true
+  changed_when: true
+
+- name: Log Helm into gated Harbor without exposing the password
+  ansible.builtin.shell: |
+    set -euo pipefail
+    printf '%s' "${HARBOR_PASSWORD}" \
+      | helm registry login "${HARBOR_HOSTNAME}" \
+          --ca-file /var/lib/aif-airgap-lab-ca.crt \
+          --username "${HARBOR_USERNAME}" --password-stdin
+  args:
+    executable: /bin/bash
+  environment:
+    HARBOR_HOSTNAME: "{{ harbor_hostname }}"
+    HARBOR_USERNAME: "{{ harbor_registry_username }}"
+    HARBOR_PASSWORD: "{{ harbor_registry_password }}"
+  no_log: true
+  changed_when: true
+
+- name: Verify both AIF charts are present in Harbor
+  ansible.builtin.command:
+    cmd: >-
+      helm show chart oci://{{ harbor_hostname }}/{{ aif_chart_project }}/{{ item }}
+      --version {{ aif_version }}
+      --ca-file /var/lib/aif-airgap-lab-ca.crt
+  loop:
+    - aif-operator
+    - aif-ui
+  changed_when: false
+
+- name: Render the AIF operator air-gap values
+  ansible.builtin.template:
+    src: aif-operator-values.yaml.j2
+    dest: /var/lib/aif-airgap-values.yaml
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Remove a standalone UI release before a combined-mode qualification
+  when: aif_install_mode == 'combined'
+  block:
+    - name: Check for the standalone UI Helm release
+      ansible.builtin.command:
+        cmd: >-
+          helm status {{ aif_ui_release_name }}
+          --namespace cattle-ui-plugin-system
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+      register: standalone_ui_status
+      failed_when: false
+      changed_when: false
+
+    - name: Uninstall the standalone UI Helm release
+      ansible.builtin.command:
+        cmd: >-
+          helm uninstall {{ aif_ui_release_name }}
+          --namespace cattle-ui-plugin-system
+          --wait --timeout 5m
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+      when: standalone_ui_status.rc == 0
+      changed_when: true
+
+- name: Install or upgrade the AIF operator from Harbor
+  ansible.builtin.command:
+    cmd: >-
+      helm upgrade --install {{ aif_release_name }}
+      oci://{{ harbor_hostname }}/{{ aif_chart_project }}/aif-operator
+      --namespace {{ aif_namespace }}
+      --version {{ aif_version }}
+      --values /var/lib/aif-airgap-values.yaml
+      --atomic --timeout 15m
+      --ca-file /var/lib/aif-airgap-lab-ca.crt
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  register: aif_operator_install
+  retries: 2
+  delay: 15
+  until: aif_operator_install.rc == 0
+
+- name: Wait for the operator deployment
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace }} rollout status
+      deployment/{{ aif_release_name }} --timeout=8m
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  changed_when: false
+
+- name: Require a fresh installation with exactly four AIF CRDs
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    expected='["aiworkloads.ai-factory.suse.com","blueprints.ai-factory.suse.com","installaiextensions.ai-factory.suse.com","settings.ai-factory.suse.com"]'
+    actual=$("${kubectl}" get customresourcedefinitions.apiextensions.k8s.io \
+      -o json --kubeconfig "${kubeconfig}" \
+      | jq -c '[.items[].metadata.name | select(endswith(".ai-factory.suse.com"))] | sort')
+    if [[ "${actual}" != "${expected}" ]]; then
+      printf 'unexpected AIF CRD set; use a fresh lab after replacing a prototype that installed additional CRDs\n' >&2
+      printf 'expected=%s\nactual=%s\n' "${expected}" "${actual}" >&2
+      exit 1
+    fi
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Trigger combined-mode extension reconciliation after private DNS is ready
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace }} annotate
+      installaiextension/{{ aif_ui_release_name }}
+      airgap-lab.suse.com/reconciled-at={{ ansible_facts['date_time']['iso8601_basic_short'] }}
+      --overwrite
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  when: aif_install_mode == 'combined'
+  changed_when: true
+
+- name: Wait for combined-mode extension readiness
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace }} wait
+      installaiextension/{{ aif_ui_release_name }}
+      --for=condition=Ready --timeout=10m
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  when: aif_install_mode == 'combined'
+  changed_when: false
+
+- name: Install the UI separately from Harbor
+  when: aif_install_mode == 'separate'
+  block:
+    - name: Render standalone UI values
+      ansible.builtin.template:
+        src: aif-ui-values.yaml.j2
+        dest: /var/lib/aif-airgap-ui-values.yaml
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Install or upgrade the standalone UI chart
+      ansible.builtin.command:
+        cmd: >-
+          helm upgrade --install {{ aif_ui_release_name }}
+          oci://{{ harbor_hostname }}/{{ aif_chart_project }}/aif-ui
+          --namespace cattle-ui-plugin-system
+          --version {{ aif_version }}
+          --values /var/lib/aif-airgap-ui-values.yaml
+          --atomic --timeout 10m
+          --ca-file /var/lib/aif-airgap-lab-ca.crt
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+      register: aif_ui_install
+      retries: 2
+      delay: 15
+      until: aif_ui_install.rc == 0
+
+- name: Wait for the expected UI image to roll out
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    deployment={{ (aif_ui_release_name ~ ('-server' if aif_install_mode == 'combined' else '')) | quote }}
+    expected_image={{ (harbor_hostname ~ '/' ~ aif_image_project ~ '/ghcr.io/suse/aif-ui:' ~ aif_image_tag) | quote }}
+    deadline=$((SECONDS + {{ airgap_timeout_seconds | int }}))
+    while (( SECONDS < deadline )); do
+      current_image=$("${kubectl}" -n cattle-ui-plugin-system get deployment "${deployment}" \
+        -o jsonpath='{.spec.template.spec.containers[0].image}' \
+        --kubeconfig "${kubeconfig}" 2>/dev/null || true)
+      if [[ "${current_image}" == "${expected_image}" ]]; then
+        "${kubectl}" -n cattle-ui-plugin-system rollout status "deployment/${deployment}" \
+          --timeout=8m --kubeconfig "${kubeconfig}"
+        exit 0
+      fi
+      sleep 5
+    done
+    printf 'UI deployment %s did not select expected image %s\n' \
+      "${deployment}" "${expected_image}" >&2
+    exit 1
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Refresh Rancher's UI cache after the new bundle is serving
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    plugin_manifest=$(mktemp /var/lib/aif-airgap-uiplugin.XXXXXX.json)
+    trap 'rm -f "${plugin_manifest}"' EXIT
+    "${kubectl}" -n cattle-ui-plugin-system get uiplugin {{ aif_ui_release_name | quote }} \
+      -o json --kubeconfig "${kubeconfig}" \
+      | jq 'del(
+          .metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
+          .metadata.creationTimestamp,
+          .metadata.generation,
+          .metadata.managedFields,
+          .metadata.resourceVersion,
+          .metadata.uid,
+          .status
+        )' >"${plugin_manifest}"
+    "${kubectl}" -n cattle-ui-plugin-system delete uiplugin/{{ aif_ui_release_name }} \
+      --wait=true --kubeconfig "${kubeconfig}"
+    "${kubectl}" create -f "${plugin_manifest}" --kubeconfig "${kubeconfig}"
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+- name: Require Rancher to cache the refreshed UI extension
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    deadline=$((SECONDS + {{ airgap_timeout_seconds | int }}))
+    while (( SECONDS < deadline )); do
+      plugin=$("${kubectl}" -n cattle-ui-plugin-system get uiplugin {{ aif_ui_release_name | quote }} \
+        -o json --kubeconfig "${kubeconfig}" 2>/dev/null || true)
+      ready=$(jq -r '.status.ready // false' <<<"${plugin}")
+      cache_state=$(jq -r '.status.cacheState // ""' <<<"${plugin}")
+      if [[ "${ready}" == true && "${cache_state}" == cached ]]; then
+        exit 0
+      fi
+      sleep 5
+    done
+    "${kubectl}" -n cattle-ui-plugin-system get uiplugin {{ aif_ui_release_name | quote }} \
+      -o yaml --kubeconfig "${kubeconfig}" >&2 || true
+    exit 1
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Render the Settings merge patch
+  ansible.builtin.template:
+    src: settings-patch.json.j2
+    dest: /var/lib/aif-airgap-settings-patch.json
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Configure mirrored registries and internal Gitea in AIF Settings
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace }} patch settings settings
+      --type merge --patch-file /var/lib/aif-airgap-settings-patch.json
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  changed_when: true
+
+- name: Wait for the Settings controller to observe the patch
+  ansible.builtin.shell: |
+    set -euo pipefail
+    for attempt in $(seq 1 60); do
+      generation=$(/var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace | quote }} get settings settings \
+        --kubeconfig /etc/rancher/rke2/rke2.yaml -o jsonpath='{.metadata.generation}')
+      observed=$(/var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace | quote }} get settings settings \
+        --kubeconfig /etc/rancher/rke2/rke2.yaml -o jsonpath='{.status.observedGeneration}')
+      [[ -n "${observed}" && "${generation}" == "${observed}" ]] && exit 0
+      sleep 5
+    done
+    exit 1
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Wait for mirrored ClusterRepos to be created
+  ansible.builtin.shell: |
+    set -euo pipefail
+    for attempt in $(seq 1 96); do
+      /var/lib/rancher/rke2/bin/kubectl get clusterrepo "{{ item }}" \
+        --kubeconfig /etc/rancher/rke2/rke2.yaml >/dev/null 2>&1 && exit 0
+      sleep 5
+    done
+    /var/lib/rancher/rke2/bin/kubectl get clusterrepo "{{ item }}" -o yaml \
+      --kubeconfig /etc/rancher/rke2/rke2.yaml >&2 || true
+    exit 1
+  args:
+    executable: /bin/bash
+  loop: "{{ airgap_catalog_repos }}"
+  changed_when: false
+
+- name: Add Harbor CA to AIF-created Fleet Helm auth secrets
+  ansible.builtin.shell: |
+    set -euo pipefail
+    ca=$(/usr/bin/base64 -w 0 /var/lib/aif-airgap-lab-ca.crt)
+    for namespace in cattle-system fleet-local fleet-default; do
+      for secret in {{ airgap_catalog_auth_secrets | map('quote') | join(' ') }}; do
+        /var/lib/rancher/rke2/bin/kubectl -n "${namespace}" patch secret "${secret}" \
+          --type merge --patch "{\"data\":{\"cacerts\":\"${ca}\"}}" \
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+      done
+    done
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when: aif_registry_ca_mode == 'workaround'
+
+- name: Verify Fleet auth secrets contain credentials and a CA
+  ansible.builtin.shell: |
+    set -euo pipefail
+    for namespace in cattle-system fleet-local fleet-default; do
+      for secret in {{ airgap_catalog_auth_secrets | map('quote') | join(' ') }}; do
+        fields=$(/var/lib/rancher/rke2/bin/kubectl -n "${namespace}" get secret "${secret}" \
+          --kubeconfig /etc/rancher/rke2/rke2.yaml \
+          -o go-template='{{ "{{" }}if .data.username{{ "}}" }}u{{ "{{" }}end{{ "}}" }}{{ "{{" }}if .data.password{{ "}}" }}p{{ "{{" }}end{{ "}}" }}{{ "{{" }}if .data.cacerts{{ "}}" }}c{{ "{{" }}end{{ "}}" }}')
+        if [[ "${fields}" != "upc" ]]; then
+          printf 'secret %s/%s is missing username, password, or cacerts\n' \
+            "${namespace}" "${secret}" >&2
+          exit 1
+        fi
+      done
+    done
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Trigger a post-credential refresh for every mirrored ClusterRepo
+  ansible.builtin.shell: |
+    set -euo pipefail
+    refresh="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+    for repo in {{ airgap_catalog_repos | map('quote') | join(' ') }}; do
+      /var/lib/rancher/rke2/bin/kubectl patch clusterrepo "${repo}" \
+        --type merge --patch "{\"spec\":{\"forceUpdate\":\"${refresh}\"}}" \
+        --kubeconfig /etc/rancher/rke2/rke2.yaml >/dev/null
+    done
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+- name: Require every refreshed ClusterRepo generation to download successfully
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    for attempt in $(seq 1 96); do
+      generation=$("${kubectl}" get clusterrepo "{{ item }}" \
+        --kubeconfig "${kubeconfig}" -o jsonpath='{.metadata.generation}')
+      observed=$("${kubectl}" get clusterrepo "{{ item }}" \
+        --kubeconfig "${kubeconfig}" -o jsonpath='{.status.observedGeneration}')
+      downloaded=$("${kubectl}" get clusterrepo "{{ item }}" \
+        --kubeconfig "${kubeconfig}" -o jsonpath='{.status.downloadTime}')
+      oci_ready=$("${kubectl}" get clusterrepo "{{ item }}" \
+        --kubeconfig "${kubeconfig}" \
+        -o jsonpath='{.status.conditions[?(@.type=="OCIDownloaded")].status}')
+      if [[ -n "${downloaded}" && "${generation}" == "${observed}" && "${oci_ready}" == "True" ]]; then
+        exit 0
+      fi
+      sleep 5
+    done
+    printf 'clusterrepo %s did not observe and download its refreshed generation\n' \
+      "{{ item }}" >&2
+    "${kubectl}" get clusterrepo "{{ item }}" -o yaml \
+      --kubeconfig "${kubeconfig}" >&2 || true
+    exit 1
+  args:
+    executable: /bin/bash
+  loop: "{{ airgap_catalog_repos }}"
+  changed_when: false
+
+- name: Verify Settings-native CA rotation and ClusterRepo refresh
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl=/var/lib/rancher/rke2/bin/kubectl
+    kubeconfig=/etc/rancher/rke2/rke2.yaml
+    original_ca=$(/usr/bin/base64 -w 0 /var/lib/aif-airgap-lab-ca.crt)
+    # This checks reconciliation plumbing with a byte-distinct but
+    # trust-equivalent bundle. TODO: add a second-CA reject/restore case to
+    # prove that consumers reload changed trust semantics end to end.
+    rotated_ca=$({ cat /var/lib/aif-airgap-lab-ca.crt; printf '\n'; } | /usr/bin/base64 -w 0)
+    repos=({{ airgap_catalog_repos | map('quote') | join(' ') }})
+    namespaces=(cattle-system fleet-local fleet-default)
+    secrets=({{ airgap_catalog_auth_secrets | map('quote') | join(' ') }})
+    declare -A before
+
+    for repo in "${repos[@]}"; do
+      before["${repo}"]=$("${kubectl}" get clusterrepo "${repo}" \
+        --kubeconfig "${kubeconfig}" -o jsonpath='{.spec.forceUpdate}')
+    done
+
+    restore_source() {
+      "${kubectl}" -n {{ aif_namespace | quote }} patch secret harbor-ca --type merge \
+        --patch "{\"data\":{\"ca.crt\":\"${original_ca}\"}}" \
+        --kubeconfig "${kubeconfig}" >/dev/null
+    }
+    trap restore_source EXIT
+
+    "${kubectl}" -n {{ aif_namespace | quote }} patch secret harbor-ca --type merge \
+      --patch "{\"data\":{\"ca.crt\":\"${rotated_ca}\"}}" \
+      --kubeconfig "${kubeconfig}" >/dev/null
+
+    rotated=false
+    for attempt in $(seq 1 60); do
+      rotated=true
+      for namespace in "${namespaces[@]}"; do
+        for secret in "${secrets[@]}"; do
+          actual=$("${kubectl}" -n "${namespace}" get secret "${secret}" \
+            --kubeconfig "${kubeconfig}" -o jsonpath='{.data.cacerts}' 2>/dev/null || true)
+          [[ "${actual}" == "${rotated_ca}" ]] || rotated=false
+        done
+      done
+      for repo in "${repos[@]}"; do
+        actual=$("${kubectl}" get clusterrepo "${repo}" --kubeconfig "${kubeconfig}" \
+          -o jsonpath='{.spec.forceUpdate}' 2>/dev/null || true)
+        [[ -n "${actual}" && "${actual}" != "${before[${repo}]}" ]] || rotated=false
+      done
+    {% if gitea_tls_enabled | bool %}
+      git_ca=$("${kubectl}" -n fleet-local get gitrepo suse-ai-fleet-repo \
+        --kubeconfig "${kubeconfig}" -o json 2>/dev/null \
+        | jq -r '.spec.caBundle // ""' || true)
+      [[ "${git_ca}" == "${rotated_ca}" ]] || rotated=false
+    {% endif %}
+      [[ "${rotated}" == true ]] && break
+      sleep 5
+    done
+    if [[ "${rotated}" != true ]]; then
+      for namespace in "${namespaces[@]}"; do
+        for secret in "${secrets[@]}"; do
+          actual=$("${kubectl}" -n "${namespace}" get secret "${secret}" \
+            --kubeconfig "${kubeconfig}" -o jsonpath='{.data.cacerts}' 2>/dev/null || true)
+          [[ "${actual}" == "${rotated_ca}" ]] || \
+            printf 'rotated CA did not reach %s/%s\n' "${namespace}" "${secret}" >&2
+        done
+      done
+      for repo in "${repos[@]}"; do
+        actual=$("${kubectl}" get clusterrepo "${repo}" --kubeconfig "${kubeconfig}" \
+          -o jsonpath='{.spec.forceUpdate}' 2>/dev/null || true)
+        [[ -n "${actual}" && "${actual}" != "${before[${repo}]}" ]] || \
+          printf 'clusterrepo %s forceUpdate did not change\n' "${repo}" >&2
+      done
+    {% if gitea_tls_enabled | bool %}
+      git_ca=$("${kubectl}" -n fleet-local get gitrepo suse-ai-fleet-repo \
+        --kubeconfig "${kubeconfig}" -o json 2>/dev/null \
+        | jq -r '.spec.caBundle // ""' || true)
+      [[ "${git_ca}" == "${rotated_ca}" ]] || \
+        printf 'rotated CA did not reach Fleet GitRepo suse-ai-fleet-repo\n' >&2
+    {% endif %}
+      exit 1
+    fi
+
+    restore_source
+    trap - EXIT
+
+    restored=false
+    for attempt in $(seq 1 60); do
+      restored=true
+      for namespace in "${namespaces[@]}"; do
+        for secret in "${secrets[@]}"; do
+          actual=$("${kubectl}" -n "${namespace}" get secret "${secret}" \
+            --kubeconfig "${kubeconfig}" -o jsonpath='{.data.cacerts}' 2>/dev/null || true)
+          [[ "${actual}" == "${original_ca}" ]] || restored=false
+        done
+      done
+    {% if gitea_tls_enabled | bool %}
+      git_ca=$("${kubectl}" -n fleet-local get gitrepo suse-ai-fleet-repo \
+        --kubeconfig "${kubeconfig}" -o json 2>/dev/null \
+        | jq -r '.spec.caBundle // ""' || true)
+      [[ "${git_ca}" == "${original_ca}" ]] || restored=false
+    {% endif %}
+      [[ "${restored}" == true ]] && break
+      sleep 5
+    done
+    if [[ "${restored}" != true ]]; then
+      for namespace in "${namespaces[@]}"; do
+        for secret in "${secrets[@]}"; do
+          actual=$("${kubectl}" -n "${namespace}" get secret "${secret}" \
+            --kubeconfig "${kubeconfig}" -o jsonpath='{.data.cacerts}' 2>/dev/null || true)
+          [[ "${actual}" == "${original_ca}" ]] || \
+            printf 'original CA was not restored to %s/%s\n' "${namespace}" "${secret}" >&2
+        done
+      done
+    {% if gitea_tls_enabled | bool %}
+      git_ca=$("${kubectl}" -n fleet-local get gitrepo suse-ai-fleet-repo \
+        --kubeconfig "${kubeconfig}" -o json 2>/dev/null \
+        | jq -r '.spec.caBundle // ""' || true)
+      [[ "${git_ca}" == "${original_ca}" ]] || \
+        printf 'original CA was not restored to Fleet GitRepo suse-ai-fleet-repo\n' >&2
+    {% endif %}
+      exit 1
+    fi
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when: aif_registry_ca_mode == 'settings'
+
+- name: Report AIF install mode and endpoints
+  ansible.builtin.debug:
+    msg:
+      - "AIF {{ aif_version }} (images {{ aif_image_tag }}) installed in {{ aif_install_mode }} mode from {{ harbor_hostname }}."
+      - "AppCo endpoint: oci://{{ harbor_hostname }}/{{ appco_chart_project }}"
+      - "SUSE endpoint: oci://{{ harbor_hostname }}/{{ suse_chart_project }}"
+      - "Mirrored application catalogs: {{ airgap_catalog_repos | join(', ') }}"
+      - "GitOps endpoint: {{ gitea_url }}/{{ gitea_admin_username }}/{{ gitea_repository }}.git"
+      - >-
+        Registry CA mode: {{ aif_registry_ca_mode }}
+        {{ '(lab patched cacerts)' if aif_registry_ca_mode == 'workaround'
+           else '(AIF propagated and rotation-tested cacerts)' }}.

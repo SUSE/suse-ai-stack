@@ -1,0 +1,122 @@
+---
+- name: Install the narrowly scoped legacy fixture selector
+  ansible.builtin.copy:
+    src: legacy-fixtures.jq
+    dest: /var/lib/aif-airgap-legacy-fixtures.jq
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Remove legacy synthetic AIWorkloads and let their controllers clean up
+  ansible.builtin.shell: |
+    set -euo pipefail
+    fixtures=$(kubectl get aiworkloads -A -o json | jq -f /var/lib/aif-airgap-legacy-fixtures.jq)
+    if [[ $(jq '.items | length' <<<"${fixtures}") -gt 0 ]]; then
+      kubectl delete -f - --ignore-not-found --wait=true --timeout=3m <<<"${fixtures}"
+    fi
+  args:
+    executable: /bin/bash
+  register: legacy_workloads
+  changed_when: "'deleted' in legacy_workloads.stdout"
+
+- name: Read the active private Git source
+  ansible.builtin.uri:
+    url: "{{ gitea_url }}/api/v1/repos/{{ gitea_admin_username }}/{{ gitea_repository }}/git/trees/{{ airgap_fleet_branch | urlencode }}?recursive=true"
+    method: GET
+    url_username: "{{ gitea_admin_username }}"
+    url_password: "{{ gitea_admin_password }}"
+    force_basic_auth: true
+    ca_path: "{{ '/etc/pki/trust/anchors/aif-airgap-lab-ca.crt' if (gitea_tls_enabled | bool) else omit }}"
+    status_code: 200
+  register: active_git_tree
+  no_log: true
+
+- name: Require a complete Git tree before migrating it
+  ansible.builtin.assert:
+    that: not (active_git_tree.json.truncated | default(false) | bool)
+    quiet: true
+
+- name: Remove only synthetic fixture manifests from the active Git branch
+  ansible.builtin.uri:
+    url: "{{ gitea_url }}/api/v1/repos/{{ gitea_admin_username }}/{{ gitea_repository }}/contents/{{ item.path }}"
+    method: DELETE
+    url_username: "{{ gitea_admin_username }}"
+    url_password: "{{ gitea_admin_password }}"
+    force_basic_auth: true
+    ca_path: "{{ '/etc/pki/trust/anchors/aif-airgap-lab-ca.crt' if (gitea_tls_enabled | bool) else omit }}"
+    body_format: json
+    body:
+      branch: "{{ airgap_fleet_branch }}"
+      sha: "{{ item.sha }}"
+      message: "lab: retire synthetic fixture {{ item.path }}"
+    status_code: 200
+  loop: "{{ active_git_tree.json.tree }}"
+  when: >-
+    item.path == 'blueprints/git-sourced-airgap.yaml' or
+    item.path is regex('^workloads/airgap-(smoke(-single|-multi)?|blueprint-source|git-chart-multi)-(fleetbundle|gitops)(-airgap-smoke)?\.yaml$')
+  no_log: true
+
+- name: Remove synthetic Blueprints and orphaned Fleet fixtures
+  ansible.builtin.shell: |
+    set -euo pipefail
+    fixtures=$(kubectl get blueprints,helmops,bundles -A -o json | jq -f /var/lib/aif-airgap-legacy-fixtures.jq)
+    if [[ $(jq '.items | length' <<<"${fixtures}") -gt 0 ]]; then
+      kubectl delete -f - --ignore-not-found --wait=true --timeout=3m <<<"${fixtures}"
+    fi
+  args:
+    executable: /bin/bash
+  register: legacy_blueprints
+  changed_when: "'deleted' in legacy_blueprints.stdout"
+
+- name: Remove the retired private Gitea smoke chart catalog
+  ansible.builtin.shell: |
+    set -euo pipefail
+    repo=$(kubectl get clusterrepo {{ gitea_chart_clusterrepo | quote }} --ignore-not-found -o json)
+    if [[ -n "${repo}" ]] && jq -e --arg source {{ (gitea_url ~ '/' ~ gitea_admin_username ~ '/' ~ gitea_chart_repository ~ '.git') | quote }} \
+      '.spec.gitRepo == $source' <<<"${repo}" >/dev/null; then
+      kubectl delete clusterrepo {{ gitea_chart_clusterrepo | quote }} --wait=true
+    fi
+  args:
+    executable: /bin/bash
+  register: legacy_catalog
+  changed_when: "'deleted' in legacy_catalog.stdout"
+
+- name: Remove only the synthetic chart repository from each Harbor catalog
+  ansible.builtin.uri:
+    url: "https://{{ harbor_hostname }}/api/v2.0/projects/{{ item }}/repositories/airgap-smoke"
+    method: DELETE
+    url_username: admin
+    url_password: "{{ harbor_admin_password }}"
+    force_basic_auth: true
+    ca_path: /etc/pki/trust/anchors/aif-airgap-lab-ca.crt
+    status_code: [200, 404]
+  loop: "{{ [appco_chart_project, suse_chart_project, nvidia_chart_project] }}"
+  register: retired_harbor_chart
+  changed_when: retired_harbor_chart.status == 200
+  no_log: true
+
+- name: Refresh active catalog indexes after removing synthetic charts
+  ansible.builtin.shell: |
+    set -euo pipefail
+    refresh=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)
+    for repo in {{ airgap_catalog_repos | map('quote') | join(' ') }}; do
+      kubectl patch clusterrepo "${repo}" --type merge \
+        --patch "{\"spec\":{\"forceUpdate\":\"${refresh}\"}}"
+    done
+  args:
+    executable: /bin/bash
+  when: retired_harbor_chart is changed
+  changed_when: true
+
+- name: Confirm no managed synthetic fixtures remain
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl get aiworkloads,blueprints,helmops,bundles -A -o json |
+      jq -f /var/lib/aif-airgap-legacy-fixtures.jq | jq -e '.items | length == 0'
+  args:
+    executable: /bin/bash
+  register: retired_fixtures
+  until: retired_fixtures.rc == 0
+  retries: 30
+  delay: 5
+  changed_when: false

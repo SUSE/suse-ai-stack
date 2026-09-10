@@ -1,0 +1,9 @@
+---
+suse_apps_deploy: true
+suse_apps_namespace: aif-suse-apps
+suse_apps_strategy: FleetBundle
+suse_apps_target_clusters: "{{ airgap_target_clusters | default(['local']) }}"
+suse_apps_timeout_seconds: 900
+suse_apps_blueprints:
+  - suse-qdrant-airgap
+  - appco-ollama-airgap

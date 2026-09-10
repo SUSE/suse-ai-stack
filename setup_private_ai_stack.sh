@@ -1,11 +1,11 @@
 #!/bin/bash -eu
 
-PROJECT_DIR=$(dirname -- $(readlink -e -- ${BASH_SOURCE[0]}))
+PROJECT_DIR=$(dirname -- "$(readlink -e -- "${BASH_SOURCE[0]}")")
 PATH=${PROJECT_DIR}/bin:${PATH}
-EXTRA_VARS_FILE=$PROJECT_DIR/extra_vars.yml
+EXTRA_VARS_FILE=${EXTRA_VARS_FILE:-$PROJECT_DIR/extra_vars.yml}
 export ANSIBLE_ROLES_PATH=${PROJECT_DIR}/roles:${PROJECT_DIR}/external_playbooks/roles:${LIBVIRT_IMAGES_DIR:=/var/lib/libvirt/images}
 
-if [ ! -d ${LIBVIRT_IMAGES_DIR} ] ; then
+if [ ! -d "${LIBVIRT_IMAGES_DIR}" ] ; then
   echo "WARNING: ${LIBVIRT_IMAGES_DIR} either not exist or not accessible by  user ${USER}."
   echo "Will use ${PROJECT_DIR}/libvirt_images instead."
   LIBVIRT_IMAGES_DIR=${PROJECT_DIR}/libvirt_images
@@ -20,7 +20,7 @@ run_ansible_playbook() {
   ${DEBUG:+echo} ansible-playbook "$@"
 }
 
-setup_name=$(basename ${BASH_SOURCE[0]} .sh)
+setup_name=$(basename "${BASH_SOURCE[0]}" .sh)
 setup_type=${setup_name#setup_}
 playbook=${setup_name}
 case "${setup_type}" in
@@ -40,6 +40,11 @@ fi
 # Determine cloud_provider from extra_vars.yml (defaults to "local" when unset)
 cloud_provider=$(grep -E '^[[:space:]]*cloud_provider[[:space:]]*:' "${EXTRA_VARS_FILE}" | tail -1 | sed -E 's/^[[:space:]]*cloud_provider[[:space:]]*:[[:space:]]*//; s/#.*//; s/["'\'' ]//g')
 cloud_provider=${cloud_provider:-local}
+airgap_overlay=${AIF_AIRGAP_OVERLAY:-false}
+if [[ "${airgap_overlay}" != true && "${airgap_overlay}" != false ]]; then
+  echo "ERROR: AIF_AIRGAP_OVERLAY must be true or false."
+  exit 1
+fi
 
 # Base argument
 base_playbook_args=(
@@ -74,11 +79,11 @@ done
 ### SET UP NODES
 playbook_args=(
   "${base_playbook_args[@]}"
-  -e "@extra_vars.yml"
+  -e "@${EXTRA_VARS_FILE}"
 )
 inv_file=${PROJECT_DIR}/inventories/${inv_name}_inventory.yml
 if [ -f "${inv_file}" ]; then
-	playbook_args+=( -i ${inv_file} )
+	playbook_args+=( -i "${inv_file}" )
 fi
 
 playbook="setup_nodes" # playbook that creates resources and defines nodes in the cluster
@@ -96,14 +101,18 @@ EXT_REPO_URL="https://github.com/SUSE/suse-ai-node-ansible.git"
 EXT_REPO_BRANCH="main"
 DEST_DIR="${PROJECT_DIR}/external_playbooks"
 if [ -d "$DEST_DIR/.git" ]; then
-    # Updating existing repo at $DEST_DIR
-    git -C "$DEST_DIR" fetch --depth 1 origin \
-        "+refs/heads/$EXT_REPO_BRANCH:refs/remotes/origin/$EXT_REPO_BRANCH" \
-        > /dev/null 2>&1
+    if [[ -n "$(git -C "$DEST_DIR" status --porcelain --untracked-files=no)" ]]; then
+        echo "WARNING: ${DEST_DIR} has tracked changes; using it without an automatic checkout."
+    else
+        # Updating an unmodified existing checkout is safe and reproducible.
+        git -C "$DEST_DIR" fetch --depth 1 origin \
+            "+refs/heads/$EXT_REPO_BRANCH:refs/remotes/origin/$EXT_REPO_BRANCH" \
+            > /dev/null 2>&1
 
-    git -C "$DEST_DIR" checkout -B "$EXT_REPO_BRANCH" \
-        "origin/$EXT_REPO_BRANCH" \
-        > /dev/null 2>&1
+        git -C "$DEST_DIR" checkout -B "$EXT_REPO_BRANCH" \
+            "origin/$EXT_REPO_BRANCH" \
+            > /dev/null 2>&1
+    fi
 else
     #Cloning repo into $DEST_DIR
     git clone --depth 1 --branch "$EXT_REPO_BRANCH" "$EXT_REPO_URL" "$DEST_DIR" > /dev/null 2>&1
@@ -113,10 +122,10 @@ fi
 # Copy cluster specific inventory.ini to external-playbooks
 for cluster in "${clusters[@]}"; do
   if [ -e "${PROJECT_DIR}/${cluster}_extra_vars.yml" ]; then
-    cp "${cluster}_extra_vars.yml" ${DEST_DIR}
+    cp "${PROJECT_DIR}/${cluster}_extra_vars.yml" "${DEST_DIR}"
   fi
   if [ -e "${PROJECT_DIR}/inventories/${cluster}_inventory.ini" ]; then
-    cp "${PROJECT_DIR}/inventories/${cluster}_inventory.ini" ${DEST_DIR}
+    cp "${PROJECT_DIR}/inventories/${cluster}_inventory.ini" "${DEST_DIR}"
   fi
 
 done
@@ -126,9 +135,21 @@ done
 playbook="deploy_rke2_rancher"
 
 for cluster in "${clusters[@]}"; do
+  if [[ "${airgap_overlay}" == true && "${cloud_provider}" == "aws" && -e "${PROJECT_DIR}/inventories/${cluster}_inventory.ini" ]]; then
+    run_ansible_playbook \
+      -i "${PROJECT_DIR}/inventories/${cluster}_inventory.ini" \
+      -e "@${EXTRA_VARS_FILE}" \
+      "${PROJECT_DIR}/playbooks/wait_suse_cloud_repositories.yml"
+  fi
+
   playbook_args=(
     "${base_playbook_args[@]}"
     -i "${PROJECT_DIR}/inventories/${cluster}_inventory.ini"
+  )
+  if [[ "${airgap_overlay}" == true ]]; then
+    playbook_args+=( -e "@${EXTRA_VARS_FILE}" )
+  fi
+  playbook_args+=(
     -e "@${DEST_DIR}/${cluster}_extra_vars.yml"
     -e cluster="${cluster}"
     "$PROJECT_DIR/playbooks/${playbook}.yml"
@@ -153,7 +174,7 @@ playbook_args=(
   "${base_playbook_args[@]}"
   -i "${PROJECT_DIR}/inventories/${inv_name}_inventory.yml"
   -i "${PROJECT_DIR}/inventories/${cluster_inv_name}"
-  -e "@${PROJECT_DIR}/extra_vars.yml"
+  -e "@${EXTRA_VARS_FILE}"
   "$PROJECT_DIR/playbooks/${playbook}.yml"
 )
 
@@ -168,7 +189,7 @@ for cluster in "${clusters[@]}"; do
     "${base_playbook_args[@]}"
     -i "${PROJECT_DIR}/inventories/${inv_name}_inventory.yml"
     -i "${PROJECT_DIR}/inventories/${cluster}_inventory.ini"
-    -e "@${PROJECT_DIR}/extra_vars.yml"
+    -e "@${EXTRA_VARS_FILE}"
     -e cluster="${cluster}"
     "$PROJECT_DIR/playbooks/${playbook}.yml"
   )
@@ -192,7 +213,7 @@ playbook_args=(
   "${base_playbook_args[@]}"
   -i "${PROJECT_DIR}/inventories/${inv_name}_inventory.yml"
   -i "${PROJECT_DIR}/inventories/${cluster_inv_name}"
-  -e "@${PROJECT_DIR}/extra_vars.yml"
+  -e "@${EXTRA_VARS_FILE}"
   "$PROJECT_DIR/playbooks/${playbook}.yml"
 )
 
@@ -209,7 +230,7 @@ playbook_args=(
   "${base_playbook_args[@]}"
   -i "${PROJECT_DIR}/inventories/${inv_name}_inventory.yml"
   -i "${PROJECT_DIR}/inventories/${cluster_inv_name}"
-  -e "@${PROJECT_DIR}/extra_vars.yml"
+  -e "@${EXTRA_VARS_FILE}"
   "$PROJECT_DIR/playbooks/${playbook}.yml"
 )
 
@@ -221,7 +242,7 @@ playbook="display" # playbook that displays access info
 playbook_args=(
   "${base_playbook_args[@]}"
   -i "${PROJECT_DIR}/inventories/${inv_name}_inventory.yml"
-  -e "@${PROJECT_DIR}/extra_vars.yml"
+  -e "@${EXTRA_VARS_FILE}"
   "$PROJECT_DIR/playbooks/${playbook}.yml"
 )
 
