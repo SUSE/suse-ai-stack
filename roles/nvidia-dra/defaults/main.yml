@@ -1,0 +1,13 @@
+---
+nvidia_dra_helm_repo_name: nvidia
+nvidia_dra_helm_repo_url: https://helm.ngc.nvidia.com/nvidia
+
+# Standalone DRA driver (preferred when available in the helm repo)
+nvidia_dra_namespace: nvidia-dra-driver
+nvidia_dra_release: nvidia-dra-driver-gpu
+nvidia_dra_helm_timeout: 5m
+
+# GPU Operator release — used when switching to GPUCluster (DRA) mode
+gpu_operator_namespace: gpu-operator
+gpu_operator_release: gpu-operator
+gpu_operator_upgrade_timeout: 10m

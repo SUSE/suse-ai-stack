@@ -1,0 +1,108 @@
+---
+- name: Add NVIDIA Helm repository
+  kubernetes.core.helm_repository:
+    name: "{{ nvidia_dra_helm_repo_name }}"
+    repo_url: "{{ nvidia_dra_helm_repo_url }}"
+
+- name: Update NVIDIA Helm repository cache
+  command: helm repo update {{ nvidia_dra_helm_repo_name }}
+  changed_when: false
+
+# Prefer the standalone k8s-dra-driver-gpu chart; fall back to gpu-operator.
+- name: Search for standalone NVIDIA DRA driver chart
+  command: helm search repo {{ nvidia_dra_helm_repo_name }}/k8s-dra-driver-gpu -o json
+  register: _dra_standalone_search
+  changed_when: false
+  failed_when: false
+
+- name: Set DRA chart facts (standalone k8s-dra-driver-gpu)
+  set_fact:
+    _dra_use_chart: "{{ nvidia_dra_helm_repo_name }}/k8s-dra-driver-gpu"
+    _dra_use_release: "{{ nvidia_dra_release }}"
+    _dra_use_namespace: "{{ nvidia_dra_namespace }}"
+    _dra_use_timeout: "{{ nvidia_dra_helm_timeout }}"
+    _dra_use_values: {}
+  when:
+    - _dra_standalone_search.rc == 0
+    - (_dra_standalone_search.stdout | default('[]') | from_json | length) > 0
+
+- name: Set DRA chart facts (gpu-operator fallback — DRA mode)
+  set_fact:
+    _dra_use_chart: "{{ nvidia_dra_helm_repo_name }}/gpu-operator"
+    _dra_use_release: "{{ gpu_operator_release }}"
+    _dra_use_namespace: "{{ gpu_operator_namespace }}"
+    _dra_use_timeout: "15m"
+    _dra_use_values:
+      driver:
+        enabled: true
+      toolkit:
+        enabled: true
+      devicePlugin:
+        enabled: false
+  when: _dra_use_chart | default('') | length == 0
+
+- name: Check if DRA driver release is already installed
+  command: helm status {{ _dra_use_release }} --namespace {{ _dra_use_namespace }}
+  register: _dra_helm_status
+  changed_when: false
+  failed_when: false
+
+- name: Install NVIDIA DRA driver via Helm
+  kubernetes.core.helm:
+    name: "{{ _dra_use_release }}"
+    chart_ref: "{{ _dra_use_chart }}"
+    release_namespace: "{{ _dra_use_namespace }}"
+    create_namespace: true
+    wait: true
+    wait_timeout: "{{ _dra_use_timeout }}"
+    values: "{{ _dra_use_values }}"
+  when: _dra_helm_status.rc != 0
+
+# Switch GPU Operator to GPUCluster (DRA) mode when it is already installed
+# but not yet in DRA mode (mirrors step 7 of prepare-dra.sh).
+- name: List installed GPU Operator release
+  command: helm list --all-namespaces --filter ^gpu-operator$ -o json
+  register: _gpu_op_list
+  changed_when: false
+  failed_when: false
+
+- name: Set GPU Operator namespace fact
+  set_fact:
+    _gpu_op_ns: "{{ (_gpu_op_list.stdout | from_json)[0].namespace }}"
+  when:
+    - _gpu_op_list.rc == 0
+    - (_gpu_op_list.stdout | default('[]') | from_json | length) > 0
+
+- name: Check whether GPU Operator is already in GPUCluster (DRA) mode
+  shell: >
+    helm get values gpu-operator -n {{ _gpu_op_ns }} --all -o json |
+    python3 -c "import json,sys; v=json.load(sys.stdin); print(str(v.get('gpuCluster', {}).get('deployCR', False)).lower())"
+  register: _gpu_op_dra_mode
+  changed_when: false
+  failed_when: false
+  when: _gpu_op_ns is defined
+
+- name: Install GPU Operator CRDs before upgrading to DRA mode
+  shell: helm show crds {{ nvidia_dra_helm_repo_name }}/gpu-operator | kubectl apply -f -
+  when:
+    - _gpu_op_ns is defined
+    - (_gpu_op_dra_mode.stdout | default('false') | trim) != 'true'
+
+- name: Upgrade GPU Operator to GPUCluster (DRA) mode
+  kubernetes.core.helm:
+    name: "{{ gpu_operator_release }}"
+    chart_ref: "{{ nvidia_dra_helm_repo_name }}/gpu-operator"
+    release_namespace: "{{ _gpu_op_ns }}"
+    wait: true
+    wait_timeout: "{{ gpu_operator_upgrade_timeout }}"
+    values:
+      clusterPolicy:
+        deployCR: false
+      gpuCluster:
+        deployCR: true
+      driver:
+        nvidiaDriverCRD:
+          enabled: true
+  when:
+    - _gpu_op_ns is defined
+    - (_gpu_op_dra_mode.stdout | default('false') | trim) != 'true'

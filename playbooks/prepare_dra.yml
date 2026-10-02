@@ -1,0 +1,127 @@
+---
+# Prepare an RKE2 cluster for DRA (Dynamic Resource Allocation).
+# Controlled by enable_dra in extra_vars.yml.
+#
+# What it does (when enable_dra is true):
+#   1. Validates Kubernetes version >= 1.31
+#   2. On K8s 1.31: patches /etc/rancher/rke2/config.yaml on every node to
+#      enable the DynamicResourceAllocation feature gate and restarts services
+#   3. Installs the NVIDIA DRA driver via Helm (k8s-dra-driver-gpu preferred;
+#      falls back to gpu-operator in DRA mode)
+#   4. If gpu-operator is already installed, upgrades it to GPUCluster (DRA) mode
+
+- name: Validate Kubernetes version for DRA eligibility
+  hosts: rke2_servers[0]
+  gather_facts: false
+  tasks:
+    - block:
+        - name: Get Kubernetes server version
+          command: kubectl version -o json
+          register: _k8s_version_raw
+          changed_when: false
+
+        - name: Parse Kubernetes version
+          set_fact:
+            _k8s_major: "{{ (_k8s_version_raw.stdout | from_json).serverVersion.major | int }}"
+            _k8s_minor: "{{ (_k8s_version_raw.stdout | from_json).serverVersion.minor | regex_replace('[^0-9]', '') | int }}"
+
+        - name: Assert Kubernetes >= 1.31 (DRA requirement)
+          assert:
+            that:
+              - _k8s_major | int > 1 or (_k8s_major | int == 1 and _k8s_minor | int >= 31)
+            fail_msg: >
+              DRA requires Kubernetes >= 1.31
+              (detected {{ _k8s_major }}.{{ _k8s_minor }}).
+              Upgrade the cluster before enabling enable_dra.
+
+        - name: Set feature gate flag (K8s 1.31 requires explicit enablement)
+          set_fact:
+            _needs_feature_gate: "{{ _k8s_major | int == 1 and _k8s_minor | int == 31 }}"
+      when: enable_dra | default(false)
+
+- name: Enable DynamicResourceAllocation feature gate on RKE2 nodes (K8s 1.31 only)
+  hosts: rke2_servers:rke2_agents
+  gather_facts: false
+  tasks:
+    - block:
+        - name: Patch /etc/rancher/rke2/config.yaml with DRA feature gate
+          become: true
+          shell: |
+            python3 << 'PYEOF'
+            import sys, pathlib
+            config_file = '/etc/rancher/rke2/config.yaml'
+            gate = 'feature-gates=DynamicResourceAllocation=true'
+            keys = ['kube-apiserver-arg', 'kube-controller-manager-arg', 'kube-scheduler-arg', 'kubelet-arg']
+            p = pathlib.Path(config_file)
+            try:
+                import yaml
+                cfg = yaml.safe_load(p.read_text()) if p.exists() else {}
+                cfg = cfg or {}
+                changed = False
+                for k in keys:
+                    lst = cfg.setdefault(k, [])
+                    if not any('DynamicResourceAllocation' in str(e) for e in lst):
+                        lst.append(gate)
+                        changed = True
+                if changed:
+                    p.write_text(yaml.dump(cfg, default_flow_style=False))
+                    print('patched')
+                else:
+                    print('already-set')
+            except ImportError:
+                text = p.read_text() if p.exists() else ''
+                if 'DynamicResourceAllocation' in text:
+                    print('already-set')
+                    sys.exit(0)
+                lines = ''
+                for k in keys:
+                    lines += f'{k}:\n- "{gate}"\n'
+                p.write_text(text.rstrip('\n') + '\n' + lines)
+                print('patched-fallback')
+            PYEOF
+          register: _patch_result
+          changed_when: "'patched' in _patch_result.stdout"
+
+        - name: Restart rke2-server to apply feature gate
+          become: true
+          ansible.builtin.systemd:
+            name: rke2-server
+            state: restarted
+          when:
+            - _patch_result.changed
+            - inventory_hostname in groups['rke2_servers']
+
+        - name: Restart rke2-agent to apply feature gate
+          become: true
+          ansible.builtin.systemd:
+            name: rke2-agent
+            state: restarted
+          when:
+            - _patch_result.changed
+            - inventory_hostname in (groups['rke2_agents'] | default([]))
+      when:
+        - enable_dra | default(false)
+        - hostvars[groups['rke2_servers'][0]]['_needs_feature_gate'] | default(false)
+
+- name: Wait for API server after feature gate restart
+  hosts: rke2_servers[0]
+  gather_facts: false
+  tasks:
+    - name: Wait for Kubernetes API server to become available (up to 120s)
+      command: kubectl api-resources
+      register: _api_check
+      retries: 24
+      delay: 5
+      until: _api_check.rc == 0
+      changed_when: false
+      when:
+        - enable_dra | default(false)
+        - hostvars[groups['rke2_servers'][0]]['_needs_feature_gate'] | default(false)
+
+- name: Install NVIDIA DRA driver and configure GPU Operator for DRA
+  hosts: rke2_servers[0]
+  tasks:
+    - name: Deploy NVIDIA DRA driver and switch GPU Operator to DRA mode
+      import_role:
+        name: nvidia-dra
+      when: enable_dra | default(false)
