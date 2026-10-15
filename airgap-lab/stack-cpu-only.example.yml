@@ -1,0 +1,49 @@
+---
+# Merge these overrides into the normal suse-ai-stack extra_vars file. They
+# keep the stack focused on Rancher/RKE2 and prevent a connected AIF install;
+# airgap-lab installs AIF from Harbor only after the artifact transfer.
+enable_gpu_operator: false
+enable_time_slicing: false
+enable_vllm_deployment: false
+enable_milvus: false
+enable_opensearch: false
+enable_suse_observability: false
+enable_longhorn: false
+pipelines_enabled: false
+
+suse_ai_factory:
+  enabled: false
+
+cluster:
+  user: ec2-user
+  user_home: /home/ec2-user
+  root_volume_size: 100
+  image_arch: x86_64
+  image_distro: sles
+  image_distro_version: 15-sp7
+  instance_type_cp: m6i.2xlarge
+  instance_type_gpu: g4dn.2xlarge
+  instance_type_nongpu: m6i.xlarge
+  num_cp_nodes: 1
+  num_worker_nodes_gpu: 0
+  num_worker_nodes_nongpu: 0
+  token: REPLACE_WITH_A_RANDOM_MANAGEMENT_TOKEN
+  version: v1.34.4+rke2r1
+
+# Downstream application target. A control-plane-only RKE2 cluster runs the
+# mirrored Qdrant and Ollama Blueprints without requiring a GPU.
+suse_ai_cluster:
+  user: ec2-user
+  user_home: /home/ec2-user
+  root_volume_size: 80
+  image_arch: x86_64
+  image_distro: sles
+  image_distro_version: 15-sp7
+  instance_type_cp: m6i.xlarge
+  instance_type_gpu: g4dn.2xlarge
+  instance_type_nongpu: m6i.xlarge
+  num_cp_nodes: 1
+  num_worker_nodes_gpu: 0
+  num_worker_nodes_nongpu: 0
+  token: REPLACE_WITH_A_RANDOM_DOWNSTREAM_TOKEN
+  version: v1.34.4+rke2r1

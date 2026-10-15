@@ -1,0 +1,24 @@
+---
+# Copy to nodes.yml. These are the same node fields as extra_vars.yml.
+# Omitted fields retain these defaults; provider credentials stay in extra_vars.yml.
+# Supported GPU families (x86_64 NVIDIA): g4dn, g5, g6, g6e, p4d, p4de,
+# p5, p5e, p5en. Put GPU instances only in instance_type_gpu.
+cluster:
+  instance_type_cp: m6i.2xlarge
+  instance_type_gpu: g4dn.2xlarge
+  instance_type_nongpu: m6i.xlarge
+  num_worker_nodes_gpu: 0
+  num_worker_nodes_nongpu: 0
+  root_volume_size: 100
+suse_ai_cluster:
+  instance_type_cp: m6i.xlarge
+  instance_type_gpu: g4dn.2xlarge
+  instance_type_nongpu: m6i.xlarge
+  num_worker_nodes_gpu: 0
+  num_worker_nodes_nongpu: 0
+  root_volume_size: 80
+# When GPUs are requested, use the stack's package driver installer and GPU
+# Operator during connected provisioning. Time slicing is opt-in.
+gpu_operator_chart_version: 25.10.1
+enable_time_slicing: false
+time_slicing_replicas: 4

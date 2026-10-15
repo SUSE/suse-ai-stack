@@ -62,13 +62,27 @@
         access_msg: "{{ access_msg | default([]) + [ item.msg | string ] }}"
       when: item.eval
       with_items:
-        - msg: "To access rancher UI, point your browser to https://{{ rancher_host }} and login with user=admin and password={{ rancher_bootstrap_password | default('rancher')  }}"
+        - msg: >-
+            To access rancher UI, point your browser to https://{{ rancher_host }} and login with
+            user=admin and password={{ (rancher_bootstrap_password | default('rancher'))
+            if (display_credentials | default(true) | bool) else '<redacted; read the selected extra-vars file>' }}
           eval: true
-        - msg: "To access longhorn UI, point your browser to http://{{ longhorn_host }} and login with user={{ longhorn_username | default('admin')}} and password={{  longhorn_password | default('longhorn')}}"
+        - msg: >-
+            To access longhorn UI, point your browser to http://{{ longhorn_host }} and login with
+            user={{ longhorn_username | default('admin')}} and password={{ (longhorn_password | default('longhorn'))
+            if (display_credentials | default(true) | bool) else '<redacted>' }}
           eval: "{{ enable_longhorn | default(False) | bool }}"
-        - msg: "To access open-webui, point your browser to https://{{ open_webui_host }} and login with user={{ open_webui_admin_email | default('admin@suse-private-ai.org') }} and password={{ open_webui_admin_password | default('WelcomeToAI') }}"
+        - msg: >-
+            To access open-webui, point your browser to https://{{ open_webui_host }} and login with
+            user={{ open_webui_admin_email | default('admin@suse-private-ai.org') }} and
+            password={{ (open_webui_admin_password | default('WelcomeToAI'))
+            if (display_credentials | default(true) | bool) else '<redacted>' }}
           eval: "{{ not deploy_rancher_only | default(False) | bool }}"
-        - msg: "To access suse-observability, point your browser to https://{{ suse_observability_host }} and login with user=admin and password={{ (suse_observability_admin_password_file_contents.content | default('')) | b64decode | trim }}"
+        - msg: >-
+            To access suse-observability, point your browser to https://{{ suse_observability_host }}
+            and login with user=admin and password={{
+            ((suse_observability_admin_password_file_contents.content | default('')) | b64decode | trim)
+            if (display_credentials | default(true) | bool) else '<redacted>' }}
           eval: "{{ enable_suse_observability | default(False) | bool }}"
 
     - name: Show Access URL and credentials

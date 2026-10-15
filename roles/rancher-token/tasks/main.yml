@@ -8,14 +8,16 @@
   shell: |
     bash ~/get_rancher_admin_token.sh https://{{ rancher_host }} admin {{ rancher_bootstrap_password}}
   register: rancher_token_result
+  no_log: true
 
-- name: print rancher admin token
+- name: Confirm Rancher admin token generation
   debug:
-    msg: "{{ rancher_token_result.stdout }}"
+    msg: "Rancher API token generated (value redacted)."
 
 - name: set rancher token
   set_fact:
     rancher_token: "{{ rancher_token_result.stdout }}"
+  no_log: true
 
 - name: Display Rancher URL
   debug:

@@ -1,0 +1,10 @@
+---
+# Optional downstream GPU worker, using the original stack's AWS configuration.
+# Copy to nodes.yml, or set AIF_AIRGAP_NODE_CONFIG to this file.
+# root_volume_size applies to every node in this cluster, as in the main stack.
+suse_ai_cluster:
+  num_worker_nodes_gpu: 1
+  instance_type_gpu: g4dn.2xlarge
+  root_volume_size: 200
+gpu_operator_chart_version: 25.10.1
+enable_time_slicing: false

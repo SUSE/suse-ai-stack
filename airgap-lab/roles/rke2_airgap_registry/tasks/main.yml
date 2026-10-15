@@ -1,0 +1,90 @@
+---
+- name: Validate registry mirror inputs
+  ansible.builtin.assert:
+    that:
+      - airgap_registry_mirrors | length > 0
+      - harbor_hostname | length > 0
+      - harbor_registry_username | length > 0
+      - harbor_registry_password != 'REPLACE_WITH_A_STRONG_PASSWORD'
+      - airgap_registry_mirrors | map(attribute='source') | unique | list | length == airgap_registry_mirrors | length
+    fail_msg: "Registry mirrors must be non-empty, unique and use real Harbor credentials."
+
+- name: Require RKE2 on every mirror target
+  ansible.builtin.stat:
+    path: /etc/rancher/rke2/config.yaml
+  register: rke2_config
+
+- name: Stop when a target is not an RKE2 node
+  ansible.builtin.assert:
+    that: rke2_config.stat.exists
+    fail_msg: "{{ inventory_hostname }} has no /etc/rancher/rke2/config.yaml."
+
+- name: Ensure the RKE2 configuration directory exists
+  ansible.builtin.file:
+    path: /etc/rancher/rke2
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Copy the Harbor CA for containerd
+  ansible.builtin.copy:
+    src: "{{ airgap_ca_source }}"
+    dest: /etc/rancher/rke2/harbor-ca.crt
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Restart RKE2 server
+    - Restart RKE2 agent
+
+- name: Render fail-closed registry mirrors
+  ansible.builtin.template:
+    src: registries.yaml.j2
+    dest: /etc/rancher/rke2/registries.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify:
+    - Restart RKE2 server
+    - Restart RKE2 agent
+
+- name: Disable containerd's upstream default endpoint fallback
+  ansible.builtin.lineinfile:
+    path: /etc/rancher/rke2/config.yaml
+    regexp: '^disable-default-registry-endpoint:'
+    line: 'disable-default-registry-endpoint: true'
+    state: present
+  notify:
+    - Restart RKE2 server
+    - Restart RKE2 agent
+
+- name: Gather RKE2 service state before handlers and readiness checks
+  ansible.builtin.service_facts:
+
+- name: Flush RKE2 restart before validation
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for the local RKE2 node to return Ready
+  ansible.builtin.command:
+    cmd: >-
+      /var/lib/rancher/rke2/bin/kubectl wait node/{{ inventory_hostname }}
+      --for=condition=Ready --timeout=8m
+      --kubeconfig /etc/rancher/rke2/rke2.yaml
+  delegate_to: "{{ airgap_cluster_server | default(inventory_hostname) }}"
+  changed_when: false
+
+- name: Confirm the upstream fallback is disabled
+  ansible.builtin.command:
+    cmd: >-
+      grep -Fx 'disable-default-registry-endpoint: true' /etc/rancher/rke2/config.yaml
+  changed_when: false
+
+- name: Confirm all required source registries are represented
+  ansible.builtin.command:
+    cmd: >-
+      grep -F '"{{ item.source }}":' /etc/rancher/rke2/registries.yaml
+  loop: "{{ airgap_registry_mirrors }}"
+  changed_when: false
+  no_log: true

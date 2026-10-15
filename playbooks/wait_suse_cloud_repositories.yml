@@ -1,0 +1,23 @@
+---
+- name: Wait for AWS SUSE cloud registration and repositories
+  hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Wait for the AWS SUSE registration service to recognize the instance
+      ansible.builtin.command:
+        cmd: SUSEConnect --status-text
+      register: suse_cloud_registration
+      changed_when: false
+      retries: 20
+      delay: 30
+      until: suse_cloud_registration.rc == 0
+
+    - name: Wait for SUSE cloud repositories to refresh
+      ansible.builtin.command:
+        cmd: zypper --non-interactive refresh
+      register: suse_cloud_repositories
+      changed_when: false
+      retries: 12
+      delay: 30
+      until: suse_cloud_repositories.rc == 0

@@ -1,0 +1,53 @@
+expose:
+  type: ingress
+  tls:
+    enabled: true
+    certSource: secret
+    secret:
+      secretName: harbor-ingress-tls
+  ingress:
+    hosts:
+      core: {{ harbor_hostname | quote }}
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/proxy-body-size: "0"
+
+externalURL: "https://{{ harbor_hostname }}"
+harborAdminPassword: {{ harbor_admin_password | quote }}
+
+persistence:
+  enabled: true
+  resourcePolicy: keep
+  persistentVolumeClaim:
+    registry:
+      storageClass: local-path
+      size: {{ harbor_registry_storage_size | quote }}
+    jobservice:
+      jobLog:
+        storageClass: local-path
+        size: 2Gi
+    database:
+      storageClass: local-path
+      size: 4Gi
+    redis:
+      storageClass: local-path
+      size: 2Gi
+    trivy:
+      storageClass: local-path
+      size: 2Gi
+
+trivy:
+  enabled: false
+
+portal:
+  replicas: 1
+core:
+  replicas: 1
+jobservice:
+  replicas: 1
+registry:
+  replicas: 1
+
+updateStrategy:
+  type: Recreate

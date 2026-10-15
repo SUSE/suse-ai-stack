@@ -60,6 +60,14 @@
           version = "{{ suse_ai_cluster.version }}"
       }
       {% endif %}
+      {% if airgap_services is defined and airgap_services.enabled | default(false) | bool %}
+      airgap_services = {
+          enabled = true
+          instance_type = "{{ airgap_services.instance_type | default('m6i.xlarge') }}"
+          root_volume_size = {{ airgap_services.root_volume_size | default(120) }}
+          controller_cidr = "{{ airgap_services.controller_cidr }}"
+      }
+      {% endif %}
       {% if suse_observability_cluster is defined and enable_suse_observability | default('False') | bool %}
       suse_observability_cluster = {
           user = "{{ suse_observability_cluster.user }}"
@@ -117,6 +125,10 @@
 - name: Parse tofu output for the suse-observability cluster
   include_tasks: suse_observability_cluster_output.yml
   when: suse_observability_cluster is defined and enable_suse_observability | default('False') | bool
+
+- name: Parse tofu output for the air-gap services node
+  include_tasks: airgap_services_output.yml
+  when: airgap_services is defined and airgap_services.enabled | default(false) | bool
 
 - name: Include ingress_ouput
   include_tasks: ingress_output.yml

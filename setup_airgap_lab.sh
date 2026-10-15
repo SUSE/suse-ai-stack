@@ -1,0 +1,365 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+lab_dir="${project_dir}/airgap-lab"
+terraform_dir="${project_dir}/roles/vm/terraform"
+base_vars="${AIF_AIRGAP_BASE_VARS:-${project_dir}/extra_vars.yml}"
+workspace="${AIF_AIRGAP_TOFU_WORKSPACE:-suseai-882-airgap}"
+source_dir="${AIF_SOURCE_DIR:-$(cd "${project_dir}/.." && pwd)/aif}"
+profile="${AIF_AIRGAP_PROFILE:-suse}"
+
+case "${profile}" in
+  core|suse|chatbot|vendor|all) ;;
+  *) printf 'Unsupported AIF_AIRGAP_PROFILE: %s\n' "${profile}" >&2; exit 2 ;;
+esac
+
+usage() {
+  printf '%s\n' \
+    "Usage: $0 [--status|--prepare-only|--reset-progress]" \
+    "" \
+    "With no arguments, provisions and qualifies the AWS lab, with optional GPU workers in airgap-lab/nodes.yml." \
+    "A failed run is resumable by running the same command again." \
+    "" \
+    "  --status          Show phase markers, AWS workspace, UI endpoints and credentials" \
+    "  --prepare-only    Generate ignored configuration without creating AWS resources" \
+    "  --reset-progress  Forget source/qualification markers; retain infrastructure checkpoints"
+}
+
+mode=run
+case "${1:-}" in
+  "") ;;
+  --status) mode=status ;;
+  --prepare-only) mode=prepare ;;
+  --reset-progress) mode=reset ;;
+  -h|--help) usage; exit 0 ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+for command_name in ansible-galaxy ansible-playbook docker git helm jq skopeo tofu yq; do
+  command -v "${command_name}" >/dev/null || {
+    printf 'Required command not found: %s\n' "${command_name}" >&2
+    exit 2
+  }
+done
+
+"${lab_dir}/scripts/check-shell-safety.sh"
+previous_topology=""
+previous_stack_vars="${AIF_AIRGAP_STACK_VARS:-${lab_dir}/generated/stack-vars.yml}"
+if [[ -f "${previous_stack_vars}" ]]; then
+  previous_topology="$("${lab_dir}/scripts/topology-key.sh" "${previous_stack_vars}")"
+fi
+AIF_AIRGAP_BASE_VARS="${base_vars}" "${lab_dir}/scripts/prepare-aws.sh"
+
+if [[ "${profile}" != "core" && "${mode}" == run ]]; then
+  appco_source_username="${APPCO_USERNAME:-$(yq -r '.application_collection_user_email // ""' "${base_vars}")}"
+  appco_source_password="${APPCO_PASSWORD:-$(yq -r '.application_collection_user_token // ""' "${base_vars}")}"
+  [[ -n "${appco_source_username}" && -n "${appco_source_password}" ]] || {
+    printf 'The %s profile requires Application Collection source credentials.\n' "${profile}" >&2
+    exit 2
+  }
+  export APPCO_USERNAME="${appco_source_username}"
+  export APPCO_PASSWORD="${appco_source_password}"
+  export SUSE_REGISTRY_USERNAME="${SUSE_REGISTRY_USERNAME:-regcode}"
+  export SUSE_REGISTRY_PASSWORD="${SUSE_REGISTRY_PASSWORD:-$(yq -r '.suse_ai_registration_code // ""' "${base_vars}")}"
+  [[ -n "${SUSE_REGISTRY_PASSWORD}" ]] || {
+    printf 'The %s profile requires SUSE Registry credentials for Qdrant.\n' "${profile}" >&2
+    exit 2
+  }
+fi
+
+metadata="${lab_dir}/generated/lab-metadata.yml"
+stack_vars="$(yq -r '.stackVars' "${metadata}")"
+lab_vars="$(yq -r '.labVars' "${metadata}")"
+aif_commit="$(yq -r '.sourceCommit' "${metadata}")"
+topology_key="$("${lab_dir}/scripts/topology-key.sh" "${stack_vars}")"
+gpu_enabled="$(yq -r '.enable_gpu_operator' "${stack_vars}")"
+short_commit="${aif_commit:0:12}"
+install_mode="$(yq -r '.aif_install_mode' "${lab_vars}")"
+ca_mode="$(yq -r '.aif_registry_ca_mode' "${lab_vars}")"
+gitea_tls_enabled="$(yq -r '.gitea_tls_enabled' "${lab_vars}")"
+if [[ "${gitea_tls_enabled}" == true ]]; then
+  git_transport=https
+else
+  git_transport=http
+fi
+manifest="${lab_dir}/generated/artifacts-aif-source.yml"
+artifact_set_sha256="$(sha256sum "${lab_dir}/artifacts.yml" | awk '{print $1}')"
+artifact_revision="${artifact_set_sha256:0:12}"
+bundle="${AIF_AIRGAP_BUNDLE:-${lab_dir}/bundles/aif-${short_commit}-${profile}-${artifact_revision}}"
+bundle_local_sources_match() {
+  local candidate=$1 index count source expected actual
+  count="$(yq -r '.spec.images | length' "${manifest}")"
+  for ((index=0; index<count; index++)); do
+    [[ "$(yq -r ".spec.images[${index}].sourceTransport // \"docker\"" "${manifest}")" == docker-daemon ]] || continue
+    source="$(yq -r ".spec.images[${index}].source" "${manifest}")"
+    expected="$(awk -F '\t' -v source="${source}" '$1 == "image" && $2 == source {print $3}' "${candidate}/SOURCE-DIGESTS.txt")"
+    actual="$(skopeo inspect --format '{{.Digest}}' "docker-daemon:${source}" 2>/dev/null || true)"
+    [[ -n "${expected}" && "${expected}" == "${actual}" ]] || return 1
+  done
+}
+if [[ -z "${AIF_AIRGAP_BUNDLE:-}" && ! -d "${bundle}" ]]; then
+  shopt -s nullglob
+  for candidate in "${lab_dir}/bundles/aif-${short_commit}"*; do
+    [[ -f "${candidate}/METADATA" && -f "${candidate}/ARTIFACTS.yaml" ]] || continue
+    candidate_profile="$(awk -F= '$1 == "profile" {print $2}' "${candidate}/METADATA")"
+    candidate_commit="$(yq -r '.metadata.annotations."airgap.ai-factory.suse.com/source-commit" // ""' "${candidate}/ARTIFACTS.yaml")"
+    candidate_artifact_set="$(yq -r '.metadata.annotations."airgap.ai-factory.suse.com/artifact-set-sha256" // ""' "${candidate}/ARTIFACTS.yaml")"
+    candidate_manifest_digest="$(awk -F= '$1 == "manifest_sha256" {print $2}' "${candidate}/METADATA")"
+    current_manifest_digest="$(sha256sum "${manifest}" 2>/dev/null | awk '{print $1}')"
+    if [[ "${candidate_profile}" == "${profile}" \
+       && "${candidate_commit}" == "${aif_commit}" \
+       && "${candidate_artifact_set}" == "${artifact_set_sha256}" \
+       && -n "${current_manifest_digest}" \
+       && "${candidate_manifest_digest}" == "${current_manifest_digest}" ]] \
+       && bundle_local_sources_match "${candidate}"; then
+      bundle="${candidate}"
+      break
+    fi
+  done
+  shopt -u nullglob
+fi
+state_root="${lab_dir}/generated/state/${workspace}"
+run_state="${state_root}/runs/${short_commit}-${profile}-${artifact_revision}"
+qualification_key="${install_mode}-${ca_mode}-git-${git_transport}"
+qualification_state="${run_state}/qualifications/${qualification_key}"
+active_qualification_file="${run_state}/active-qualification"
+services_git_transport_file="${state_root}/services-git-transport"
+mkdir -p "${state_root}" "${run_state}" "${qualification_state}"
+chmod 700 "${state_root}" "${state_root}/runs" "${run_state}" \
+  "${run_state}/qualifications" "${qualification_state}"
+
+select_workspace() {
+  tofu -chdir="${terraform_dir}" init -input=false >/dev/null
+  if tofu -chdir="${terraform_dir}" workspace list \
+      | sed -E 's/^[* ]+//' | grep -Fxq "${workspace}"; then
+    tofu -chdir="${terraform_dir}" workspace select "${workspace}" >/dev/null
+  else
+    tofu -chdir="${terraform_dir}" workspace new "${workspace}" >/dev/null
+  fi
+  actual_workspace="$(tofu -chdir="${terraform_dir}" workspace show)"
+  [[ "${actual_workspace}" == "${workspace}" ]] || {
+    printf 'Workspace guard failed: expected %s, selected %s.\n' "${workspace}" "${actual_workspace}" >&2
+    exit 1
+  }
+}
+
+# Persist the old applied topology before prepare/status can overwrite the
+# generated desired configuration. Only a successful stack phase advances it.
+applied_topology_file="${state_root}/applied-topology"
+if [[ ! -f "${applied_topology_file}" && -f "${state_root}/stack.complete" && -n "${previous_topology}" ]]; then
+  printf '%s\n' "${previous_topology}" > "${applied_topology_file}"
+  chmod 600 "${applied_topology_file}"
+fi
+
+if [[ "${mode}" == prepare ]]; then
+  printf 'Preparation complete; no AWS resources were changed.\n'
+  exit 0
+fi
+select_workspace
+
+if [[ "${mode}" == status ]]; then
+  printf 'OpenTofu workspace: %s\n' "${workspace}"
+  printf 'Source commit: %s\n' "${short_commit}"
+  printf 'Requested AIF install mode: %s\n' "${install_mode}"
+  printf 'Requested registry CA mode: %s\n' "${ca_mode}"
+  printf 'Requested Git transport: %s\n' "${git_transport}"
+  if [[ -f "${active_qualification_file}" ]]; then
+    printf 'Active qualified AIF profile: %s\n' "$(<"${active_qualification_file}")"
+  else
+    printf 'Active qualified AIF profile: not recorded\n'
+  fi
+  printf 'Bundle: %s\n' "${bundle}"
+  if [[ -f "${applied_topology_file}" && "$(<"${applied_topology_file}")" == "${topology_key}" ]]; then
+    printf 'Node configuration: applied\n'
+  else
+    printf 'Node configuration: pending reconciliation; run ./setup_airgap_lab.sh\n'
+  fi
+  progress_markers="$(find "${state_root}" "${run_state}" "${qualification_state}" \
+    -maxdepth 1 -type f -name '*.complete' -print | sort)"
+  if [[ -n "${progress_markers}" ]]; then
+    while IFS= read -r marker; do
+      printf '  complete: %s\n' "${marker#"${state_root}/"}"
+    done <<<"${progress_markers}"
+  else
+    printf '  No completed phases recorded for the current configuration.\n'
+  fi
+  printf '\n'
+  "${lab_dir}/scripts/ui-links.sh" status
+  exit 0
+fi
+
+if [[ "${mode}" == reset ]]; then
+  find "${run_state}" -type f -name '*.complete' -delete
+  rm -f "${active_qualification_file}"
+  printf '%s\n' \
+    'Source and qualification progress markers reset.' \
+    'AWS resources, generated credentials, and verified infrastructure checkpoints were retained.'
+  exit 0
+fi
+
+if [[ -f "${state_root}/stack.complete" ]] &&
+   [[ ! -f "${applied_topology_file}" || "$(<"${applied_topology_file}")" != "${topology_key}" ]]; then
+  printf '[nodes] Node configuration changed; reconciling the stack and all node checks.\n'
+  find "${state_root}" -type f -name '*.complete' \
+    ! -name collections.complete ! -name source-build.complete ! -name bundle-export.complete -delete
+fi
+
+active_qualification=""
+if [[ -f "${active_qualification_file}" ]]; then
+  active_qualification="$(<"${active_qualification_file}")"
+fi
+if [[ "${active_qualification}" != "${qualification_key}" ]]; then
+  find "${qualification_state}" -type f -name '*.complete' -delete
+  if [[ -n "${active_qualification}" ]]; then
+    printf '[mode] Requalifying transition from %s to %s.\n' \
+      "${active_qualification}" "${qualification_key}"
+  else
+    printf '[mode] No active qualification checkpoint; qualifying %s.\n' \
+      "${qualification_key}"
+  fi
+fi
+
+run_step() {
+  local marker=$1 description=$2
+  shift 2
+  if [[ -f "${marker}" ]]; then
+    printf '[skip] %s\n' "${description}"
+    return 0
+  fi
+  printf '[run ] %s\n' "${description}"
+  "$@"
+  date -u +%Y-%m-%dT%H:%M:%SZ > "${marker}"
+  chmod 600 "${marker}"
+}
+
+stack_state_present() {
+  local resources
+  resources="$(tofu -chdir="${terraform_dir}" state list 2>/dev/null || true)"
+  grep -Fxq 'aws_instance.cp_master' <<<"${resources}" \
+    && grep -Fxq 'aws_instance.suse_ai_cp_master[0]' <<<"${resources}" \
+    && grep -Fxq 'aws_instance.airgap_services[0]' <<<"${resources}"
+}
+
+if [[ -f "${state_root}/stack.complete" ]] && ! stack_state_present; then
+  printf 'AWS state no longer contains the complete topology; clearing stale progress markers.\n'
+  find "${state_root}" -type f -name '*.complete' -delete
+fi
+
+# A topology change retains existing nodes while reconciling the connected
+# prerequisites. Reopen their lab-owned network gate and registry mirrors so
+# newly requested GPU components can start before their images are captured.
+# Configure/isolate restore both restrictions before application qualification.
+if stack_state_present \
+   && [[ ! -f "${state_root}/stack.complete" ]] \
+   && [[ -f "${lab_dir}/generated/inventory.yml" ]]; then
+  printf '[mode] Reopening egress and registry access for connected stack reconciliation.\n'
+  env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
+    "${lab_dir}/run.sh" reconnect
+fi
+
+run_step "${run_state}/collections.complete" "Install Ansible collections" \
+  ansible-galaxy collection install -r "${lab_dir}/requirements.yml"
+
+run_step "${run_state}/source-build.complete" "Build exact AIF source artifacts" \
+  env AIF_SOURCE_DIR="${source_dir}" AIF_SOURCE_MANIFEST="${manifest}" \
+    "${lab_dir}/run.sh" build-aif-source
+
+if [[ "${profile}" == "chatbot" || "${profile}" == "vendor" || "${profile}" == "all" ]]; then
+  run_step "${run_state}/chatbot-container-closure.complete" \
+    "Validate Simple Chatbot chart/container closure" \
+    env AIF_SOURCE_DIR="${source_dir}" \
+      "${lab_dir}/scripts/check-chatbot-container-closure.sh" --manifest "${manifest}"
+fi
+
+if [[ "${profile}" != "core" ]]; then
+  "${lab_dir}/scripts/check-suse-container-closure.sh" --manifest "${manifest}" --profile "${profile}"
+fi
+
+run_step "${run_state}/bundle-export.complete" "Export the checksummed ${profile} media bundle" \
+  env AIF_AIRGAP_MANIFEST="${manifest}" AIF_AIRGAP_BUNDLE="${bundle}" \
+    AIF_AIRGAP_PROFILE="${profile}" "${lab_dir}/run.sh" mirror-export
+
+run_step "${state_root}/stack.complete" "Provision management, downstream and services nodes; install RKE2/Rancher" \
+  env EXTRA_VARS_FILE="${stack_vars}" AIF_AIRGAP_OVERLAY=true \
+    "${project_dir}/setup_private_ai_stack.sh"
+printf '%s\n' "${topology_key}" > "${applied_topology_file}"
+chmod 600 "${applied_topology_file}"
+
+run_step "${state_root}/inventory.complete" "Render the AWS inventory from private/public outputs" \
+  "${lab_dir}/scripts/render-aws-inventory.sh"
+
+run_step "${state_root}/services-bootstrap.complete" "Bootstrap the connected CPU-only services cluster" \
+  env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
+    "${lab_dir}/run.sh" bootstrap-services
+
+if [[ -f "${state_root}/services.complete" ]] \
+   && [[ ! -f "${services_git_transport_file}" \
+      || "$(<"${services_git_transport_file}")" != "${git_transport}" ]]; then
+  printf '[mode] Gitea transport changed; reconciling the services phase.\n'
+  rm -f "${state_root}/services.complete"
+fi
+run_step "${state_root}/services.complete" "Install private-CA Harbor and authenticated Gitea" \
+  env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
+    "${lab_dir}/run.sh" services
+printf '%s\n' "${git_transport}" > "${services_git_transport_file}.tmp"
+chmod 600 "${services_git_transport_file}.tmp"
+mv "${services_git_transport_file}.tmp" "${services_git_transport_file}"
+
+run_step "${run_state}/bundle-import.complete" "Transfer and import the media bundle inside the gated VPC" \
+  env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
+    "${lab_dir}/run.sh" transfer-import
+
+if [[ "${gpu_enabled}" == true ]]; then
+  run_step "${state_root}/gpu-prepare.complete" "Check GPUs and collect enabled NVIDIA runtime images" \
+    "${lab_dir}/run.sh" gpu-prepare
+  gpu_manifest="${lab_dir}/generated/artifacts-gpu.yml"
+  gpu_revision="$(sha256sum "${gpu_manifest}" | awk '{print substr($1, 1, 12)}')"
+  gpu_bundle="${lab_dir}/bundles/gpu-${gpu_revision}"
+  run_step "${state_root}/gpu-export.complete" "Export NVIDIA runtime images for the configured GPUs" \
+    "${lab_dir}/scripts/artifacts.sh" export --manifest "${gpu_manifest}" \
+      --bundle "${gpu_bundle}" --profile core
+  run_step "${state_root}/gpu-import.complete" "Import GPU runtime images into private Harbor" \
+    env AIF_AIRGAP_BUNDLE="${gpu_bundle}" AIF_AIRGAP_PROFILE=core \
+      "${lab_dir}/run.sh" transfer-import
+fi
+
+run_step "${state_root}/configure.complete" "Configure private trust and fail-closed RKE2 mirrors" \
+  env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
+    "${lab_dir}/run.sh" configure
+
+run_step "${state_root}/isolate.complete" "Close public host and pod egress on AIF nodes" \
+  env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
+    "${lab_dir}/run.sh" isolate
+
+run_step "${qualification_state}/install.complete" "Install PR-source AIF from Harbor (${qualification_key})" \
+  env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
+    "${lab_dir}/run.sh" install
+
+printf '%s\n' "${qualification_key}" > "${active_qualification_file}.tmp"
+chmod 600 "${active_qualification_file}.tmp"
+mv "${active_qualification_file}.tmp" "${active_qualification_file}"
+
+run_step "${run_state}/targets.complete" "Discover local and downstream Rancher targets" \
+  env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
+    "${lab_dir}/run.sh" discover-targets
+
+run_step "${qualification_state}/catalog.complete" "Retire synthetic lab catalog entries" \
+  env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
+    "${lab_dir}/run.sh" clean-catalog
+
+if [[ "${profile}" != "core" ]]; then
+  run_step "${qualification_state}/suse-apps.complete" "Deploy and test CPU-only SUSE applications" \
+    env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
+      "${lab_dir}/run.sh" suse-apps
+fi
+
+run_step "${qualification_state}/verify.complete" "Collect positive private-path and negative public-egress evidence (${qualification_key})" \
+  env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
+    "${lab_dir}/run.sh" verify
+
+printf '\nAir-gap qualification completed successfully.\n'
+"${lab_dir}/scripts/ui-links.sh" start
+printf 'Evidence: %s\n' "${lab_dir}/generated/evidence"
+printf 'Status: %s --status\n' "$0"
+printf 'Destroy: %s/destroy_airgap_lab.sh\n' "${project_dir}"
