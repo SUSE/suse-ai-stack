@@ -79,7 +79,7 @@
 
 - name: Uninstall external-dns
   shell: |
-      helm uninstall {{ external_dns_release_name }} --ignore-not-found
+      helm uninstall {{ external_dns_release_name }} -n {{ external_dns_namespace }} --ignore-not-found
   register: external_dns_uninstall_result
   retries: 5
   delay: 30
