@@ -1,0 +1,6 @@
+---
+gpu_operator_namespace: gpu-operator
+gpu_operator_configmap_name: gpu-operator-values
+gpu_operator_dcgm_configmap_name: dcgm-custom-counters
+gpu_operator_custom_counters_file: "{{ role_path }}/files/custom-counters.csv"
+enable_virtual_gpus: true
