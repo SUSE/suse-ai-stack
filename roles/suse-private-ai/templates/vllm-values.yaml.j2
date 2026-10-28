@@ -33,6 +33,9 @@ servingEngineSpec:
     requestGPU: {{ 0 if (enable_dra | default(false)) else 1 }}
 {% endif %}
 routerSpec:
+  startupProbe:
+    initialDelaySeconds: 10
+    failureThreshold: 30
 {% if "dp.apps.rancher.io" in  vllm_helm_repo  %}
   tag: {{ vllm_cache_router_version }}
 {% else %}

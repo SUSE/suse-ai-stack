@@ -31,13 +31,13 @@ appco_secret: application-collection
 # helm repo to use for milvus charts
 milvus_helm_repo: oci://dp.apps.rancher.io/charts/milvus
 #milvus_helm_repo: https://zilliztech.github.io/milvus-helm/
-milvus_helm_version: 5.0.24
-milvus_image_version: 2.6.20
+milvus_helm_version: 5.0.25
+milvus_image_version: 2.6.21
 milvus_release_name: milvus
 
 # helm repo to use for opensearch charts
 opensearch_helm_repo: oci://dp.apps.rancher.io/charts/opensearch
-opensearch_helm_version: 3.3.2
+opensearch_helm_version: 3.9.0
 opensearch_release_name: opensearch
 opensearch_cluster_deployment: false
 opensearch_admin_password: "MySecurePass123"
@@ -68,8 +68,8 @@ openwebui_release_name: open-webui
 
 ollama_helm_repo: oci://dp.apps.rancher.io/charts/ollama
 #ollama_helm_repo: https://otwld.github.io/ollama-helm/
-ollama_helm_version: 1.55.0
-ollama_image_version: 0.21.2
+ollama_helm_version: 1.92.0
+ollama_image_version: 0.40.11
 ollama_release_name: ollama
 
 pipelines_enabled: true
@@ -83,13 +83,12 @@ enable_vllm_deployment: false
 
 # helm repo to use for vllm charts
 vllm_chart_name: vllm-stack
-appco_vllm_chart_name: vllm
-vllm_helm_repo: oci://dp.apps.rancher.io/charts/{{ appco_vllm_chart_name }}
+vllm_helm_repo: oci://dp.apps.rancher.io/charts/{{ vllm_chart_name }}
 #vllm_helm_repo: https://vllm-project.github.io/production-stack/
-vllm_helm_version: 0.1.10
-vllm_core_image_version: 0.19.0
-vllm_cache_image_version: 0.3.2
-vllm_cache_router_version: 0.1.10
+vllm_helm_version: 0.1.13
+vllm_core_image_version: 0.32.0-nvidia
+vllm_cache_image_version: 0.5.5-nvidia
+vllm_cache_router_version: 0.1.13-nvidia
 vllm_release_name: vllm
 vllm_model_url: "microsoft/Phi-3-mini-4k-instruct"
 
