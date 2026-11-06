@@ -22,6 +22,7 @@
       -H "Authorization: Bearer ${RANCHER_TOKEN}" \
       -H 'Content-Type: application/json' \
       --data-binary "{\"name\": \"server-url\", \"value\":\"${RANCHER_URL}\"}"
+  no_log: true
 
 # Install OpenTofu by downloading the release archive directly and extracting
 # it with Python's zipfile module. This avoids the standalone installer's
@@ -72,6 +73,8 @@
       rancher_url = "{{ rancher_url }}"
       rancher_token = "{{ rancher_token }}"
       cluster_name = "{{ cluster_name }}"
+    mode: "0600"
+  no_log: true
 
 - name: Add /opt/local/bin and ~/bin to PATH
   lineinfile:
@@ -87,26 +90,30 @@
   shell: tofu plan -var-file="ansible.tfvars"
   args:
     chdir: ~/terraform-import-cluster/{{ cluster_name }}/terraform
+  no_log: true
 
 - name: Apply OpenTofu configuration and create AWS resources
   shell: tofu apply -auto-approve -var-file="ansible.tfvars"
   args:
     chdir: ~/terraform-import-cluster/{{ cluster_name }}/terraform
   register: tofu_apply_result
+  no_log: true
 
 - name: Import cluster output
   shell: tofu output --json
   args:
     chdir: ~/terraform-import-cluster/{{ cluster_name }}/terraform
   register: import_cluster_result
+  no_log: true
 
-- name: Display command to import cluster
+- name: Confirm the cluster import command was generated
   debug:
-    msg: "{{ import_cluster_result.stdout }}"
+    msg: "Rancher generated the downstream import command (value redacted)."
 
 - name: Set parsed tofu output
   set_fact:
     import_cluster_tofu_outputs: "{{ import_cluster_result.stdout | from_json }}"
+  no_log: true
 
 - name: Register cluster
   shell: |
@@ -115,6 +122,7 @@
     if [[ "$status" != *"active"* ]]; then
       {{ import_cluster_tofu_outputs.insecure_kubectl_command.value }}
     fi
+  no_log: true
 
 
 - name: Wait for {{ cluster_name }} cluster to be imported succesfully
@@ -130,4 +138,4 @@
         sleep $delay
       fi
     done
-
+  no_log: true

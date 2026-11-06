@@ -1,0 +1,76 @@
+---
+- name: Bootstrap the connected CPU-only services cluster
+  hosts: airgap_services
+  gather_facts: true
+  become: true
+  environment:
+    PATH: /usr/local/bin:/var/lib/rancher/rke2/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
+  vars:
+    nvidia:
+      driver_install: false
+      gpu_operator_deploy: false
+  pre_tasks:
+    - name: Require exactly one dedicated services node
+      ansible.builtin.assert:
+        that:
+          - groups['airgap_services'] | length == 1
+          - groups['rke2_servers'] | length == 1
+          - groups['airgap_services'][0] == groups['rke2_servers'][0]
+          - groups['airgap_services'][0] not in groups.get('aif_management', [])
+          - groups['airgap_services'][0] not in groups.get('aif_workloads', [])
+        fail_msg: "The lab requires one services RKE2 node separate from Rancher and workload nodes."
+
+    - name: Confirm a CPU-only bootstrap
+      ansible.builtin.assert:
+        that:
+          - not (nvidia.driver_install | default(false) | bool)
+          - not (nvidia.gpu_operator_deploy | default(false) | bool)
+
+  tasks:
+    - name: Register the SUSE node when registration data is supplied
+      ansible.builtin.include_role:
+        name: registration
+      when:
+        - ansible_facts['distribution'] in ['SL-Micro', 'SLES']
+        - (scc_registration.email | default('') | length) > 0
+
+    - name: Install connected-stage base packages
+      ansible.builtin.include_role:
+        name: install-packages
+
+    - name: Ensure the root shell profile expected by the RKE2 role exists
+      ansible.builtin.file:
+        path: /root/.bashrc
+        state: touch
+        mode: "0600"
+        modification_time: preserve
+        access_time: preserve
+
+    - name: Install RKE2 server
+      ansible.builtin.include_role:
+        name: rke2_server
+
+    - name: Install Helm and kubectl helpers
+      ansible.builtin.include_role:
+        name: kubernetes-tools
+
+    - name: Install local-path storage while the services node is connected
+      ansible.builtin.include_role:
+        name: local-path
+
+    - name: Make local-path the default lab storage class
+      ansible.builtin.command:
+        cmd: >-
+          /var/lib/rancher/rke2/bin/kubectl annotate storageclass local-path
+          storageclass.kubernetes.io/is-default-class=true --overwrite
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+      changed_when: true
+
+    - name: Wait for the services node to be Ready
+      ansible.builtin.command:
+        cmd: >-
+          /var/lib/rancher/rke2/bin/kubectl wait nodes --all
+          --for=condition=Ready --timeout=5m
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+      changed_when: false

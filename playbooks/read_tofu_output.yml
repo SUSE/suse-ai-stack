@@ -29,6 +29,12 @@
         tasks_from: suse_observability_cluster_output
       when: suse_observability_cluster is defined and enable_suse_observability | default('False') | bool
 
+    - name: Get air-gap services output
+      include_role:
+        name: vm
+        tasks_from: airgap_services_output
+      when: airgap_services is defined and airgap_services.enabled | default(false) | bool
+
     - name: Include ingress_ouput
       include_role:
         name: vm

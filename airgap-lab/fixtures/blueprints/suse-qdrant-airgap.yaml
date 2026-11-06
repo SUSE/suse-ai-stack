@@ -1,0 +1,47 @@
+apiVersion: ai-factory.suse.com/v1alpha1
+kind: Blueprint
+metadata:
+  name: suse-qdrant-airgap-0-1-0
+  labels:
+    ai-factory.suse.com/blueprint-name: suse-qdrant-airgap
+    ai-factory.suse.com/blueprint-version: 0.1.0
+    airgap-lab.suse.com/profile: suse
+spec:
+  displayName: Qdrant from SUSE Registry (air-gap lab)
+  version: 0.1.0
+  description: CPU vector database with persistent storage and no model downloads. Uses the mirrored SUSE Registry chart and image.
+  source: Custom
+  components:
+    - chartRepo: suse-ai-registry
+      chartName: qdrant
+      chartVersion: 1.19.0
+      vendor: suse
+      releaseName: suse-qdrant
+      values:
+        fullnameOverride: suse-qdrant
+        replicaCount: 1
+        image:
+          registry: registry.suse.com
+          repository: ai/containers/qdrant
+          tag: v1.19.0
+          pullPolicy: Always
+        persistence:
+          size: 2Gi
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: "2"
+            memory: 1Gi
+        env:
+          - name: QDRANT__TELEMETRY_DISABLED
+            value: "true"
+        config:
+          cluster:
+            enabled: false
+          gpu:
+            indexing: false
+        chartTests:
+          dbInteraction:
+            image: registry.suse.com/bci/bci-base:15.7

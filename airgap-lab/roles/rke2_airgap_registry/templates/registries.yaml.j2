@@ -1,0 +1,19 @@
+# Managed by the SUSE AI Factory air-gap QA lab.
+# Source names remain in Kubernetes manifests; containerd rewrites the
+# repository path into Harbor and has no upstream fallback.
+mirrors:
+{% for mirror in airgap_registry_mirrors %}
+  "{{ mirror.source }}":
+    endpoint:
+      - "https://{{ harbor_hostname }}"
+    rewrite:
+      "^(.*)": "{{ aif_image_project }}/{{ mirror.prefix }}/$1"
+{% endfor %}
+
+configs:
+  "{{ harbor_hostname }}":
+    auth:
+      username: {{ harbor_registry_username | quote }}
+      password: {{ harbor_registry_password | quote }}
+    tls:
+      ca_file: /etc/rancher/rke2/harbor-ca.crt

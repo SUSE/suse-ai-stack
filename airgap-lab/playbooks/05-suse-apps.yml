@@ -1,0 +1,34 @@
+---
+- name: Prepare storage helpers for disconnected SUSE application deployments
+  hosts: aif_management:aif_workloads
+  gather_facts: false
+  become: true
+  environment:
+    PATH: /usr/local/bin:/var/lib/rancher/rke2/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
+  roles:
+    - role: rke2_airgap_storage
+      when: suse_apps_deploy | default(true) | bool
+
+- name: Publish and deploy custom CPU-only SUSE application Blueprints
+  hosts: aif_management
+  gather_facts: false
+  become: true
+  environment:
+    PATH: /usr/local/bin:/var/lib/rancher/rke2/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
+  roles:
+    - role: aif_airgap_suse_apps
+
+- name: Verify the SUSE applications on each selected target cluster
+  hosts: aif_management:aif_workloads
+  gather_facts: false
+  become: true
+  environment:
+    PATH: /usr/local/bin:/var/lib/rancher/rke2/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
+  tasks:
+    - name: Probe the application APIs on the local cluster
+      ansible.builtin.include_role:
+        name: aif_airgap_suse_apps
+        tasks_from: verify

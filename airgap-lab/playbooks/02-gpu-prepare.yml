@@ -1,0 +1,31 @@
+---
+- name: Verify the connected GPU installation and collect its actual images
+  hosts: aif_management:aif_workloads
+  gather_facts: false
+  become: true
+  environment:
+    PATH: /usr/local/bin:/var/lib/rancher/rke2/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    KUBECONFIG: /etc/rancher/rke2/rke2.yaml
+  tasks:
+    - name: Verify GPU resources before preparing offline media
+      ansible.builtin.include_role:
+        name: aif_airgap_gpu
+      when: airgap_gpu_nodes | default([]) | length > 0
+
+    - name: Read GPU Operator workloads including validators and init containers
+      ansible.builtin.command:
+        argv: [kubectl, -n, gpu-operator, get, 'pods,daemonsets,deployments,jobs,clusterpolicies', -o, json]
+      register: gpu_resources
+      changed_when: false
+      when: airgap_gpu_nodes | default([]) | length > 0
+
+    - name: Save the GPU image inventory on the seed controller
+      ansible.builtin.copy:
+        content: "{{ gpu_resources.stdout }}"
+        dest: "{{ playbook_dir }}/../generated/gpu-resources-{{ inventory_hostname }}.json"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_become: false
+      when: airgap_gpu_nodes | default([]) | length > 0

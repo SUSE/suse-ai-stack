@@ -80,7 +80,7 @@
         name: rancher-token
       vars:
         rancher_host: "{{ hostvars['localhost']['rancher_host'] }}"
-        rancher_bootstrap_password: "{{ rancher_boostrap_password | default('rancher') }}"
+        rancher_bootstrap_password: "{{ rancher_bootstrap_password | default('rancher') }}"
       when: suse_ai_cluster is defined
 
     - name: Import suse_ai_cluster

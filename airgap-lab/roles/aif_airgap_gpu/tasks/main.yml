@@ -1,0 +1,49 @@
+---
+- name: Check the installed NVIDIA driver on each configured GPU worker
+  ansible.builtin.command:
+    argv: [nvidia-smi, '--query-gpu=name,driver_version,memory.total', '--format=csv,noheader']
+  delegate_to: "{{ item | default(inventory_hostname) }}"
+  loop: "{{ airgap_gpu_nodes }}"
+  register: gpu_drivers
+  changed_when: false
+
+- name: Require Ready nodes with allocatable NVIDIA GPUs
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl get nodes -o json | jq -e --argjson expected {{ airgap_gpu_nodes | to_json | quote }} '
+      .items as $nodes | $expected | all(. as $name |
+        any($nodes[]; .metadata.name == $name and
+          ((.status.allocatable["nvidia.com/gpu"] // "0" | tonumber) > 0) and
+          any(.status.conditions[]; .type == "Ready" and .status == "True")))'
+  args:
+    executable: /bin/bash
+  register: gpu_ready
+  until: gpu_ready.rc == 0
+  retries: 60
+  delay: 10
+  changed_when: false
+
+- name: Wait for the installed GPU Operator components
+  ansible.builtin.shell: |
+    set -euo pipefail
+    resources=$(kubectl -n gpu-operator get deployments,daemonsets -o name)
+    [[ -n "${resources}" ]]
+    while IFS= read -r resource; do
+      kubectl -n gpu-operator rollout status "${resource}" --timeout=10m
+    done <<<"${resources}"
+    kubectl get clusterpolicies -o json |
+      jq -e '.items | length > 0 and all(.status.state == "ready")' >/dev/null
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Verify every captured GPU runtime image can be pulled after isolation
+  ansible.builtin.include_tasks: verify-mirrors.yml
+  when: airgap_gpu_verify_mirrors | default(false) | bool
+
+- name: Report GPU availability
+  ansible.builtin.debug:
+    msg: "{{ item.item }}: {{ item.stdout }}"
+  loop: "{{ gpu_drivers.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
