@@ -91,7 +91,7 @@
     - suse_observability_cluster is defined
     - enable_suse_observability | default('False') | bool
 
-- hosts: mgmt_master:suse_ai_master:suse_observability_master
+- hosts: mgmt_cp_master:suse_ai_cp_master:suse_observability_cp_master
   gather_facts: false
   tasks:
     # We want to cleanup the DNS records before deleting the stack.
