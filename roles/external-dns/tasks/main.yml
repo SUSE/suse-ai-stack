@@ -14,6 +14,7 @@
         fi
       fi
     done
+  when: not uninstall
 
 - name: Create secret for cloudflare-api-key in external-dns namespace
   shell: |
@@ -30,6 +31,7 @@
         fi
       fi
     done
+  when: not uninstall
 
 - name: Create secret for application collection in external-dns namespace
   shell: |
@@ -46,11 +48,13 @@
         fi
       fi
     done
+  when: not uninstall
 
 - name: Copy external-dns.yaml
   template:
     src: external-dns-values.yaml.j2
     dest: ~/external-dns-values.yaml
+  when: not uninstall
 
 - name: Deploy external-dns
   shell: |
@@ -79,7 +83,7 @@
 
 - name: Uninstall external-dns
   shell: |
-      helm uninstall {{ external_dns_release_name }} --ignore-not-found
+      helm uninstall {{ external_dns_release_name }} -n {{ external_dns_namespace }} --ignore-not-found
   register: external_dns_uninstall_result
   retries: 5
   delay: 30
