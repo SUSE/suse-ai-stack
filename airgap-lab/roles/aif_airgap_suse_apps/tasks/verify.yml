@@ -1,0 +1,38 @@
+---
+- name: Test application APIs on the selected target
+  when:
+    - suse_apps_deploy | bool
+    - suse_apps_cluster_id in suse_apps_target_clusters
+  vars:
+    suse_apps_cluster_id: "{{ 'local' if inventory_hostname in groups['aif_management'] else downstream_cluster_id | default('') }}"
+  block:
+    - name: Require public egress isolation during application tests
+      ansible.builtin.command: systemctl is-active aif-airgap-isolation.service
+      changed_when: false
+
+    - name: Install the SUSE application API probe
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../scripts/probe-suse-apps.sh"
+        dest: /var/lib/aif-airgap-probe-suse-apps.sh
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Write and search Qdrant vectors and check the Ollama API
+      ansible.builtin.command:
+        argv:
+          - /var/lib/aif-airgap-probe-suse-apps.sh
+          - "{{ suse_apps_namespace }}"
+          - "{{ suse_apps_timeout_seconds | string }}"
+      register: suse_apps_probe
+      changed_when: false
+
+    - name: Save the application evidence on the controller
+      ansible.builtin.copy:
+        dest: "{{ playbook_dir }}/../generated/suse-apps-{{ inventory_hostname }}.txt"
+        content: "{{ suse_apps_probe.stdout }}\n"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_become: false

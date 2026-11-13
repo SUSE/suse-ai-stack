@@ -23,6 +23,11 @@ output "mgmt_instance_public_ip" {
   value       = aws_instance.cp_master.public_ip
 }
 
+output "mgmt_instance_private_ip" {
+  description = "Private IP address of the management control-plane instance"
+  value       = aws_instance.cp_master.private_ip
+}
+
 output "mgmt_instance_public_ip_cp_other" {
   value       = data.aws_instance.cp_other.*.public_ip
   description = "IP of the control plane instances - other"
@@ -39,23 +44,28 @@ output "instance_public_ip_worker_nongpu" {
 }
 
 output "mgmt_kubeapi_fqdn" {
-  value = data.aws_lb.rke2.dns_name
+  value       = data.aws_lb.rke2.dns_name
   description = "RKE2 endpoint"
 }
 
 output "mgmt_ingress_fqdn" {
-  value = data.aws_lb.ingress.dns_name
+  value       = data.aws_lb.ingress.dns_name
   description = "Mgmt Ingress endpoint"
 }
 
 output "suse_ai_instance_id" {
   description = "ID of the EC2 instance for SUSE AI cluster"
-  value = try(aws_instance.suse_ai_cp_master[0].id, null)
+  value       = try(aws_instance.suse_ai_cp_master[0].id, null)
 }
 
 output "suse_ai_instance_public_ip" {
   description = "Public IP address of the EC2 instance master for SUSE AI cluster"
   value       = try(aws_instance.suse_ai_cp_master[0].public_ip, null)
+}
+
+output "suse_ai_instance_private_ip" {
+  description = "Private IP address of the SUSE AI control-plane instance"
+  value       = try(aws_instance.suse_ai_cp_master[0].private_ip, null)
 }
 
 output "suse_ai_instance_public_ip_cp_other" {
@@ -74,19 +84,19 @@ output "suse_ai_instance_public_ip_worker_nongpu" {
 }
 
 output "suse_ai_kubeapi_fqdn" {
-  value = try(data.aws_lb.suse_ai_rke2[0].dns_name, null)
+  value       = try(data.aws_lb.suse_ai_rke2[0].dns_name, null)
   description = "RKE2 endpoint for SUSE AI cluster"
 }
 
 output "suse_ai_ingress_fqdn" {
-  value = try(data.aws_lb.suse_ai_ingress[0].dns_name, null)
+  value       = try(data.aws_lb.suse_ai_ingress[0].dns_name, null)
   description = "Ingress LB endpoint for SUSE AI cluster"
 }
 
 
 output "suse_observability_instance_id" {
   description = "ID of the EC2 instance for SUSE Observability cluster"
-  value = try(aws_instance.suse_observability_cp_master[0].id, null)
+  value       = try(aws_instance.suse_observability_cp_master[0].id, null)
 }
 
 output "suse_observability_instance_public_ip" {
@@ -105,11 +115,26 @@ output "suse_observability_instance_public_ip_worker" {
 }
 
 output "suse_observability_kubeapi_fqdn" {
-  value = try(data.aws_lb.suse_observ_rke2[0].dns_name, null)
+  value       = try(data.aws_lb.suse_observ_rke2[0].dns_name, null)
   description = "RKE2 endpoint for SUSE Observability cluster"
 }
 
 output "suse_observability_ingress_fqdn" {
-  value = try(data.aws_lb.suse_observ_ingress[0].dns_name, null)
+  value       = try(data.aws_lb.suse_observ_ingress[0].dns_name, null)
   description = "Ingress LB endpoint for SUSE Observability cluster"
+}
+
+output "airgap_services_instance_id" {
+  description = "ID of the optional AIF air-gap services instance"
+  value       = try(aws_instance.airgap_services[0].id, null)
+}
+
+output "airgap_services_public_ip" {
+  description = "Public SSH address of the optional AIF air-gap services instance"
+  value       = try(aws_instance.airgap_services[0].public_ip, null)
+}
+
+output "airgap_services_private_ip" {
+  description = "Private Harbor/Gitea address of the optional AIF air-gap services instance"
+  value       = try(aws_instance.airgap_services[0].private_ip, null)
 }

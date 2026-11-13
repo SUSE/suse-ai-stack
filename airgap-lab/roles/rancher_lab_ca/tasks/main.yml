@@ -1,0 +1,81 @@
+---
+- name: Skip Rancher CA mount when testing the expected failure
+  ansible.builtin.debug:
+    msg: "rancher_trust_lab_ca=false: Harbor ClusterRepo custom-CA failure is expected."
+  when: not (rancher_trust_lab_ca | bool)
+
+- name: Configure Rancher additional trusted CA
+  when: rancher_trust_lab_ca | bool
+  block:
+    - name: Copy the lab CA to the management node
+      ansible.builtin.copy:
+        src: "{{ airgap_ca_source }}"
+        dest: /var/lib/aif-airgap-lab-ca.crt
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Apply Rancher's tls-ca-additional secret
+      ansible.builtin.shell: |
+        set -euo pipefail
+        /var/lib/rancher/rke2/bin/kubectl -n {{ rancher_namespace | quote }} create secret generic tls-ca-additional \
+          --from-file=ca-additional.pem=/var/lib/aif-airgap-lab-ca.crt \
+          --dry-run=client -o yaml \
+          --kubeconfig /etc/rancher/rke2/rke2.yaml \
+          | /var/lib/rancher/rke2/bin/kubectl apply -f - \
+              --kubeconfig /etc/rancher/rke2/rke2.yaml
+      args:
+        executable: /bin/bash
+      register: rancher_ca_secret_apply
+      changed_when: "'created' in rancher_ca_secret_apply.stdout or 'configured' in rancher_ca_secret_apply.stdout"
+
+    - name: Read the installed Rancher chart version
+      ansible.builtin.shell: |
+        set -euo pipefail
+        helm list --namespace {{ rancher_namespace | quote }} \
+          --filter {{ ('^' ~ (rancher_release_name | regex_escape) ~ '$') | quote }} --output json \
+          --kubeconfig /etc/rancher/rke2/rke2.yaml \
+          | jq -er '.[0].chart | sub("^rancher-"; "")'
+      args:
+        executable: /bin/bash
+      register: rancher_chart_version_result
+      changed_when: false
+
+    - name: Add the Rancher chart repository while connected
+      ansible.builtin.command:
+        cmd: >-
+          helm repo add {{ rancher_chart_repo_name }} {{ rancher_chart_repo_url }} --force-update
+      changed_when: true
+
+    - name: Mount the additional CA through the Rancher chart
+      ansible.builtin.command:
+        cmd: >-
+          helm upgrade {{ rancher_release_name }} {{ rancher_chart_repo_name }}/rancher
+          --namespace {{ rancher_namespace }}
+          --version {{ rancher_chart_version_result.stdout }}
+          --reuse-values
+          --set additionalTrustedCAs=true
+          --atomic --timeout 15m
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
+      register: rancher_upgrade
+      retries: 2
+      delay: 20
+      until: rancher_upgrade.rc == 0
+
+    - name: Confirm the Rancher deployment mounts the additional CA
+      ansible.builtin.shell: |
+        set -euo pipefail
+        /var/lib/rancher/rke2/bin/kubectl -n {{ rancher_namespace | quote }} \
+          get deployment {{ rancher_release_name | quote }} \
+          --kubeconfig /etc/rancher/rke2/rke2.yaml -o json \
+          | jq -e '.spec.template.spec.volumes[] | select(.secret.secretName == "tls-ca-additional")'
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+- name: Report the private CA trust boundaries
+  ansible.builtin.debug:
+    msg: >-
+      Rancher trusts the lab CA through tls-ca-additional. AIF Settings must
+      independently reference the same CA for go-git and the Fleet GitRepo;
+      the install and verify phases assert both consumers.

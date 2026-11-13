@@ -1,0 +1,10 @@
+---
+airgap_profile: suse
+chatbot_charts:
+  - { name: ollama, version: "1.55.0" }
+  - { name: open-webui, version: "8.19.1" }
+  - { name: open-webui-mcpo, version: "1.0.2" }
+application_images: >-
+  {{ (lookup('ansible.builtin.file', playbook_dir ~ '/../artifacts.yml') | from_yaml)
+     .spec.images | selectattr('profiles', 'contains', 'suse' if airgap_profile == 'suse' else 'chatbot')
+     | map(attribute='source') | list }}

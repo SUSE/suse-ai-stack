@@ -1,0 +1,47 @@
+apiVersion: ai-factory.suse.com/v1alpha1
+kind: Blueprint
+metadata:
+  name: appco-ollama-airgap-0-1-0
+  labels:
+    ai-factory.suse.com/blueprint-name: appco-ollama-airgap
+    ai-factory.suse.com/blueprint-version: 0.1.0
+    airgap-lab.suse.com/profile: suse
+spec:
+  displayName: Ollama from SUSE Application Collection (air-gap lab)
+  version: 0.1.0
+  description: CPU Ollama server for private-image and API tests. Starts without models; inference requires separately imported model files.
+  source: Custom
+  components:
+    - chartRepo: application-collection
+      chartName: ollama
+      chartVersion: 1.55.0
+      vendor: suse
+      releaseName: appco-ollama
+      values:
+        fullnameOverride: appco-ollama
+        image:
+          registry: dp.apps.rancher.io
+          repository: containers/ollama
+          tag: 0.21.2-11.48
+          pullPolicy: Always
+        ollama:
+          gpu:
+            enabled: false
+            draEnabled: false
+          models:
+            pull: []
+            run: []
+            create: []
+        persistentVolume:
+          enabled: true
+          size: 2Gi
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: "2"
+            memory: 1Gi
+        # API probes in suse-apps replace the upstream Docker Hub test hook.
+        tests:
+          enabled: false

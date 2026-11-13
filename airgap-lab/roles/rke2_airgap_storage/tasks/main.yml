@@ -1,0 +1,51 @@
+---
+- name: Read the local-path storage helper configuration
+  ansible.builtin.command:
+    argv: [kubectl, -n, local-path-storage, get, configmap, local-path-config, -o, json]
+  register: local_path_config
+  changed_when: false
+
+- name: Configure the storage helper to use mirrored SUSE BusyBox
+  vars:
+    helper_template: "{{ (local_path_config.stdout | from_json).data['helperPod.yaml'] | from_yaml }}"
+    helper_image: registry.suse.com/bci/bci-busybox:15.7
+  block:
+    - name: Require the expected local-path helper container
+      ansible.builtin.assert:
+        that:
+          - helper_template.spec.containers | length == 1
+          - helper_template.spec.containers[0].name == 'helper-pod'
+
+    - name: Pin the local-path helper image without changing its other settings
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - -n
+          - local-path-storage
+          - patch
+          - configmap
+          - local-path-config
+          - --type=merge
+          - --patch
+          - "{{ {'data': {'helperPod.yaml': updated_template | to_nice_yaml}} | to_json }}"
+      vars:
+        updated_template: >-
+          {{ helper_template | combine({'spec': {'containers': [
+            helper_template.spec.containers[0] | combine({
+              'image': helper_image, 'imagePullPolicy': 'IfNotPresent'})]}}, recursive=true) }}
+      when: >-
+        helper_template.spec.containers[0].image != helper_image or
+        helper_template.spec.containers[0].imagePullPolicy | default('') != 'IfNotPresent'
+      register: local_path_helper_patch
+      changed_when: true
+
+    - name: Reload the provisioner after changing its helper template
+      ansible.builtin.command:
+        argv: [kubectl, -n, local-path-storage, rollout, restart, deployment/local-path-provisioner]
+      when: local_path_helper_patch.changed
+      changed_when: true
+
+    - name: Wait for the storage provisioner to be ready
+      ansible.builtin.command:
+        argv: [kubectl, -n, local-path-storage, rollout, status, deployment/local-path-provisioner, --timeout=2m]
+      changed_when: false

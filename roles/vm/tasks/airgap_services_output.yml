@@ -1,0 +1,13 @@
+---
+- name: Set up facts for the air-gap services node
+  ansible.builtin.set_fact:
+    airgap_services_public_ip: "{{ tofu_outputs.airgap_services_public_ip.value }}"
+    airgap_services_private_ip: "{{ tofu_outputs.airgap_services_private_ip.value }}"
+    airgap_services_nodes:
+      - name: airgap-services
+        hostname: airgap-services
+        ip: "{{ tofu_outputs.airgap_services_public_ip.value }}"
+
+- name: Display the air-gap services node address
+  ansible.builtin.debug:
+    msg: "Air-gap services node is available for SSH at {{ airgap_services_public_ip }}"

@@ -1,0 +1,57 @@
+# Managed by the SUSE AI Factory air-gap QA lab.
+# This isolated table does not flush or replace firewalld/RKE2-owned tables.
+table inet aif_airgap_lab {}
+delete table inet aif_airgap_lab
+
+table inet aif_airgap_lab {
+  chain host_output {
+    type filter hook output priority 20; policy accept;
+
+    oifname "lo" counter accept comment "loopback"
+    ct state established,related counter accept comment "responses to allowed inbound administration"
+
+{% if airgap_allowed_ipv4_cidrs | length > 0 %}
+    ip daddr { {{ airgap_allowed_ipv4_cidrs | join(', ') }} } counter accept comment "internal IPv4 destinations"
+{% endif %}
+{% if airgap_allowed_ipv6_cidrs | length > 0 %}
+    ip6 daddr { {{ airgap_allowed_ipv6_cidrs | join(', ') }} } counter accept comment "internal IPv6 destinations"
+{% endif %}
+{% if airgap_dns_servers | length > 0 %}
+    ip daddr { {{ airgap_dns_servers | join(', ') }} } meta l4proto { tcp, udp } th dport 53 counter accept comment "internal DNS"
+{% endif %}
+
+    udp sport 68 udp dport 67 counter accept comment "DHCPv4 lease renewal"
+    ip6 daddr { fe80::/10, ff00::/8 } counter accept comment "IPv6 link-local control traffic"
+{% if airgap_log_rejects | bool %}
+    limit rate 10/second burst 20 packets log prefix "AIF-AIRGAP host " flags all counter
+{% endif %}
+    reject with icmpx type admin-prohibited
+  }
+
+  chain pod_forward {
+    type filter hook forward priority 20; policy accept;
+
+    ct state established,related counter accept comment "responses to allowed inbound services"
+
+{% if airgap_pod_ipv4_cidrs | length > 0 %}
+    ip saddr { {{ airgap_pod_ipv4_cidrs | join(', ') }} } ip daddr { {{ airgap_allowed_ipv4_cidrs | join(', ') }} } counter accept comment "pods to internal IPv4"
+{% if airgap_dns_servers | length > 0 %}
+    ip saddr { {{ airgap_pod_ipv4_cidrs | join(', ') }} } ip daddr { {{ airgap_dns_servers | join(', ') }} } meta l4proto { tcp, udp } th dport 53 counter accept comment "pods to internal DNS"
+{% endif %}
+{% if airgap_log_rejects | bool %}
+    ip saddr { {{ airgap_pod_ipv4_cidrs | join(', ') }} } limit rate 10/second burst 20 packets log prefix "AIF-AIRGAP pod4 " flags all counter
+{% endif %}
+    ip saddr { {{ airgap_pod_ipv4_cidrs | join(', ') }} } reject with icmpx type admin-prohibited
+{% endif %}
+
+{% if airgap_pod_ipv6_cidrs | length > 0 %}
+{% if airgap_allowed_ipv6_cidrs | length > 0 %}
+    ip6 saddr { {{ airgap_pod_ipv6_cidrs | join(', ') }} } ip6 daddr { {{ airgap_allowed_ipv6_cidrs | join(', ') }} } counter accept comment "pods to internal IPv6"
+{% endif %}
+{% if airgap_log_rejects | bool %}
+    ip6 saddr { {{ airgap_pod_ipv6_cidrs | join(', ') }} } limit rate 10/second burst 20 packets log prefix "AIF-AIRGAP pod6 " flags all counter
+{% endif %}
+    ip6 saddr { {{ airgap_pod_ipv6_cidrs | join(', ') }} } reject with icmpx type admin-prohibited
+{% endif %}
+  }
+}
