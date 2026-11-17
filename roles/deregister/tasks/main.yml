@@ -1,21 +1,21 @@
 # Only called by the destroy playbook
-# SLES instances created in AWS are on-demand instances and hence using registercloudguest --clean
-# SL-Micro instances created in AWS are BYOL instances
+# Cloud instances are cleaned up with registercloudguest; other systems are
+# de-registered from SCC so that the subscription is released.
 # ok to ignore error during de-registration. Not critical
-- name: De-register sles
-  become: true
-  ansible.builtin.shell: |
-    registercloudguest --clean
-    SUSEConnect --cleanup
-  ignore_errors: true
-  when: ansible_distribution == 'SLES'
+- name: Check for transactional-update
+  ansible.builtin.stat:
+    path: /usr/sbin/transactional-update
+  register: deregister_transactional
 
-- name: De-register sl-micro
+- name: De-register
   become: true
   ansible.builtin.shell: |
-    transactional-update run registercloudguest --clean
+    if command -v registercloudguest >/dev/null; then
+      {{ 'transactional-update run ' if deregister_transactional.stat.exists else '' }}registercloudguest --clean
+    elif command -v SUSEConnect >/dev/null && ! SUSEConnect --status-text | grep -q 'Not Registered'; then
+      {{ 'transactional-update register -d' if deregister_transactional.stat.exists else 'SUSEConnect -d' }}
+    fi
   ignore_errors: true
-  when: ansible_distribution == 'SL-Micro'
 
 - name: Pause
   ansible.builtin.pause:
