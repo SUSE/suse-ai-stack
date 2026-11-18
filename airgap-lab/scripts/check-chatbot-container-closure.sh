@@ -4,7 +4,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 lab_dir="$(cd "${script_dir}/.." && pwd)"
 manifest="${lab_dir}/artifacts.yml"
-source_dir="${AIF_SOURCE_DIR:-$(cd "${lab_dir}/../.." && pwd)/aif}"
+source_dir="${AIF_SOURCE_DIR:-}"
 
 usage() {
   printf '%s\n' \
@@ -29,7 +29,6 @@ for command_name in helm yq; do
   }
 done
 [[ -f "${manifest}" ]] || { printf 'Manifest not found: %s\n' "${manifest}" >&2; exit 2; }
-[[ -d "${source_dir}" ]] || { printf 'AIF source directory not found: %s\n' "${source_dir}" >&2; exit 2; }
 
 blueprint_name="$(yq -r '.metadata.annotations."airgap.ai-factory.suse.com/chatbot-blueprint-name"' "${manifest}")"
 blueprint_version="$(yq -r '.metadata.annotations."airgap.ai-factory.suse.com/chatbot-blueprint-version"' "${manifest}")"
@@ -38,7 +37,27 @@ if [[ -z "${blueprint_name}" || "${blueprint_name}" == "null" || \
   printf 'Manifest must pin the chatbot Blueprint name and version annotations.\n' >&2
   exit 1
 fi
-blueprint="${source_dir}/charts/aif-operator/files/blueprints/${blueprint_name}-${blueprint_version}.yaml"
+work_dir="$(mktemp -d)"
+cleanup() { rm -rf -- "${work_dir}"; }
+trap cleanup EXIT
+export HELM_REGISTRY_CONFIG="${work_dir}/registry.json"
+export HELM_REPOSITORY_CONFIG="${work_dir}/repositories.yaml"
+export HELM_REPOSITORY_CACHE="${work_dir}/repository-cache"
+blueprint_file="files/blueprints/${blueprint_name}-${blueprint_version}.yaml"
+if [[ -n "${source_dir}" ]]; then
+  blueprint="${source_dir}/charts/aif-operator/${blueprint_file}"
+else
+  chart_filter='.spec.charts[] | select(.id == "aif-operator")'
+  source="$(yq -er "${chart_filter} | .source" "${manifest}")"
+  version="$(yq -er "${chart_filter} | .version" "${manifest}")"
+  if [[ "$(yq -er "${chart_filter} | .sourceType" "${manifest}")" == local ]]; then
+    blueprint="$(dirname "${manifest}")/${source}/${blueprint_file}"
+  else
+    helm pull "${source}" --version "${version}" --destination "${work_dir}"
+    blueprint="${work_dir}/blueprint.yaml"
+    tar -xOzf "${work_dir}/aif-operator-${version}.tgz" "aif-operator/${blueprint_file}" > "${blueprint}"
+  fi
+fi
 [[ -f "${blueprint}" ]] || { printf 'Pinned Blueprint not found: %s\n' "${blueprint}" >&2; exit 1; }
 
 actual_family="$(yq -r '.metadata.labels."ai-factory.suse.com/blueprint-name"' "${blueprint}")"
@@ -48,12 +67,6 @@ if [[ "${actual_family}" != "${blueprint_name}" || "${actual_version}" != "${blu
   exit 1
 fi
 
-work_dir="$(mktemp -d)"
-cleanup() { rm -rf -- "${work_dir}"; }
-trap cleanup EXIT
-export HELM_REGISTRY_CONFIG="${work_dir}/registry.json"
-export HELM_REPOSITORY_CONFIG="${work_dir}/repositories.yaml"
-export HELM_REPOSITORY_CACHE="${work_dir}/repository-cache"
 if [[ -n "${APPCO_USERNAME:-}" || -n "${APPCO_PASSWORD:-}" ]]; then
   : "${APPCO_USERNAME:?Set APPCO_USERNAME together with APPCO_PASSWORD}"
   : "${APPCO_PASSWORD:?Set APPCO_PASSWORD together with APPCO_USERNAME}"

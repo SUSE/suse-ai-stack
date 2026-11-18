@@ -8,7 +8,7 @@ base_vars="${AIF_AIRGAP_BASE_VARS:-${project_dir}/extra_vars.yml}"
 generated_dir="${lab_dir}/generated"
 stack_vars="${AIF_AIRGAP_STACK_VARS:-${generated_dir}/stack-vars.yml}"
 lab_vars="${AIF_AIRGAP_VARS:-${generated_dir}/vars.yml}"
-source_dir="${AIF_SOURCE_DIR:-$(cd "${project_dir}/.." && pwd)/aif}"
+source_dir="${AIF_SOURCE_DIR:-}"
 workspace="${AIF_AIRGAP_TOFU_WORKSPACE:-suseai-882-airgap}"
 
 for command_name in curl git jq openssl ssh-keygen yq; do
@@ -22,10 +22,13 @@ done
   printf 'AWS credential/configuration file not found: %s\n' "${base_vars}" >&2
   exit 2
 }
-[[ -d "${source_dir}/.git" && -f "${source_dir}/charts/aif-operator/Chart.yaml" ]] || {
-  printf 'AIF source checkout not found or incomplete: %s\n' "${source_dir}" >&2
-  exit 2
-}
+if [[ -n "${source_dir}" ]]; then
+  [[ -e "${source_dir}/.git" && -f "${source_dir}/charts/aif-operator/Chart.yaml" ]] || {
+    printf 'AIF source checkout not found or incomplete: %s\n' "${source_dir}" >&2
+    exit 2
+  }
+  source_dir="$(cd "${source_dir}" && pwd)"
+fi
 
 required_paths=(
   .aws_access_key
@@ -148,14 +151,22 @@ if (( ${#base_prefix} > 10 )); then
 fi
 resource_prefix="${base_prefix:0:10}-${lab_suffix}"
 key_name="${base_key_name}-${lab_suffix}"
-aif_version="$(yq -r '.version' "${source_dir}/charts/aif-operator/Chart.yaml")"
-aif_commit="$(git -C "${source_dir}" rev-parse HEAD)"
-aif_image_tag="${aif_version}-${aif_commit:0:12}"
+artifacts="${lab_dir}/artifacts.yml"
+rancher_version="$(yq -er '[.spec.charts[] | select(.chart == "rancher") | .version] | .[-1]' "${artifacts}")"
+aif_version="$(yq -er '.spec.charts[] | select(.id == "aif-operator") | .version' "${artifacts}")"
+aif_commit=""
+aif_image_tag="${aif_version}"
+if [[ -n "${source_dir}" ]]; then
+  aif_version="$(yq -er '.version' "${source_dir}/charts/aif-operator/Chart.yaml")"
+  aif_commit="$(git -C "${source_dir}" rev-parse HEAD)"
+  aif_image_tag="${aif_version}-${aif_commit:0:12}"
+fi
 
 cp "${base_vars}" "${stack_vars}"
 MANAGEMENT_TOKEN="${management_token}" \
 DOWNSTREAM_TOKEN="${downstream_token}" \
 RANCHER_PASSWORD="${rancher_password}" \
+RANCHER_VERSION="${rancher_version}" \
 CONTROLLER_CIDR="${controller_cidr}" \
 RESOURCE_PREFIX="${resource_prefix}" \
 KEY_NAME="${key_name}" \
@@ -184,6 +195,7 @@ yq -i '
   .enable_open_webui_mcpo = false |
   .pipelines_enabled = false |
   .rancher_hostname = "suse-rancher.demo" |
+  .rancher_version = (.rancher_version // strenv(RANCHER_VERSION)) |
   .rancher_replicas = 1 |
   .display_credentials = false |
   .rancher_bootstrap_password = strenv(RANCHER_PASSWORD) |
@@ -307,7 +319,8 @@ for cluster_name in cluster suse_ai_cluster; do
     "$(yq -r ".${cluster_name}.num_worker_nodes_nongpu" "${stack_vars}")" \
     "$(yq -r ".${cluster_name}.instance_type_nongpu" "${stack_vars}")"
 done
-printf '  AIF source: %s (%s)\n' "${aif_commit:0:12}" "${aif_version}"
+printf '  Rancher target: %s\n' "${rancher_version}"
+printf '  AIF: %s (%s)\n' "${aif_version}" "${aif_commit:-published}"
 printf '  AIF image tag: %s\n' "${aif_image_tag}"
 printf '  AIF install mode: %s\n' "${requested_install_mode}"
 printf '  AIF registry CA mode: %s\n' "${requested_ca_mode}"

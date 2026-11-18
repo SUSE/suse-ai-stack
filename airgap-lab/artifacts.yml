@@ -8,19 +8,36 @@ metadata:
     airgap.ai-factory.suse.com/chatbot-blueprint-version: "1.0.2"
 spec:
   charts:
+    # Stage adjacent minor versions for labs upgrading from Rancher 2.13.
+    - id: rancher-2.14.3
+      profiles: [core]
+      sourceType: helm-repo
+      source: https://releases.rancher.com/server-charts/stable
+      chart: rancher
+      version: 2.14.3
+      archive: rancher-2.14.3.tgz
+      targets: [aif-system]
+    - id: rancher-2.15.3
+      profiles: [core]
+      sourceType: helm-repo
+      source: https://releases.rancher.com/server-charts/stable
+      chart: rancher
+      version: 2.15.3
+      archive: rancher-2.15.3.tgz
+      targets: [aif-system]
     - id: aif-operator
       profiles: [core]
       sourceType: oci
       source: oci://ghcr.io/suse/chart/aif-operator
-      version: 2.2.0-dev.1
-      archive: aif-operator-2.2.0-dev.1.tgz
+      version: 2.4.0
+      archive: aif-operator-2.4.0.tgz
       targets: [aif-system]
     - id: aif-ui
       profiles: [core]
       sourceType: oci
       source: oci://ghcr.io/suse/chart/aif-ui
-      version: 2.2.0-dev.1
-      archive: aif-ui-2.2.0-dev.1.tgz
+      version: 2.4.0
+      archive: aif-ui-2.4.0.tgz
       targets: [aif-system]
     # The suse profile adds CPU-only Qdrant and AppCo Ollama test Blueprints.
     - id: suse-qdrant
@@ -83,14 +100,14 @@ spec:
   images:
     - id: aif-operator
       profiles: [core]
-      source: ghcr.io/suse/aif-operator:2.2.0-dev.1
-      bundlePath: ghcr.io_suse_aif-operator_2.2.0-dev.1.dir
-      target: aif-images/ghcr.io/suse/aif-operator:2.2.0-dev.1
+      source: ghcr.io/suse/aif-operator:2.4.0
+      bundlePath: ghcr.io_suse_aif-operator_2.4.0.dir
+      target: aif-images/ghcr.io/suse/aif-operator:2.4.0
     - id: aif-ui
       profiles: [core]
-      source: ghcr.io/suse/aif-ui:2.2.0-dev.1
-      bundlePath: ghcr.io_suse_aif-ui_2.2.0-dev.1.dir
-      target: aif-images/ghcr.io/suse/aif-ui:2.2.0-dev.1
+      source: ghcr.io/suse/aif-ui:2.4.0
+      bundlePath: ghcr.io_suse_aif-ui_2.4.0.dir
+      target: aif-images/ghcr.io/suse/aif-ui:2.4.0
     - id: aif-kubectl
       profiles: [core]
       source: registry.suse.com/suse/kubectl:1.35
@@ -205,3 +222,175 @@ spec:
       source: docker.io/bitnami/postgresql:latest
       bundlePath: docker.io_bitnami_postgresql_latest.dir
       target: aif-images/docker.io/bitnami/postgresql:latest
+
+    # Rancher Manager and its controllers on the lab's imported Linux RKE2 clusters.
+    - id: cluster-api-controller-v1.12.7
+      profiles: [core]
+      source: docker.io/rancher/cluster-api-controller:v1.12.7
+      bundlePath: docker.io_rancher_cluster-api-controller_v1.12.7.dir
+      target: aif-images/docker.io/rancher/cluster-api-controller:v1.12.7
+    - id: fleet-agent-v0.15.4
+      profiles: [core]
+      source: docker.io/rancher/fleet-agent:v0.15.4
+      bundlePath: docker.io_rancher_fleet-agent_v0.15.4.dir
+      target: aif-images/docker.io/rancher/fleet-agent:v0.15.4
+    - id: fleet-v0.15.4
+      profiles: [core]
+      source: docker.io/rancher/fleet:v0.15.4
+      bundlePath: docker.io_rancher_fleet_v0.15.4.dir
+      target: aif-images/docker.io/rancher/fleet:v0.15.4
+    - id: kuberlr-kubectl-v6.0.0
+      profiles: [core]
+      source: docker.io/rancher/kuberlr-kubectl:v6.0.0
+      bundlePath: docker.io_rancher_kuberlr-kubectl_v6.0.0.dir
+      target: aif-images/docker.io/rancher/kuberlr-kubectl:v6.0.0
+    - id: kuberlr-kubectl-v7.0.3
+      profiles: [core]
+      source: docker.io/rancher/kuberlr-kubectl:v7.0.3
+      bundlePath: docker.io_rancher_kuberlr-kubectl_v7.0.3.dir
+      target: aif-images/docker.io/rancher/kuberlr-kubectl:v7.0.3
+    - id: kuberlr-kubectl-v7.1.0
+      profiles: [core]
+      source: docker.io/rancher/kuberlr-kubectl:v7.1.0
+      bundlePath: docker.io_rancher_kuberlr-kubectl_v7.1.0.dir
+      target: aif-images/docker.io/rancher/kuberlr-kubectl:v7.1.0
+    - id: mirrored-bci-micro-15.6.24.2
+      profiles: [core]
+      source: docker.io/rancher/mirrored-bci-micro:15.6.24.2
+      bundlePath: docker.io_rancher_mirrored-bci-micro_15.6.24.2.dir
+      target: aif-images/docker.io/rancher/mirrored-bci-micro:15.6.24.2
+    - id: rancher-agent-v2.14.3
+      profiles: [core]
+      source: docker.io/rancher/rancher-agent:v2.14.3
+      bundlePath: docker.io_rancher_rancher-agent_v2.14.3.dir
+      target: aif-images/docker.io/rancher/rancher-agent:v2.14.3
+    - id: rancher-webhook-v0.10.7
+      profiles: [core]
+      source: docker.io/rancher/rancher-webhook:v0.10.7
+      bundlePath: docker.io_rancher_rancher-webhook_v0.10.7.dir
+      target: aif-images/docker.io/rancher/rancher-webhook:v0.10.7
+    - id: rancher-v2.14.3
+      profiles: [core]
+      source: docker.io/rancher/rancher:v2.14.3
+      bundlePath: docker.io_rancher_rancher_v2.14.3.dir
+      target: aif-images/docker.io/rancher/rancher:v2.14.3
+    - id: remotedialer-proxy-v0.7.4
+      profiles: [core]
+      source: docker.io/rancher/remotedialer-proxy:v0.7.4
+      bundlePath: docker.io_rancher_remotedialer-proxy_v0.7.4.dir
+      target: aif-images/docker.io/rancher/remotedialer-proxy:v0.7.4
+    - id: scc-operator-v0.4.3
+      profiles: [core]
+      source: docker.io/rancher/scc-operator:v0.4.3
+      bundlePath: docker.io_rancher_scc-operator_v0.4.3.dir
+      target: aif-images/docker.io/rancher/scc-operator:v0.4.3
+    - id: shell-v0.7.1
+      profiles: [core]
+      source: docker.io/rancher/shell:v0.7.1
+      bundlePath: docker.io_rancher_shell_v0.7.1.dir
+      target: aif-images/docker.io/rancher/shell:v0.7.1
+    - id: system-agent-v0.14.0-suc
+      profiles: [core]
+      source: docker.io/rancher/system-agent:v0.14.0-suc
+      bundlePath: docker.io_rancher_system-agent_v0.14.0-suc.dir
+      target: aif-images/docker.io/rancher/system-agent:v0.14.0-suc
+    - id: system-upgrade-controller-v0.19.1
+      profiles: [core]
+      source: docker.io/rancher/system-upgrade-controller:v0.19.1
+      bundlePath: docker.io_rancher_system-upgrade-controller_v0.19.1.dir
+      target: aif-images/docker.io/rancher/system-upgrade-controller:v0.19.1
+    - id: turtles-v0.26.3
+      profiles: [core]
+      source: docker.io/rancher/turtles:v0.26.3
+      bundlePath: docker.io_rancher_turtles_v0.26.3.dir
+      target: aif-images/docker.io/rancher/turtles:v0.26.3
+    - id: ui-plugin-catalog-4.28.0
+      profiles: [core]
+      source: docker.io/rancher/ui-plugin-catalog:4.28.0
+      bundlePath: docker.io_rancher_ui-plugin-catalog_4.28.0.dir
+      target: aif-images/docker.io/rancher/ui-plugin-catalog:4.28.0
+    - id: cluster-api-controller-v1.13.3
+      profiles: [core]
+      source: docker.io/rancher/cluster-api-controller:v1.13.3
+      bundlePath: docker.io_rancher_cluster-api-controller_v1.13.3.dir
+      target: aif-images/docker.io/rancher/cluster-api-controller:v1.13.3
+    - id: fleet-agent-v0.16.3
+      profiles: [core]
+      source: docker.io/rancher/fleet-agent:v0.16.3
+      bundlePath: docker.io_rancher_fleet-agent_v0.16.3.dir
+      target: aif-images/docker.io/rancher/fleet-agent:v0.16.3
+    - id: fleet-v0.16.3
+      profiles: [core]
+      source: docker.io/rancher/fleet:v0.16.3
+      bundlePath: docker.io_rancher_fleet_v0.16.3.dir
+      target: aif-images/docker.io/rancher/fleet:v0.16.3
+    - id: kuberlr-kubectl-v7.1.1
+      profiles: [core]
+      source: docker.io/rancher/kuberlr-kubectl:v7.1.1
+      bundlePath: docker.io_rancher_kuberlr-kubectl_v7.1.1.dir
+      target: aif-images/docker.io/rancher/kuberlr-kubectl:v7.1.1
+    - id: kuberlr-kubectl-v8.1.1
+      profiles: [core]
+      source: docker.io/rancher/kuberlr-kubectl:v8.1.1
+      bundlePath: docker.io_rancher_kuberlr-kubectl_v8.1.1.dir
+      target: aif-images/docker.io/rancher/kuberlr-kubectl:v8.1.1
+    - id: kuberlr-kubectl-v8.1.2
+      profiles: [core]
+      source: docker.io/rancher/kuberlr-kubectl:v8.1.2
+      bundlePath: docker.io_rancher_kuberlr-kubectl_v8.1.2.dir
+      target: aif-images/docker.io/rancher/kuberlr-kubectl:v8.1.2
+    - id: mirrored-bci-micro-16.0-15.11
+      profiles: [core]
+      source: docker.io/rancher/mirrored-bci-micro:16.0-15.11
+      bundlePath: docker.io_rancher_mirrored-bci-micro_16.0-15.11.dir
+      target: aif-images/docker.io/rancher/mirrored-bci-micro:16.0-15.11
+    - id: rancher-agent-v2.15.3
+      profiles: [core]
+      source: docker.io/rancher/rancher-agent:v2.15.3
+      bundlePath: docker.io_rancher_rancher-agent_v2.15.3.dir
+      target: aif-images/docker.io/rancher/rancher-agent:v2.15.3
+    - id: rancher-webhook-v0.11.4
+      profiles: [core]
+      source: docker.io/rancher/rancher-webhook:v0.11.4
+      bundlePath: docker.io_rancher_rancher-webhook_v0.11.4.dir
+      target: aif-images/docker.io/rancher/rancher-webhook:v0.11.4
+    - id: rancher-v2.15.3
+      profiles: [core]
+      source: docker.io/rancher/rancher:v2.15.3
+      bundlePath: docker.io_rancher_rancher_v2.15.3.dir
+      target: aif-images/docker.io/rancher/rancher:v2.15.3
+    - id: remotedialer-proxy-v0.8.3
+      profiles: [core]
+      source: docker.io/rancher/remotedialer-proxy:v0.8.3
+      bundlePath: docker.io_rancher_remotedialer-proxy_v0.8.3.dir
+      target: aif-images/docker.io/rancher/remotedialer-proxy:v0.8.3
+    - id: scc-operator-v0.5.3
+      profiles: [core]
+      source: docker.io/rancher/scc-operator:v0.5.3
+      bundlePath: docker.io_rancher_scc-operator_v0.5.3.dir
+      target: aif-images/docker.io/rancher/scc-operator:v0.5.3
+    - id: shell-v0.8.3
+      profiles: [core]
+      source: docker.io/rancher/shell:v0.8.3
+      bundlePath: docker.io_rancher_shell_v0.8.3.dir
+      target: aif-images/docker.io/rancher/shell:v0.8.3
+    - id: system-agent-v0.15.3-suc
+      profiles: [core]
+      source: docker.io/rancher/system-agent:v0.15.3-suc
+      bundlePath: docker.io_rancher_system-agent_v0.15.3-suc.dir
+      target: aif-images/docker.io/rancher/system-agent:v0.15.3-suc
+    - id: system-upgrade-controller-v0.20.1
+      profiles: [core]
+      source: docker.io/rancher/system-upgrade-controller:v0.20.1
+      bundlePath: docker.io_rancher_system-upgrade-controller_v0.20.1.dir
+      target: aif-images/docker.io/rancher/system-upgrade-controller:v0.20.1
+    - id: turtles-v0.27.4
+      profiles: [core]
+      source: docker.io/rancher/turtles:v0.27.4
+      bundlePath: docker.io_rancher_turtles_v0.27.4.dir
+      target: aif-images/docker.io/rancher/turtles:v0.27.4
+    - id: ui-plugin-catalog-4.53.0
+      profiles: [core]
+      source: docker.io/rancher/ui-plugin-catalog:4.53.0
+      bundlePath: docker.io_rancher_ui-plugin-catalog_4.53.0.dir
+      target: aif-images/docker.io/rancher/ui-plugin-catalog:4.53.0

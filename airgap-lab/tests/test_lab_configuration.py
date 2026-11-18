@@ -68,7 +68,7 @@ class NodeConfiguration(unittest.TestCase):
             (lab / 'scripts').mkdir(parents=True)
             for name in ['prepare-aws.sh', 'node-config.sh']:
                 shutil.copy2(LAB / 'scripts' / name, lab / 'scripts' / name)
-            for name in ['vars.example.yml', 'nodes.example.yml']:
+            for name in ['vars.example.yml', 'nodes.example.yml', 'artifacts.yml']:
                 shutil.copy2(LAB / name, lab / name)
             source = root / 'aif'
             (source / 'charts/aif-operator').mkdir(parents=True)
@@ -95,6 +95,9 @@ class NodeConfiguration(unittest.TestCase):
             run(str(lab / 'scripts/prepare-aws.sh'), env=env)
             first_stack = read_yaml(lab / 'generated/stack-vars.yml')
             old = read_yaml(lab / 'generated/vars.yml')
+            self.assertEqual(old['aif_version'], '1.2.3')
+            self.assertEqual(old['aif_image_tag'], '1.2.3-' + run(
+                'git', '-C', str(source), 'rev-parse', '--short=12', 'HEAD').stdout.strip())
             credentials = {k: old[k] for k in ['harbor_admin_password', 'gitea_admin_password', 'rancher_bootstrap_password']}
             old.pop('airgap_target_clusters')
             old['smoke_target_clusters'] = ['local', 'c-fixture']
@@ -103,9 +106,15 @@ class NodeConfiguration(unittest.TestCase):
             (lab / 'generated/vars.yml').write_text(json.dumps(old))
             (lab / 'nodes.yml').write_text('suse_ai_cluster:\n  num_worker_nodes_gpu: 1\n')
             env['AIF_AIRGAP_NODE_CONFIG'] = str(lab / 'nodes.yml')
+            env['AIF_SOURCE_DIR'] = ''
             run(str(lab / 'scripts/prepare-aws.sh'), env=env)
             second = read_yaml(lab / 'generated/vars.yml')
             stack = read_yaml(lab / 'generated/stack-vars.yml')
+            charts = read_yaml(lab / 'artifacts.yml')['spec']['charts']
+            release_version = next(c['version'] for c in charts if c['id'] == 'aif-operator')
+            self.assertEqual(second['aif_image_tag'], release_version)
+            self.assertEqual(second['aif_version'], release_version)
+            self.assertEqual(stack['rancher_version'], [c['version'] for c in charts if c.get('chart') == 'rancher'][-1])
             self.assertEqual(credentials, {k: second[k] for k in credentials})
             self.assertEqual(first_stack['cluster']['token'], stack['cluster']['token'])
             self.assertEqual(second['airgap_target_clusters'], ['local', 'c-fixture'])
@@ -144,6 +153,59 @@ class NodeConfiguration(unittest.TestCase):
             self.assertEqual(cpu_key, key())
             config['cluster']['num_worker_nodes_gpu'] = 1
             self.assertNotEqual(cpu_key, key())
+
+
+class RancherUpgrade(unittest.TestCase):
+    def test_upgrade_hops_and_reruns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            calls = root / 'upgrades'
+            helm = root / 'helm'
+            helm.write_text("""#!/bin/bash
+set -eu
+case "$1" in
+  list) if [[ "$2" == --all-namespaces ]]; then
+          echo '[{"namespace":"cattle-fleet-system","name":"fleet","chart":"fleet-1","status":"deployed"},{"namespace":"cattle-system","name":"rancher-webhook","chart":"rancher-webhook-1","status":"deployed"}]'
+          exit
+        fi
+        printf '[{"name":"rancher","chart":"rancher-%s"}]\\n' "$INSTALLED" ;;
+  get) echo '{"additionalTrustedCAs":false,"useBundledSystemChart":true,"systemDefaultRegistry":"harbor.test/aif-images/docker.io"}' ;;
+  upgrade) printf '%s\\n' "$*" >> "$UPGRADES" ;;
+  *) exit 2 ;;
+esac
+""")
+            helm.chmod(0o755)
+            kubectl = root / 'kubectl'
+            kubectl.write_text("""#!/bin/bash
+set -eu
+version=$(awk '{for (i=1; i<=NF; i++) if ($i=="--version") v=$(i+1)} END {print v}' "$UPGRADES")
+printf '{"items":[{"metadata":{"name":"server-version"},"value":"v%s"},{"metadata":{"name":"fleet-version"},"value":"1"},{"metadata":{"name":"rancher-webhook-version"},"value":"1"}]}' "${version:-$INSTALLED}"
+""")
+            kubectl.chmod(0o755)
+            versions = [c['version'] for c in read_yaml(LAB / 'artifacts.yml')['spec']['charts']
+                        if c.get('chart') == 'rancher']
+            play = root / 'upgrade.json'
+            play.write_text(json.dumps([{
+                'hosts': 'localhost', 'gather_facts': False, 'roles': ['rancher_lab_ca'],
+                'vars': {'rancher_release_name': 'rancher', 'rancher_namespace': 'cattle-system',
+                         'rancher_trust_lab_ca': False, 'rancher_upgrade_versions': versions,
+                         'harbor_hostname': 'harbor.test', 'aif_chart_project': 'aif-system',
+                         'aif_image_project': 'aif-images'},
+                'environment': {'PATH': str(root) + ':' + os.environ['PATH']}
+            }]))
+            for installed, expected in [('2.13.1', versions), (versions[0], versions[1:]),
+                                        (versions[-1], []), ('3.0.0', None)]:
+                with self.subTest(installed=installed):
+                    calls.write_text('')
+                    result = run('ansible-playbook', '-i', 'localhost,', '-c', 'local', str(play),
+                                 env={'ANSIBLE_ROLES_PATH': str(LAB / 'roles'),
+                                      'INSTALLED': installed, 'UPGRADES': str(calls)}, check=False)
+                    self.assertEqual(result.returncode == 0, expected is not None, result.stdout)
+                    upgrades = calls.read_text().splitlines()
+                    self.assertEqual([s.split('--version ')[1].split()[0] for s in upgrades], expected or [])
+                    for command in upgrades:
+                        self.assertIn('oci://harbor.test/aif-system/rancher', command)
+                        self.assertIn('--reset-then-reuse-values', command)
 
 
 class InventoryAndImages(unittest.TestCase):

@@ -37,11 +37,12 @@ credentials in the ignored top-level `extra_vars.yml`, then run:
 ./setup_airgap_lab.sh
 ```
 
-The command defaults to three CPU nodes, installs Rancher/RKE2, Harbor and
-Gitea, builds the exact sibling AIF checkout, transfers the checksummed `suse`
-bundle, applies the network gate, and deploys Qdrant and Ollama through their
-custom Blueprints. It removes the earlier synthetic smoke fixtures and disables
-bundled Blueprint cards whose complete offline dependencies are not staged. It is resumable: completed phases have ignored markers
+The command defaults to three CPU nodes. It bootstraps Rancher/RKE2, Harbor and
+Gitea, then transfers a checksummed bundle with Rancher 2.15.3, the published
+AIF 2.4.0 operator and UI, and the Qdrant and Ollama artifacts. With public
+egress closed, it reconciles Rancher and AIF through Harbor and tests both
+applications on the management and downstream clusters. The private Git
+repository supplies the two Blueprint cards. Completed phases have ignored markers
 under `airgap-lab/generated/state/`, so run the same command after correcting a
 failure. Useful lifecycle commands are:
 
@@ -96,8 +97,8 @@ AWS shape is `m6i.2xlarge` for management and `m6i.xlarge` for downstream and
 services, with no GPU instances. These are billable resources; always use the
 guarded destroy command when the QA session ends.
 
-By default the sibling checkout `../aif` is qualified and native Settings CA
-propagation is required (`aif_registry_ca_mode: settings`). Existing values in
+Set `AIF_SOURCE_DIR` to qualify a specific AIF checkout in place of the published
+release. Native Settings CA propagation is the default (`aif_registry_ca_mode: settings`). Existing values in
 the ignored `airgap-lab/generated/vars.yml` are retained across resumable runs;
 the script merges new example defaults into that file and overwrites only
 machine-derived values. Environment overrides are available for the two
@@ -207,6 +208,8 @@ provisioning is opt-in and is not part of the recorded CPU validation run.
 
 ## What is automated
 
+- Rancher upgrades from the private OCI chart, with bundled system charts and
+  Harbor as the registry for the management server, Fleet and downstream agents
 - a connected-stage, single-node, CPU-only RKE2 services cluster;
 - Harbor 2.15.2 through chart 1.19.2, private projects, authentication and a
   generated lab CA;
@@ -278,8 +281,8 @@ custom infrastructure. AWS users normally use the one-command path above.
 
 ## Run order
 
-The gate closes after connected prerequisites are staged but before AIF is
-installed. Each phase is idempotent unless noted.
+The gate closes after connected prerequisites are staged. Rancher upgrades and
+AIF installs or upgrades run on the isolated management cluster.
 
 ```console
 cd /path/to/suse-ai-stack
@@ -303,7 +306,7 @@ export SUSE_REGISTRY_USERNAME SUSE_REGISTRY_PASSWORD
 export NGC_USERNAME NGC_PASSWORD
 export DOCKERHUB_USERNAME DOCKERHUB_PASSWORD  # optional, avoids anonymous limits
 
-# core: AIF only; suse (default): core + Qdrant and CPU Ollama Blueprints;
+# core: Rancher and AIF; suse (default): core + Qdrant and CPU Ollama Blueprints;
 # chatbot: suse + Simple Chatbot chart/container closure;
 # vendor: core + broader AppCo/SUSE/NVIDIA examples; all: every entry.
 export AIF_AIRGAP_PROFILE=suse
@@ -327,6 +330,26 @@ the entire bundle directory across the transfer boundary, and run
 import rejects a profile mismatch. Use a unique `AIF_AIRGAP_BUNDLE` directory
 for each artifact-manifest revision and profile rather than mixing releases.
 
+### Updating an existing lab
+
+Run `./setup_airgap_lab.sh` in the checkout that holds the lab's OpenTofu
+state and generated credentials. A new release bundle triggers import,
+installation and verification while reusing the infrastructure. The default
+fresh bootstrap uses 2.15.3. A lab on 2.13.x upgrades through the staged
+2.14.3 chart. A lab on 2.14.x proceeds to 2.15.3. Helm reuses the installed
+release values and reads new defaults from each chart. The bundle includes the
+Rancher system images for the lab's imported Linux RKE2 clusters.
+
+For a manual update, export the new bundle on the seed, run `transfer-import`,
+and set `aif_version` and `aif_image_tag` to `2.4.0` in the existing lab
+variables. Run `install`, `discover-targets`, `suse-apps` and `verify` with
+the isolation rules active. The install phase mounts the lab CA in Rancher and
+checks the CRDs supplied by the mirrored AIF chart. The AIF partner catalog
+is disabled because its default Fleet source is public GitHub.
+
+The [November 2026 AWS validation](validation/rancher-aif-upgrade-2026-11-18.md)
+records the release transitions, application data checks and both UI install modes.
+
 To re-open egress, remove only the lab-owned nftables table:
 
 ```console
@@ -346,7 +369,7 @@ installation; the in-place runs are the fast regression path.
 | Mode | Operator chart | UI chart | Expected result |
 |---|---|---|---|
 | `combined` | Harbor via Helm CLI | Harbor via `InstallAIExtension` with secret refs and CA | both Ready |
-| `separate` | Harbor via Helm CLI, auto-extension disabled | Harbor via Helm CLI with `standalone=true` | both Ready |
+| `separate` | Harbor via Helm CLI, auto-extension disabled | `aif-ui-server` from Harbor with `standalone=true`, then `aif-ui` from that private server | both Ready |
 
 Record `helm list -A`, the `InstallAIExtension` status, pod image references,
 and Harbor access logs for each run.
@@ -645,7 +668,7 @@ layout.
 - `registries.yaml` redacted, RKE2 config flag and containerd logs;
 - nftables rules and counters from each isolated node;
 - Harbor project/audit logs and Gitea commit history;
-- the exact four AIF CRDs, AIF Settings, ClusterRepo conditions, HelmOps,
+- the installed AIF CRDs, AIF Settings, ClusterRepo conditions, HelmOps,
   Bundles, GitRepo status, AIWorkload status and relevant pod events;
 - browser network trace from a client VM in `airgap_clients`.
 

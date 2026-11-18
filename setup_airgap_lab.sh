@@ -6,7 +6,7 @@ lab_dir="${project_dir}/airgap-lab"
 terraform_dir="${project_dir}/roles/vm/terraform"
 base_vars="${AIF_AIRGAP_BASE_VARS:-${project_dir}/extra_vars.yml}"
 workspace="${AIF_AIRGAP_TOFU_WORKSPACE:-suseai-882-airgap}"
-source_dir="${AIF_SOURCE_DIR:-$(cd "${project_dir}/.." && pwd)/aif}"
+source_dir="${AIF_SOURCE_DIR:-}"
 profile="${AIF_AIRGAP_PROFILE:-suse}"
 
 case "${profile}" in
@@ -74,7 +74,13 @@ lab_vars="$(yq -r '.labVars' "${metadata}")"
 aif_commit="$(yq -r '.sourceCommit' "${metadata}")"
 topology_key="$("${lab_dir}/scripts/topology-key.sh" "${stack_vars}")"
 gpu_enabled="$(yq -r '.enable_gpu_operator' "${stack_vars}")"
-short_commit="${aif_commit:0:12}"
+aif_version="$(yq -er '.aifVersion' "${metadata}")"
+artifact_id="release-${aif_version}"
+manifest="${lab_dir}/artifacts.yml"
+if [[ -n "${aif_commit}" ]]; then
+  artifact_id="${aif_commit:0:12}"
+  manifest="${lab_dir}/generated/artifacts-aif-source.yml"
+fi
 install_mode="$(yq -r '.aif_install_mode' "${lab_vars}")"
 ca_mode="$(yq -r '.aif_registry_ca_mode' "${lab_vars}")"
 gitea_tls_enabled="$(yq -r '.gitea_tls_enabled' "${lab_vars}")"
@@ -83,10 +89,9 @@ if [[ "${gitea_tls_enabled}" == true ]]; then
 else
   git_transport=http
 fi
-manifest="${lab_dir}/generated/artifacts-aif-source.yml"
 artifact_set_sha256="$(sha256sum "${lab_dir}/artifacts.yml" | awk '{print $1}')"
 artifact_revision="${artifact_set_sha256:0:12}"
-bundle="${AIF_AIRGAP_BUNDLE:-${lab_dir}/bundles/aif-${short_commit}-${profile}-${artifact_revision}}"
+bundle="${AIF_AIRGAP_BUNDLE:-${lab_dir}/bundles/aif-${artifact_id}-${profile}-${artifact_revision}}"
 bundle_local_sources_match() {
   local candidate=$1 index count source expected actual
   count="$(yq -r '.spec.images | length' "${manifest}")"
@@ -98,9 +103,9 @@ bundle_local_sources_match() {
     [[ -n "${expected}" && "${expected}" == "${actual}" ]] || return 1
   done
 }
-if [[ -z "${AIF_AIRGAP_BUNDLE:-}" && ! -d "${bundle}" ]]; then
+if [[ -n "${aif_commit}" && -z "${AIF_AIRGAP_BUNDLE:-}" && ! -d "${bundle}" ]]; then
   shopt -s nullglob
-  for candidate in "${lab_dir}/bundles/aif-${short_commit}"*; do
+  for candidate in "${lab_dir}/bundles/aif-${artifact_id}"*; do
     [[ -f "${candidate}/METADATA" && -f "${candidate}/ARTIFACTS.yaml" ]] || continue
     candidate_profile="$(awk -F= '$1 == "profile" {print $2}' "${candidate}/METADATA")"
     candidate_commit="$(yq -r '.metadata.annotations."airgap.ai-factory.suse.com/source-commit" // ""' "${candidate}/ARTIFACTS.yaml")"
@@ -120,10 +125,11 @@ if [[ -z "${AIF_AIRGAP_BUNDLE:-}" && ! -d "${bundle}" ]]; then
   shopt -u nullglob
 fi
 state_root="${lab_dir}/generated/state/${workspace}"
-run_state="${state_root}/runs/${short_commit}-${profile}-${artifact_revision}"
+run_state="${state_root}/runs/${artifact_id}-${profile}-${artifact_revision}"
 qualification_key="${install_mode}-${ca_mode}-git-${git_transport}"
 qualification_state="${run_state}/qualifications/${qualification_key}"
-active_qualification_file="${run_state}/active-qualification"
+active_qualification_file="${state_root}/active-qualification"
+requested_qualification="${artifact_id}-${profile}-${artifact_revision}/${qualification_key}"
 services_git_transport_file="${state_root}/services-git-transport"
 mkdir -p "${state_root}" "${run_state}" "${qualification_state}"
 chmod 700 "${state_root}" "${state_root}/runs" "${run_state}" \
@@ -160,7 +166,7 @@ select_workspace
 
 if [[ "${mode}" == status ]]; then
   printf 'OpenTofu workspace: %s\n' "${workspace}"
-  printf 'Source commit: %s\n' "${short_commit}"
+  printf 'AIF artifacts: %s\n' "${artifact_id}"
   printf 'Requested AIF install mode: %s\n' "${install_mode}"
   printf 'Requested registry CA mode: %s\n' "${ca_mode}"
   printf 'Requested Git transport: %s\n' "${git_transport}"
@@ -209,8 +215,9 @@ active_qualification=""
 if [[ -f "${active_qualification_file}" ]]; then
   active_qualification="$(<"${active_qualification_file}")"
 fi
-if [[ "${active_qualification}" != "${qualification_key}" ]]; then
+if [[ "${active_qualification}" != "${requested_qualification}" ]]; then
   find "${qualification_state}" -type f -name '*.complete' -delete
+  rm -f "${active_qualification_file}"
   if [[ -n "${active_qualification}" ]]; then
     printf '[mode] Requalifying transition from %s to %s.\n' \
       "${active_qualification}" "${qualification_key}"
@@ -261,9 +268,11 @@ fi
 run_step "${run_state}/collections.complete" "Install Ansible collections" \
   ansible-galaxy collection install -r "${lab_dir}/requirements.yml"
 
-run_step "${run_state}/source-build.complete" "Build exact AIF source artifacts" \
-  env AIF_SOURCE_DIR="${source_dir}" AIF_SOURCE_MANIFEST="${manifest}" \
-    "${lab_dir}/run.sh" build-aif-source
+if [[ -n "${source_dir}" ]]; then
+  run_step "${run_state}/source-build.complete" "Build exact AIF source artifacts" \
+    env AIF_SOURCE_DIR="${source_dir}" AIF_SOURCE_MANIFEST="${manifest}" \
+      "${lab_dir}/run.sh" build-aif-source
+fi
 
 if [[ "${profile}" == "chatbot" || "${profile}" == "vendor" || "${profile}" == "all" ]]; then
   run_step "${run_state}/chatbot-container-closure.complete" \
@@ -274,6 +283,12 @@ fi
 
 if [[ "${profile}" != "core" ]]; then
   "${lab_dir}/scripts/check-suse-container-closure.sh" --manifest "${manifest}" --profile "${profile}"
+fi
+
+if [[ -f "${run_state}/bundle-export.complete" && ! -f "${run_state}/bundle-import.complete" ]] &&
+   { [[ ! -s "${bundle}/SHA256SUMS" ]] || ! cmp --silent "${manifest}" "${bundle}/ARTIFACTS.yaml"; }; then
+  printf '[bundle] Re-exporting the selected media before transfer.\n'
+  rm -f "${run_state}/bundle-export.complete"
 fi
 
 run_step "${run_state}/bundle-export.complete" "Export the checksummed ${profile} media bundle" \
@@ -332,11 +347,11 @@ run_step "${state_root}/isolate.complete" "Close public host and pod egress on A
   env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
     "${lab_dir}/run.sh" isolate
 
-run_step "${qualification_state}/install.complete" "Install PR-source AIF from Harbor (${qualification_key})" \
+run_step "${qualification_state}/install.complete" "Reconcile Rancher and AIF from Harbor (${qualification_key})" \
   env AIF_AIRGAP_BUNDLE="${bundle}" AIF_AIRGAP_PROFILE="${profile}" \
     "${lab_dir}/run.sh" install
 
-printf '%s\n' "${qualification_key}" > "${active_qualification_file}.tmp"
+printf '%s\n' "${requested_qualification}" > "${active_qualification_file}.tmp"
 chmod 600 "${active_qualification_file}.tmp"
 mv "${active_qualification_file}.tmp" "${active_qualification_file}"
 

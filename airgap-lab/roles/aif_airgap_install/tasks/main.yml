@@ -239,22 +239,6 @@
   no_log: true
   changed_when: true
 
-- name: Log Helm into gated Harbor without exposing the password
-  ansible.builtin.shell: |
-    set -euo pipefail
-    printf '%s' "${HARBOR_PASSWORD}" \
-      | helm registry login "${HARBOR_HOSTNAME}" \
-          --ca-file /var/lib/aif-airgap-lab-ca.crt \
-          --username "${HARBOR_USERNAME}" --password-stdin
-  args:
-    executable: /bin/bash
-  environment:
-    HARBOR_HOSTNAME: "{{ harbor_hostname }}"
-    HARBOR_USERNAME: "{{ harbor_registry_username }}"
-    HARBOR_PASSWORD: "{{ harbor_registry_password }}"
-  no_log: true
-  changed_when: true
-
 - name: Verify both AIF charts are present in Harbor
   ansible.builtin.command:
     cmd: >-
@@ -274,28 +258,26 @@
     group: root
     mode: "0600"
 
-- name: Remove a standalone UI release before a combined-mode qualification
-  when: aif_install_mode == 'combined'
-  block:
-    - name: Check for the standalone UI Helm release
-      ansible.builtin.command:
-        cmd: >-
-          helm status {{ aif_ui_release_name }}
-          --namespace cattle-ui-plugin-system
-          --kubeconfig /etc/rancher/rke2/rke2.yaml
-      register: standalone_ui_status
-      failed_when: false
-      changed_when: false
-
-    - name: Uninstall the standalone UI Helm release
-      ansible.builtin.command:
-        cmd: >-
-          helm uninstall {{ aif_ui_release_name }}
-          --namespace cattle-ui-plugin-system
-          --wait --timeout 5m
-          --kubeconfig /etc/rancher/rke2/rke2.yaml
-      when: standalone_ui_status.rc == 0
-      changed_when: true
+- name: Retire the standalone UI releases when their ownership changes
+  ansible.builtin.shell: |
+    set -euo pipefail
+    ui={{ aif_ui_release_name | quote }}
+    mode={{ aif_install_mode | quote }}
+    releases=$(helm list -n cattle-ui-plugin-system --all --short)
+    for server in "${ui}" "${ui}-server"; do
+      if [[ "${mode}" == separate && "${server}" == {{ aif_ui_server_release | quote }} ]]; then continue; fi
+      grep -Fxq "${server}" <<<"${releases}" || continue
+      values=$(helm get values "${server}" -n cattle-ui-plugin-system -o json)
+      jq -e '.standalone == true' <<<"${values}" >/dev/null || continue
+      if [[ "${server}" != "${ui}" ]]; then
+        helm uninstall "${ui}" -n cattle-ui-plugin-system --ignore-not-found --wait --timeout 5m
+      fi
+      helm uninstall "${server}" -n cattle-ui-plugin-system --wait --timeout 5m
+    done
+  args:
+    executable: /bin/bash
+  register: retired_standalone_ui
+  changed_when: "'uninstalled' in retired_standalone_ui.stdout"
 
 - name: Install or upgrade the AIF operator from Harbor
   ansible.builtin.command:
@@ -321,20 +303,13 @@
       --kubeconfig /etc/rancher/rke2/rke2.yaml
   changed_when: false
 
-- name: Require a fresh installation with exactly four AIF CRDs
+- name: Require every CRD shipped by the mirrored operator chart to be established
   ansible.builtin.shell: |
     set -euo pipefail
-    kubectl=/var/lib/rancher/rke2/bin/kubectl
-    kubeconfig=/etc/rancher/rke2/rke2.yaml
-    expected='["aiworkloads.ai-factory.suse.com","blueprints.ai-factory.suse.com","installaiextensions.ai-factory.suse.com","settings.ai-factory.suse.com"]'
-    actual=$("${kubectl}" get customresourcedefinitions.apiextensions.k8s.io \
-      -o json --kubeconfig "${kubeconfig}" \
-      | jq -c '[.items[].metadata.name | select(endswith(".ai-factory.suse.com"))] | sort')
-    if [[ "${actual}" != "${expected}" ]]; then
-      printf 'unexpected AIF CRD set; use a fresh lab after replacing a prototype that installed additional CRDs\n' >&2
-      printf 'expected=%s\nactual=%s\n' "${expected}" "${actual}" >&2
-      exit 1
-    fi
+    helm show crds {{ ('oci://' ~ harbor_hostname ~ '/' ~ aif_chart_project ~ '/aif-operator') | quote }} \
+      --version {{ aif_version | quote }} --ca-file /var/lib/aif-airgap-lab-ca.crt \
+      | /var/lib/rancher/rke2/bin/kubectl wait --for=condition=Established --timeout=2m -f - \
+          --kubeconfig /etc/rancher/rke2/rke2.yaml
   args:
     executable: /bin/bash
   changed_when: false
@@ -363,6 +338,13 @@
 - name: Install the UI separately from Harbor
   when: aif_install_mode == 'separate'
   block:
+    - name: Wait for the previous operator-managed extension to finish cleanup
+      ansible.builtin.command:
+        cmd: >-
+          kubectl -n {{ aif_namespace }} wait --for=delete
+          installaiextension/{{ aif_ui_release_name }} --timeout=5m
+      changed_when: false
+
     - name: Render standalone UI values
       ansible.builtin.template:
         src: aif-ui-values.yaml.j2
@@ -374,11 +356,11 @@
     - name: Install or upgrade the standalone UI chart
       ansible.builtin.command:
         cmd: >-
-          helm upgrade --install {{ aif_ui_release_name }}
+          helm upgrade --install {{ aif_ui_server_release }}
           oci://{{ harbor_hostname }}/{{ aif_chart_project }}/aif-ui
           --namespace cattle-ui-plugin-system
           --version {{ aif_version }}
-          --values /var/lib/aif-airgap-ui-values.yaml
+          --values /var/lib/aif-airgap-ui-values.yaml --take-ownership
           --atomic --timeout 10m
           --ca-file /var/lib/aif-airgap-lab-ca.crt
           --kubeconfig /etc/rancher/rke2/rke2.yaml
@@ -387,12 +369,29 @@
       delay: 15
       until: aif_ui_install.rc == 0
 
+    - name: Install the extension published by the standalone catalog server
+      when: aif_ui_server_release != aif_ui_release_name
+      ansible.builtin.shell: |
+        set -euo pipefail
+        address=$(kubectl -n cattle-ui-plugin-system get service {{ (aif_ui_release_name ~ '-svc') | quote }} \
+          -o jsonpath='{.spec.clusterIP}')
+        helm upgrade --install {{ aif_ui_release_name | quote }} {{ aif_ui_release_name | quote }} \
+          --namespace cattle-ui-plugin-system --repo "http://${address}:8080" \
+          --version {{ aif_version | quote }} --atomic --timeout 5m \
+          --labels {{ ('catalog.cattle.io/cluster-repo-name=' ~ aif_ui_server_release) | quote }}
+      args:
+        executable: /bin/bash
+      register: standalone_extension
+      retries: 5
+      delay: 5
+      until: standalone_extension.rc == 0
+
 - name: Wait for the expected UI image to roll out
   ansible.builtin.shell: |
     set -euo pipefail
     kubectl=/var/lib/rancher/rke2/bin/kubectl
     kubeconfig=/etc/rancher/rke2/rke2.yaml
-    deployment={{ (aif_ui_release_name ~ ('-server' if aif_install_mode == 'combined' else '')) | quote }}
+    deployment={{ aif_ui_server_release | quote }}
     expected_image={{ (harbor_hostname ~ '/' ~ aif_image_project ~ '/ghcr.io/suse/aif-ui:' ~ aif_image_tag) | quote }}
     deadline=$((SECONDS + {{ airgap_timeout_seconds | int }}))
     while (( SECONDS < deadline )); do
@@ -413,7 +412,8 @@
     executable: /bin/bash
   changed_when: false
 
-- name: Refresh Rancher's UI cache after the new bundle is serving
+- name: Refresh Rancher's UI cache for a commit-qualified build of the same extension version
+  when: aif_image_tag != aif_version
   ansible.builtin.shell: |
     set -euo pipefail
     kubectl=/var/lib/rancher/rke2/bin/kubectl
@@ -449,7 +449,8 @@
         -o json --kubeconfig "${kubeconfig}" 2>/dev/null || true)
       ready=$(jq -r '.status.ready // false' <<<"${plugin}")
       cache_state=$(jq -r '.status.cacheState // ""' <<<"${plugin}")
-      if [[ "${ready}" == true && "${cache_state}" == cached ]]; then
+      if [[ "${ready}" == true && "${cache_state}" == cached ]] \
+         && jq -e --arg version {{ aif_version | quote }} '.spec.plugin.version == $version' <<<"${plugin}" >/dev/null; then
         exit 0
       fi
       sleep 5
@@ -460,6 +461,37 @@
   args:
     executable: /bin/bash
   changed_when: false
+
+- name: Inspect the paths AIF asks Fleet to sync
+  ansible.builtin.uri:
+    url: "{{ gitea_url }}/api/v1/repos/{{ gitea_admin_username }}/{{ gitea_repository }}/contents/{{ item }}?ref={{ airgap_fleet_branch | urlencode }}"
+    url_username: "{{ gitea_admin_username }}"
+    url_password: "{{ gitea_admin_password }}"
+    force_basic_auth: true
+    ca_path: "{{ '/var/lib/aif-airgap-lab-ca.crt' if (gitea_tls_enabled | bool) else omit }}"
+    status_code: [200, 404]
+  loop: [blueprints, workloads]
+  register: fleet_source_paths
+  no_log: true
+
+- name: Initialize missing Fleet paths in the private repository
+  ansible.builtin.uri:
+    url: "{{ gitea_url }}/api/v1/repos/{{ gitea_admin_username }}/{{ gitea_repository }}/contents/{{ item.item }}/fleet.yaml"
+    method: POST
+    url_username: "{{ gitea_admin_username }}"
+    url_password: "{{ gitea_admin_password }}"
+    force_basic_auth: true
+    ca_path: "{{ '/var/lib/aif-airgap-lab-ca.crt' if (gitea_tls_enabled | bool) else omit }}"
+    body_format: json
+    body:
+      branch: "{{ airgap_fleet_branch }}"
+      message: "Initialize {{ item.item }} for AI Factory"
+      content: "{{ '{}\n' | b64encode }}"
+    status_code: 201
+  loop: "{{ fleet_source_paths.results }}"
+  when: item.status == 404
+  changed_when: true
+  no_log: true
 
 - name: Render the Settings merge patch
   ansible.builtin.template:

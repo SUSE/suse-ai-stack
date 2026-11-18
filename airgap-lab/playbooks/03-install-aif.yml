@@ -1,5 +1,5 @@
 ---
-- name: Install and configure SUSE AI Factory entirely from Harbor
+- name: Upgrade Rancher and install SUSE AI Factory from Harbor
   hosts: aif_management
   gather_facts: true
   become: true
@@ -8,5 +8,22 @@
     KUBECONFIG: /etc/rancher/rke2/rke2.yaml
   vars:
     airgap_ca_source: "{{ playbook_dir }}/../generated/pki/ca.crt"
+  pre_tasks:
+    - name: Log Helm into the private chart registry
+      ansible.builtin.command:
+        argv:
+          - helm
+          - registry
+          - login
+          - "{{ harbor_hostname }}"
+          - --ca-file
+          - /etc/pki/trust/anchors/aif-airgap-lab-ca.crt
+          - --username
+          - "{{ harbor_registry_username }}"
+          - --password-stdin
+        stdin: "{{ harbor_registry_password }}"
+      no_log: true
+      changed_when: false
   roles:
+    - role: rancher_lab_ca
     - role: aif_airgap_install

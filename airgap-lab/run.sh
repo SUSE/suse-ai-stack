@@ -32,7 +32,7 @@ usage() {
     "  reconnect           Reopen lab egress and registry pulls for topology changes" \
     "  configure           Trust CA, configure RKE2 mirrors, and disable upstream fallback" \
     "  gpu-prepare         Check configured GPUs and inventory their runtime images" \
-    "  install             Install/configure AIF (combined or separate UI mode)" \
+    "  install             Upgrade Rancher and install or upgrade AIF from private Harbor" \
     "  isolate             Enable reversible host and pod egress rejection" \
     "  discover-targets    Discover the downstream Rancher cluster ID" \
     "  clean-catalog       Retire legacy synthetic lab entries from the active catalog" \

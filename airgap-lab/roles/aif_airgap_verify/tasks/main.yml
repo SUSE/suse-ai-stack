@@ -1,4 +1,16 @@
 ---
+- name: Verify the upgraded Rancher deployment serves the mirrored release
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl -n {{ rancher_namespace | quote }} rollout status deployment/{{ rancher_release_name | quote }} --timeout=5m
+    kubectl -n {{ rancher_namespace | quote }} get deployment {{ rancher_release_name | quote }} -o json \
+      | jq -er --arg image {{ (harbor_hostname ~ '/' ~ aif_image_project ~ '/docker.io/rancher/rancher:v' ~ (rancher_upgrade_versions | last)) | quote }} \
+          '.spec.template.spec.containers[] | select(.image == $image) | .image'
+    test "$(kubectl get settings.management.cattle.io server-version -o jsonpath='{.value}')" = {{ ('v' ~ (rancher_upgrade_versions | last)) | quote }}
+  args:
+    executable: /bin/bash
+  changed_when: false
+
 - name: Wait for the AI Factory operator deployment
   ansible.builtin.command:
     cmd: >-
@@ -21,7 +33,7 @@
   ansible.builtin.command:
     cmd: >-
       /var/lib/rancher/rke2/bin/kubectl -n cattle-ui-plugin-system rollout status
-      deployment/{{ aif_ui_release_name }} --timeout=5m
+      deployment/{{ aif_ui_server_release }} --timeout=5m
       --kubeconfig /etc/rancher/rke2/rke2.yaml
   when: aif_install_mode == 'separate'
   changed_when: false
@@ -29,7 +41,7 @@
 - name: Confirm AIF deployments use direct Harbor image references
   ansible.builtin.shell: |
     set -euo pipefail
-    ui_deployment={{ (aif_ui_release_name ~ ('-server' if aif_install_mode == 'combined' else '')) | quote }}
+    ui_deployment={{ aif_ui_server_release | quote }}
     expected_operator={{ (harbor_hostname ~ '/' ~ aif_image_project ~ '/ghcr.io/suse/aif-operator:' ~ aif_image_tag) | quote }}
     expected_ui={{ (harbor_hostname ~ '/' ~ aif_image_project ~ '/ghcr.io/suse/aif-ui:' ~ aif_image_tag) | quote }}
     operator_image=$(/var/lib/rancher/rke2/bin/kubectl -n {{ aif_namespace | quote }} \
@@ -252,10 +264,8 @@
       printf '%s\n' {{ aif_deployment_images.stdout | quote }}
       printf 'pod_probe=%s\n' {{ pod_probe_log.stdout | trim | quote }}
       helm list --all-namespaces --kubeconfig "${kubeconfig}"
-      "${kubectl}" get customresourcedefinitions.apiextensions.k8s.io \
-        aiworkloads.ai-factory.suse.com blueprints.ai-factory.suse.com \
-        installaiextensions.ai-factory.suse.com settings.ai-factory.suse.com \
-        -o wide --kubeconfig "${kubeconfig}"
+      "${kubectl}" get customresourcedefinitions.apiextensions.k8s.io -o name --kubeconfig "${kubeconfig}" \
+        | grep -F '.ai-factory.suse.com'
       "${kubectl}" get settings -A -o yaml --kubeconfig "${kubeconfig}"
       {% if airgap_catalog_repos | length > 0 %}
       "${kubectl}" get clusterrepo {{ airgap_catalog_repos | map('quote') | join(' ') }} -o yaml --kubeconfig "${kubeconfig}"

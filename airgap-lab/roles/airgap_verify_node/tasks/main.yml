@@ -12,6 +12,23 @@
     cmd: systemctl is-active aif-airgap-isolation.service
   changed_when: false
 
+- name: Wait for the imported cluster agent to run the upgraded Rancher image from Harbor
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl -n {{ rancher_namespace | quote }} get deployment cattle-cluster-agent -o json |
+      jq -e --arg image {{ (harbor_hostname ~ '/' ~ aif_image_project ~ '/docker.io/rancher/rancher-agent:v' ~ (rancher_upgrade_versions | last)) | quote }} '
+        any(.spec.template.spec.containers[]; .image == $image) and
+        .status.observedGeneration == .metadata.generation and
+        .status.updatedReplicas == .spec.replicas and .status.availableReplicas == .spec.replicas'
+  args:
+    executable: /bin/bash
+  register: rancher_downstream_agent
+  until: rancher_downstream_agent.rc == 0
+  retries: 36
+  delay: 5
+  when: inventory_hostname in groups.get('aif_workloads', [])
+  changed_when: false
+
 - name: Read default storage annotations for stateful AI workloads
   ansible.builtin.command:
     argv:

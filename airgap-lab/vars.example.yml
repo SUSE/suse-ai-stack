@@ -52,7 +52,7 @@ nvidia:
   gpu_operator_deploy: false
 
 # AIF installation -----------------------------------------------------------
-aif_version: "2.2.0-dev.1"
+aif_version: "2.4.0"
 # Published artifacts normally use the chart version. Source qualification
 # overrides this with <version>-<12-character-Git-commit> so a new commit
 # always changes the pod template and can never reuse a mutable cached image.
@@ -60,6 +60,10 @@ aif_image_tag: "{{ aif_version }}"
 aif_namespace: "aif-operator"
 aif_release_name: "aif-operator"
 aif_ui_release_name: "aif-ui"
+# Since 2.3.1 the standalone server publishes the extension as a second chart.
+aif_ui_server_release: >-
+  {{ aif_ui_release_name ~ '-server' if aif_install_mode == 'combined' or
+     aif_version is version('2.3.1-rc.1', '>=', version_type='semver') else aif_ui_release_name }}
 aif_install_mode: "combined"  # combined | separate
 # "settings" is the qualification default and requires native
 # caBundleSecretRef support (for example AIF PR #200). "workaround" patches
@@ -82,8 +86,11 @@ nvidia_chart_project: "aif-nvidia"
 rancher_trust_lab_ca: true
 rancher_release_name: "rancher"
 rancher_namespace: "cattle-system"
-rancher_chart_repo_name: "rancher-stable"
-rancher_chart_repo_url: "https://releases.rancher.com/server-charts/stable"
+# The bundle lists the supported minor-version hops in ascending order.
+rancher_upgrade_versions: >-
+  {{ (lookup('ansible.builtin.file', playbook_dir ~ '/../artifacts.yml') | from_yaml).spec.charts
+     | selectattr('chart', 'defined') | selectattr('chart', 'equalto', 'rancher')
+     | map(attribute='version') | list }}
 rancher_url: "https://suse-rancher.demo"
 rancher_admin_username: "admin"
 rancher_bootstrap_password: "REPLACE_WITH_THE_RANCHER_BOOTSTRAP_PASSWORD"

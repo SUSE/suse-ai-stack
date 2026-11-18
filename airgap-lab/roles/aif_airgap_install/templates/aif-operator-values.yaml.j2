@@ -2,6 +2,12 @@ global:
   imagePullSecrets:
     - name: harbor-pull
 
+  kubectl:
+    image:
+      registry: {{ harbor_hostname | quote }}
+      repository: "{{ aif_image_project }}/registry.suse.com/suse/kubectl"
+      tag: "1.35"
+
 rancherCatalog:
   tokenSecret:
     name: {{ rancher_catalog_token_secret | quote }}
@@ -70,4 +76,7 @@ appCatalog:
   remoteUrl: ""
 
 defaultBlueprints:
+  enabled: false
+
+partnerBlueprints:
   enabled: false
