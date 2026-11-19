@@ -1,0 +1,16 @@
+---
+- name: Restart RKE2 server
+  ansible.builtin.systemd_service:
+    name: rke2-server
+    state: restarted
+  when:
+    - ansible_facts.services['rke2-server.service'] is defined
+    - ansible_facts.services['rke2-server.service'].state == 'running'
+
+- name: Restart RKE2 agent
+  ansible.builtin.systemd_service:
+    name: rke2-agent
+    state: restarted
+  when:
+    - ansible_facts.services['rke2-agent.service'] is defined
+    - ansible_facts.services['rke2-agent.service'].state == 'running'

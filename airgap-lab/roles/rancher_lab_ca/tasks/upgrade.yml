@@ -1,0 +1,48 @@
+---
+- name: Upgrade Rancher to {{ rancher_chart_version }} from Harbor
+  ansible.builtin.command:
+    argv:
+      - helm
+      - upgrade
+      - "{{ rancher_release_name }}"
+      - "oci://{{ harbor_hostname }}/{{ aif_chart_project }}/rancher"
+      - --namespace
+      - "{{ rancher_namespace }}"
+      - --version
+      - "{{ rancher_chart_version }}"
+      - --ca-file
+      - /etc/pki/trust/anchors/aif-airgap-lab-ca.crt
+      - --reset-then-reuse-values
+      - --set
+      - "additionalTrustedCAs={{ rancher_trust_lab_ca | bool | lower }},useBundledSystemChart=true"
+      - --set-string
+      - "systemDefaultRegistry={{ private_registry }}"
+      - --atomic
+      - --timeout
+      - 15m
+  when: >-
+    installed_rancher_chart.stdout != rancher_chart_version
+    or (rancher_chart_version == rancher_upgrade_versions | last and
+        (current_options.systemDefaultRegistry != private_registry
+         or not current_options.useBundledSystemChart
+         or current_options.additionalTrustedCAs != (rancher_trust_lab_ca | bool)))
+
+- name: Wait for Rancher, Fleet and the webhook to finish this version step
+  ansible.builtin.shell: |
+    set -euo pipefail
+    settings=$(kubectl get settings.management.cattle.io server-version fleet-version rancher-webhook-version -o json)
+    helm list --all-namespaces --output json | jq -e \
+      --arg server {{ ('v' ~ rancher_chart_version) | quote }} --argjson settings "${settings}" '
+        ($settings.items | map({key: .metadata.name, value: .value}) | from_entries) as $versions |
+        $versions["server-version"] == $server and
+        any(.[]; .namespace == "cattle-fleet-system" and .name == "fleet" and
+                 .status == "deployed" and .chart == ("fleet-" + $versions["fleet-version"])) and
+        any(.[]; .namespace == "cattle-system" and .name == "rancher-webhook" and
+                 .status == "deployed" and .chart == ("rancher-webhook-" + $versions["rancher-webhook-version"]))'
+  args:
+    executable: /bin/bash
+  register: rancher_system_charts
+  retries: 60
+  delay: 10
+  until: rancher_system_charts.rc == 0
+  changed_when: false

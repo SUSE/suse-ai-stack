@@ -87,8 +87,8 @@
 
         # Nvidia
         nvidia:
-          driver_install: {{ (false if (use_nvidia_driver_installer | default(false)) else (enable_nvidia_driver_pkg_install | default(true))) | lower }}
-          gpu_operator_deploy: {{ (false if (use_nvidia_driver_installer | default(false)) else (enable_gpu_operator | default(false))) | lower }}
+          driver_install: {{ (false if (use_nvidia_driver_installer | default(false)) else (enable_nvidia_driver_pkg_install | default(true) and (not (airgap_lab_node_config | default(false)) or (suse_ai_cluster.num_worker_nodes_gpu | default(0) | int > 0)))) | lower }}
+          gpu_operator_deploy: {{ (false if (use_nvidia_driver_installer | default(false)) else (enable_gpu_operator | default(false) and (not (airgap_lab_node_config | default(false)) or (suse_ai_cluster.num_worker_nodes_gpu | default(0) | int > 0)))) | lower }}
           gpu_operator_version: {{  gpu_operator_chart_version | default('25.10.1')}}
 
         # RKE2

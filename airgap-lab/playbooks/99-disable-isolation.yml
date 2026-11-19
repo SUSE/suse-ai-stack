@@ -1,0 +1,31 @@
+---
+- name: Re-open public egress by removing only the lab-owned rules
+  hosts: airgap_isolated
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Stop and disable the lab isolation service
+      ansible.builtin.systemd_service:
+        name: aif-airgap-isolation.service
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Remove a stale lab table when the service was not active
+      ansible.builtin.command:
+        cmd: nft delete table inet aif_airgap_lab
+      register: delete_lab_table
+      changed_when: delete_lab_table.rc == 0
+      failed_when: false
+
+    - name: Remove the lab service and ruleset files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/aif-airgap-isolation.service
+        - /etc/nftables.d/aif-airgap-lab.nft
+
+    - name: Reload systemd after removing the lab service
+      ansible.builtin.systemd_service:
+        daemon_reload: true

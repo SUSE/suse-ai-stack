@@ -1,0 +1,18 @@
+---
+- name: Pull mirrored GPU runtime images on each GPU worker
+  ansible.builtin.command:
+    argv:
+      - /var/lib/rancher/rke2/bin/crictl
+      - --runtime-endpoint
+      - unix:///run/k3s/containerd/containerd.sock
+      - pull
+      - --pull-timeout
+      - 15m
+      - "{{ item.1.source }}"
+  delegate_to: "{{ item.0 }}"
+  loop: >-
+    {{ airgap_gpu_nodes | product(
+       (lookup('ansible.builtin.file', playbook_dir ~ '/../generated/artifacts-gpu.yml') | from_yaml).spec.images) | list }}
+  loop_control:
+    label: "{{ item.0 }}: {{ item.1.source }}"
+  changed_when: false
