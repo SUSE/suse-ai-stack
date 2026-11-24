@@ -26,7 +26,7 @@ servingEngineSpec:
     requestMemory: "8Gi"
     requestGPU: {{ 0 if (enable_dra | default(false)) else 1 }}
     vllmConfig:
-      extraArgs: ["--disable-log-requests", "--gpu-memory-utilization", "0.8"]
+      extraArgs: ["--gpu-memory-utilization", "0.8"]
 {% else %}
     requestCPU: 2
     requestMemory: "8Gi"
