@@ -1,0 +1,18 @@
+dcgm-exporter:
+{% if enable_virtual_gpus | default(true) %}
+  env:
+    - name: KUBERNETES_VIRTUAL_GPUS
+      value: "true"
+{% endif %}
+  extraConfigMapVolumes:
+    - name: dcgm-counters-volume
+      configMap:
+        name: {{ gpu_operator_dcgm_configmap_name }}
+  extraEnv:
+    - name: DCGM_EXPORTER_COLLECTORS
+      value: "/etc/dcgm-exporter/custom-counters.csv"
+  extraVolumeMounts:
+    - name: dcgm-counters-volume
+      mountPath: /etc/dcgm-exporter/custom-counters.csv
+      subPath: custom-counters.csv
+      readOnly: true
