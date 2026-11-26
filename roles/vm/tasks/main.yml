@@ -43,7 +43,10 @@
         port: 22
         delay: 10
         timeout: 180
-      loop: "{{ mgmt_cluster_nodes }}"
+      loop: >-
+        {{ mgmt_cluster_nodes
+           + (suse_ai_cluster_nodes | default([]))
+           + (airgap_services_nodes | default([])) }}
   when: vm_action is not defined or vm_action == "create"
 
 - name: Destroy VM

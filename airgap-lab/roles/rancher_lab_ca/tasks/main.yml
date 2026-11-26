@@ -1,0 +1,53 @@
+---
+- name: Read the installed Rancher chart version
+  ansible.builtin.shell: |
+    set -euo pipefail
+    helm list --namespace {{ rancher_namespace | quote }} --output json \
+      | jq -er --arg name {{ rancher_release_name | quote }} \
+          '.[] | select(.name == $name) | .chart | sub("^rancher-"; "")'
+  args:
+    executable: /bin/bash
+  register: installed_rancher_chart
+  changed_when: false
+
+- name: Check the installed version against the mirrored Rancher upgrade path
+  ansible.builtin.assert:
+    that:
+      - installed_rancher_chart.stdout is version(rancher_upgrade_versions | last, '<=', version_type='semver')
+      - installed_rancher_chart.stdout.split('.')[0] == (rancher_upgrade_versions | first).split('.')[0]
+      - (installed_rancher_chart.stdout.split('.')[1] | int) >= ((rancher_upgrade_versions | first).split('.')[1] | int) - 1
+    fail_msg: >-
+      Installed Rancher {{ installed_rancher_chart.stdout }} is outside the
+      supported upgrade path for the staged charts {{ rancher_upgrade_versions | join(', ') }}.
+
+- name: Apply Rancher's additional trusted CA
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl -n {{ rancher_namespace | quote }} create secret generic tls-ca-additional \
+      --from-file=ca-additional.pem=/etc/pki/trust/anchors/aif-airgap-lab-ca.crt \
+      --dry-run=client -o yaml | kubectl apply -f -
+  args:
+    executable: /bin/bash
+  register: rancher_ca_secret_apply
+  changed_when: "'created' in rancher_ca_secret_apply.stdout or 'configured' in rancher_ca_secret_apply.stdout"
+  when: rancher_trust_lab_ca | bool
+
+- name: Read Rancher's current registry, chart source and CA options
+  ansible.builtin.shell: |
+    set -euo pipefail
+    helm get values {{ rancher_release_name | quote }} -n {{ rancher_namespace | quote }} -o json \
+      | jq -c '{additionalTrustedCAs, useBundledSystemChart, systemDefaultRegistry}'
+  args:
+    executable: /bin/bash
+  register: rancher_release_options
+  changed_when: false
+
+- name: Reconcile Rancher through each required mirrored minor version
+  ansible.builtin.include_tasks: upgrade.yml
+  vars:
+    private_registry: "{{ harbor_hostname }}/{{ aif_image_project }}/docker.io"
+    current_options: "{{ rancher_release_options.stdout | from_json }}"
+  loop: "{{ rancher_upgrade_versions }}"
+  loop_control:
+    loop_var: rancher_chart_version
+  when: installed_rancher_chart.stdout is version(rancher_chart_version, '<=', version_type='semver')

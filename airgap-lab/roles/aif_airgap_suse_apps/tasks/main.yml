@@ -1,0 +1,121 @@
+---
+- name: Validate the SUSE application test inputs
+  ansible.builtin.assert:
+    that:
+      - airgap_profile | default('suse') in ['suse', 'chatbot', 'vendor', 'all']
+      - suse_apps_strategy in ['FleetBundle', 'GitOps']
+      - suse_apps_target_clusters | length > 0
+      - suse_apps_target_clusters | unique | list | length == suse_apps_target_clusters | length
+      - suse_apps_namespace is regex('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+      - suse_apps_namespace | length <= 63
+      - suse_apps_timeout_seconds | int >= 60
+      - gitea_url is regex('^https://')
+      - >-
+        not (suse_apps_deploy | bool) or
+        suse_apps_target_clusters | difference(['local'] + ([downstream_cluster_id] if downstream_cluster_id is defined else [])) | length == 0
+      - >-
+        not (suse_apps_deploy | bool) or 'local' not in suse_apps_target_clusters or
+        groups['aif_management'] | intersect(groups['rke2_airgap_nodes']) | length > 0
+      - >-
+        not (suse_apps_deploy | bool) or suse_apps_target_clusters | difference(['local']) | length == 0 or
+        groups['aif_workloads'] | intersect(groups['rke2_airgap_nodes']) | length > 0
+    fail_msg: Select a SUSE application profile, HTTPS Gitea, and local/discovered targets with RKE2 inventory hosts for API verification.
+
+- name: Inspect the custom SUSE Blueprints in private Gitea
+  ansible.builtin.uri:
+    url: "{{ gitea_url }}/api/v1/repos/{{ gitea_admin_username }}/{{ gitea_repository }}/contents/blueprints/{{ item }}.yaml?ref={{ airgap_fleet_branch | urlencode }}"
+    method: GET
+    url_username: "{{ gitea_admin_username }}"
+    url_password: "{{ gitea_admin_password }}"
+    force_basic_auth: true
+    ca_path: /etc/pki/trust/anchors/aif-airgap-lab-ca.crt
+    status_code: [200, 404]
+  loop: "{{ suse_apps_blueprints }}"
+  register: suse_apps_existing_blueprints
+  no_log: true
+
+- name: Publish custom SUSE Blueprints through Fleet's private Git source
+  ansible.builtin.uri:
+    url: "{{ gitea_url }}/api/v1/repos/{{ gitea_admin_username }}/{{ gitea_repository }}/contents/blueprints/{{ item.item }}.yaml"
+    method: "{{ 'PUT' if item.status == 200 else 'POST' }}"
+    url_username: "{{ gitea_admin_username }}"
+    url_password: "{{ gitea_admin_password }}"
+    force_basic_auth: true
+    ca_path: /etc/pki/trust/anchors/aif-airgap-lab-ca.crt
+    body_format: json
+    body:
+      branch: "{{ airgap_fleet_branch }}"
+      message: "lab: publish {{ item.item }} Blueprint"
+      content: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../fixtures/blueprints/' ~ item.item ~ '.yaml') | b64encode }}"
+      sha: "{{ item.json.sha if item.status == 200 else omit }}"
+    status_code: [200, 201]
+  loop: "{{ suse_apps_existing_blueprints.results }}"
+  when: >-
+    item.status != 200 or (item.json.content | b64decode) !=
+    lookup('ansible.builtin.file', playbook_dir ~ '/../fixtures/blueprints/' ~ item.item ~ '.yaml')
+  no_log: true
+
+- name: Wait for Fleet to deliver the exact custom Blueprint versions
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl get blueprint {{ blueprint.metadata.name | quote }} -o json |
+      jq -e --argjson expected {{ blueprint.spec | to_json | quote }} '.spec == $expected' >/dev/null
+  args:
+    executable: /bin/bash
+  vars:
+    blueprint: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../fixtures/blueprints/' ~ item ~ '.yaml') | from_yaml }}"
+  loop: "{{ suse_apps_blueprints }}"
+  register: suse_apps_blueprint_ready
+  until: suse_apps_blueprint_ready.rc == 0
+  retries: "{{ (suse_apps_timeout_seconds | int / 5) | int }}"
+  delay: 5
+  changed_when: false
+
+- name: Create the SUSE test workload namespace
+  ansible.builtin.command:
+    argv: [kubectl, apply, -f, '-']
+    stdin: "{{ {'apiVersion': 'v1', 'kind': 'Namespace', 'metadata': {'name': suse_apps_namespace}} | to_json }}"
+  register: suse_apps_namespace_apply
+  changed_when: "'created' in suse_apps_namespace_apply.stdout or 'configured' in suse_apps_namespace_apply.stdout"
+  when: suse_apps_deploy | bool
+
+- name: Deploy the SUSE applications through AI Factory
+  ansible.builtin.command:
+    argv: [kubectl, apply, -f, '-']
+    stdin: >-
+      {{ {'apiVersion': 'ai-factory.suse.com/v1alpha1', 'kind': 'AIWorkload',
+          'metadata': {'name': item, 'namespace': suse_apps_namespace,
+                       'labels': {'airgap-lab.suse.com/profile': 'suse'}},
+          'spec': {'displayName': blueprint.spec.displayName,
+                   'source': {'sourceType': 'Blueprint', 'blueprint': {
+                     'name': blueprint.metadata.labels['ai-factory.suse.com/blueprint-name'],
+                     'version': blueprint.spec.version}},
+                   'targetNamespace': suse_apps_namespace,
+                   'targetClusters': suse_apps_target_clusters,
+                   'deployStrategy': suse_apps_strategy}} | to_json }}
+  vars:
+    blueprint: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../fixtures/blueprints/' ~ item ~ '.yaml') | from_yaml }}"
+  loop: "{{ suse_apps_blueprints }}"
+  register: suse_apps_workload_apply
+  changed_when: "'created' in suse_apps_workload_apply.stdout or 'configured' in suse_apps_workload_apply.stdout"
+  when: suse_apps_deploy | bool
+
+- name: Require both applications to be Running on every requested target
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl -n {{ suse_apps_namespace | quote }} get aiworkload {{ item | quote }} -o json |
+      jq -e --argjson expected {{ suse_apps_target_clusters | to_json | quote }} '
+        . as $workload |
+        ($workload.status.phase == "Running") and
+        ($expected | all(. as $cluster |
+          any($workload.status.clusterStatuses[]?; .clusterId == $cluster and .phase == "Running")))
+      ' >/dev/null
+  args:
+    executable: /bin/bash
+  loop: "{{ suse_apps_blueprints }}"
+  register: suse_apps_running
+  until: suse_apps_running.rc == 0
+  retries: "{{ (suse_apps_timeout_seconds | int / 5) | int }}"
+  delay: 5
+  changed_when: false
+  when: suse_apps_deploy | bool

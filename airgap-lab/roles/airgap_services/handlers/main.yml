@@ -1,0 +1,5 @@
+---
+- name: Refresh services CA trust
+  ansible.builtin.command:
+    cmd: update-ca-certificates
+  changed_when: true
